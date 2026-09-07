@@ -40,6 +40,9 @@ public static partial class QuickAddParser
     [GeneratedRegex(@"매주\s*((?:[월화수목금토일]|요일|[\s,·、])+)")]
     private static partial Regex WeeklyPattern();
 
+    // 아래 날짜·시간 패턴들은 모두 앞뒤로 낱말 경계를 요구한다.
+    // 그러지 않으면 "오전 11~12시 사이" 의 "12시", "2시간 작업" 의 "2시" 처럼
+    // 다른 낱말 속을 파고들어 제목에서 글자를 훔쳐간다.
     [GeneratedRegex(@"매일|평일|주말|매주")]
     private static partial Regex RoutineKeywordPattern();
 
@@ -53,25 +56,25 @@ public static partial class QuickAddParser
     [GeneratedRegex(@"(?:^|\s)([월화수목금토일]{2,})(?=\s)")]
     private static partial Regex MultiDayPattern();
 
-    [GeneratedRegex(@"오늘|내일|모레|글피|다음\s*주")]
+    [GeneratedRegex(@"(?:^|\s)(오늘|내일|모레|글피|다음\s*주)(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex RelativeDatePattern();
 
-    [GeneratedRegex(@"(\d{1,2})\s*월\s*(\d{1,2})\s*일")]
+    [GeneratedRegex(@"(?:^|\s)(\d{1,2})\s*월\s*(\d{1,2})\s*일(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex MonthDayPattern();
 
-    [GeneratedRegex(@"(?<!\d)(\d{1,2})\s*[/.]\s*(\d{1,2})(?!\d)")]
+    [GeneratedRegex(@"(?:^|\s)(\d{1,2})\s*[/.]\s*(\d{1,2})(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex SlashDatePattern();
 
-    [GeneratedRegex(@"([월화수목금토일])요일")]
+    [GeneratedRegex(@"(?:^|\s)([월화수목금토일])요일(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex WeekdayPattern();
 
-    [GeneratedRegex(@"(?<!\d)(\d{1,2})\s*일(?!\s*[에째차])")]
+    [GeneratedRegex(@"(?:^|\s)(\d{1,2})\s*일(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex DayOfMonthPattern();
 
-    [GeneratedRegex(@"(오전|아침|오후|저녁|밤)?\s*(\d{1,2})\s*시\s*(?:(\d{1,2})\s*분|(반))?")]
+    [GeneratedRegex(@"(?:^|\s)(오전|아침|오후|저녁|밤)?\s*(\d{1,2})\s*시\s*(?:(\d{1,2})\s*분|(반))?(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex KoreanTimePattern();
 
-    [GeneratedRegex(@"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)")]
+    [GeneratedRegex(@"(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)(?:에|까지|부터|경|쯤)?(?=$|\s|[,.·、])")]
     private static partial Regex ClockTimePattern();
 
     [GeneratedRegex(@"\s{2,}")]
@@ -184,7 +187,7 @@ public static partial class QuickAddParser
 
         var result = Consume(text, RelativeDatePattern(), m =>
         {
-            found = m.Value.Replace(" ", "") switch
+            found = m.Groups[1].Value.Replace(" ", "") switch
             {
                 "오늘" => today,
                 "내일" => today.AddDays(1),

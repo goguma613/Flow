@@ -176,7 +176,7 @@
     <Setter Property="Background" Value="{StaticResource FadeFromAccentBrush}" />
     <Setter Property="BorderThickness" Value="1.6" />
     <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
-    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Top" />
     <Setter Property="Transitions">
       <Transitions>
         <BrushTransition Property="Background" Duration="0:0:0.18" />
@@ -221,6 +221,10 @@
     <Setter Property="FontSize" Value="14" />
     <Setter Property="Foreground" Value="{StaticResource TextBodyBrush}" />
     <Setter Property="VerticalAlignment" Value="Center" />
+    <!-- 긴 제목은 잘라내지 말고 줄을 바꾼다. 4줄까지만 늘어난다. -->
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxLines" Value="4" />
+    <Setter Property="LineHeight" Value="20" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     <Setter Property="Transitions">
       <Transitions>

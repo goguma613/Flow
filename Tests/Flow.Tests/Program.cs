@@ -16,9 +16,17 @@ internal static class Program
     private static int _passed;
     private static int _failed;
 
-    private static int Main()
+    private static int Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+        // 파서가 문장을 어떻게 읽는지 바로 확인하는 용도
+        //   dotnet run --project Tests/Flow.Tests -- parse "오전 11시 회의"
+        if (args.Length >= 2 && args[0] == "parse")
+        {
+            Explain(string.Join(' ', args[1..]));
+            return 0;
+        }
 
         Section("논리적 날짜");
         LogicalDateTests();
@@ -293,6 +301,50 @@ internal static class Program
 
         var m5 = QuickAddParser.Parse("일찍 자기", today);
         Check("[오탐방지] 일찍은 요일 아님", m5.IsRoutine, false);
+
+        // ── 낱말 한가운데의 숫자를 훔쳐가면 안 된다
+        // 사용자가 실제로 겪은 사례: 제목에서 "12시"만 뜯겨 "11~ 사이"가 됐다
+        const string range = "AK넷 일별 정책서 반영하여 배포 오전 11~12시 사이";
+        var b1 = QuickAddParser.Parse(range, today);
+        Check("[낱말경계] 시간 범위는 건드리지 않음", b1.DueTime, null);
+        Check("[낱말경계] 제목이 그대로 남음", b1.Title, range);
+
+        var b2 = QuickAddParser.Parse(range, today, assumeRoutine: true);
+        Check("[낱말경계] 루틴 탭에서도 제목 보존", b2.Title, range);
+
+        var b3 = QuickAddParser.Parse("2시간 작업", today);
+        Check("[낱말경계] 2시간의 '2시'를 떼가지 않음", b3.DueTime, null);
+        Check("[낱말경계] 제목 그대로", b3.Title, "2시간 작업");
+
+        var b4 = QuickAddParser.Parse("3일차 회고", today);
+        Check("[낱말경계] 3일차를 날짜로 보지 않음", b4.Due, null);
+        Check("[낱말경계] 제목 그대로", b4.Title, "3일차 회고");
+
+        var b5 = QuickAddParser.Parse("일별 정책서 정리", today);
+        Check("[낱말경계] 일별은 날짜가 아님", b5.Due, null);
+        Check("[낱말경계] 제목 그대로", b5.Title, "일별 정책서 정리");
+
+        var b6 = QuickAddParser.Parse("5분기 실적 정리", today);
+        Check("[낱말경계] 분기를 시각으로 보지 않음", b6.DueTime, null);
+        Check("[낱말경계] 제목 그대로", b6.Title, "5분기 실적 정리");
+
+        // ── 조사가 붙어도 날짜·시간은 정상 인식
+        var c1 = QuickAddParser.Parse("9월 20일에 계약 갱신", today);
+        Check("[조사] 9월 20일에", c1.Due, new DateOnly(2026, 9, 20));
+        Check("[조사] 제목에서 날짜 제거", c1.Title, "계약 갱신");
+
+        var c2 = QuickAddParser.Parse("오후 3시에 거래처 미팅", today);
+        Check("[조사] 오후 3시에", c2.DueTime, new TimeOnly(15, 0));
+        Check("[조사] 제목", c2.Title, "거래처 미팅");
+
+        var c3 = QuickAddParser.Parse("내일까지 정산 마감", today);
+        Check("[조사] 내일까지", c3.Due, today.AddDays(1));
+        Check("[조사] 제목", c3.Title, "정산 마감");
+
+        // ── 기존 형태는 그대로 동작해야 한다
+        var d1 = QuickAddParser.Parse("3시 반 미팅", today);
+        Check("[유지] 3시 반", d1.DueTime, new TimeOnly(3, 30));
+        Check("[유지] 제목", d1.Title, "미팅");
     }
 
     // ───────────────────────── 직렬화
@@ -358,6 +410,25 @@ internal static class Program
         {
             json = "";
             return false;
+        }
+    }
+
+    private static void Explain(string input)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        foreach (var routineMode in new[] { false, true })
+        {
+            var r = QuickAddParser.Parse(input, today, routineMode);
+            Console.WriteLine();
+            Console.WriteLine(routineMode ? "── 루틴 탭에서 입력했을 때" : "── 오늘/예정 탭에서 입력했을 때");
+            Console.WriteLine($"   입력   : {input}");
+            Console.WriteLine($"   제목   : {r.Title}");
+            Console.WriteLine($"   루틴?  : {r.IsRoutine}");
+            Console.WriteLine($"   요일   : {(r.Days.Count == 0 ? "(없음)" : string.Join(",", r.Days))}");
+            Console.WriteLine($"   마감   : {(r.Due?.ToString() ?? "(없음)")}");
+            Console.WriteLine($"   시각   : {(r.DueTime?.ToString() ?? "(없음)")}");
+            Console.WriteLine($"   우선   : {r.Priority}");
         }
     }
 
