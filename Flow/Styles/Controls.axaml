@@ -1,0 +1,594 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <SolidColorBrush x:Key="PanelBrush" Color="#17171A" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#1E1E22" />
+    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#24242A" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#26262E" />
+    <SolidColorBrush x:Key="PressedBrush" Color="#31313B" />
+
+    <!-- 배경 전환의 출발점.
+         Transparent 는 사실 "알파 0인 흰색"(#00FFFFFF)이라, 어두운 색으로
+         전환하면 중간에 흰색을 거치며 번쩍인다.
+         RGB를 목적지와 맞추고 알파만 0으로 둬서 알파만 변하게 한다. -->
+    <SolidColorBrush x:Key="FadeFromBrush" Color="#0026262E" />
+    <SolidColorBrush x:Key="FadeFromAccentBrush" Color="#005DCAA5" />
+    <SolidColorBrush x:Key="SurfaceActiveBrush" Color="#2E2E35" />
+    <SolidColorBrush x:Key="BorderSoftBrush" Color="#32323A" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#33333A" />
+
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F2F0" />
+    <SolidColorBrush x:Key="TextBodyBrush" Color="#E4E4E2" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#8B8B93" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#6E6E76" />
+    <SolidColorBrush x:Key="TextDisabledBrush" Color="#4A4A52" />
+    <SolidColorBrush x:Key="RingBrush" Color="#5C5C67" />
+
+    <SolidColorBrush x:Key="AccentBrush" Color="#5DCAA5" />
+    <SolidColorBrush x:Key="AccentDimBrush" Color="#2A5F4F" />
+    <SolidColorBrush x:Key="StreakBrush" Color="#EF9F27" />
+    <SolidColorBrush x:Key="HighBrush" Color="#E24B4A" />
+    <SolidColorBrush x:Key="MediumBrush" Color="#EF9F27" />
+    <SolidColorBrush x:Key="LowBrush" Color="#378ADD" />
+    <SolidColorBrush x:Key="OverdueBgBrush" Color="#3A1E1E" />
+    <SolidColorBrush x:Key="OverdueTextBrush" Color="#F09595" />
+
+    <SolidColorBrush x:Key="Heat0Brush" Color="#232329" />
+    <SolidColorBrush x:Key="Heat1Brush" Color="#1F4A3C" />
+    <SolidColorBrush x:Key="Heat2Brush" Color="#2E7B60" />
+    <SolidColorBrush x:Key="Heat3Brush" Color="#44A882" />
+    <SolidColorBrush x:Key="Heat4Brush" Color="#5DCAA5" />
+
+    <StreamGeometry x:Key="CloseIcon">M 4,4 L 12,12 M 12,4 L 4,12</StreamGeometry>
+    <!-- 수평선은 도형 높이가 0이라 Stretch="Uniform"을 쓰면 안 된다. Stretch="None"으로 그린다. -->
+    <StreamGeometry x:Key="MinimizeIcon">M 3.5,8 L 12.5,8</StreamGeometry>
+    <StreamGeometry x:Key="ChevronIcon">M 6,4 L 10,8 L 6,12</StreamGeometry>
+    <StreamGeometry x:Key="PlusIcon">M 8,3.5 L 8,12.5 M 3.5,8 L 12.5,8</StreamGeometry>
+    <StreamGeometry x:Key="TrashIcon">M 3,4.5 L 13,4.5 M 6.5,4.5 L 6.5,3 L 9.5,3 L 9.5,4.5 M 4.6,4.5 L 5.2,13 L 10.8,13 L 11.4,4.5</StreamGeometry>
+    <StreamGeometry x:Key="CheckIcon">M 4.5,8.5 L 7,11 L 11.5,5.5</StreamGeometry>
+    <StreamGeometry x:Key="PinIcon">M 9.6,2.2 L 13.8,6.4 L 11.6,8.2 L 11.2,12.2 L 3.8,4.8 L 7.8,4.4 Z M 3.4,12.6 L 6.6,9.4</StreamGeometry>
+    <StreamGeometry x:Key="GripIcon">M 2,10 L 10,2 M 5.5,10 L 10,5.5</StreamGeometry>
+    <StreamGeometry x:Key="FlameIcon">M 8,1.4 C 9.2,4.6 12,6.2 12,9.4 A 4,4 0 0 1 4,9.4 C 4,7.4 5.2,6.2 5.8,4.6 C 6.4,6 7.2,5.6 7.4,4.6 C 7.6,3.6 7.4,2.6 8,1.4 Z</StreamGeometry>
+  </Styles.Resources>
+
+  <!-- ===== 공통 버튼 템플릿 =====
+       Fluent 기본 테마도 :pointerover 에서 ContentPresenter 배경을 흰색으로 칠한다.
+       같은 속성을 두 스타일이 다투면 흰색이 번쩍했다가 우리 색으로 넘어가며 깜빡인다.
+       템플릿을 통째로 우리 것으로 바꿔 경쟁 자체를 없앤다. -->
+  <Style Selector="Button.icon, Button.tab, Button.row, Button.rowaction, Button.link, Button.chip, Button.step, Button.updatebar">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="bg"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}">
+          <Border.Transitions>
+            <Transitions>
+              <BrushTransition Property="Background" Duration="0:0:0.13" />
+            </Transitions>
+          </Border.Transitions>
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}"
+                            Padding="{TemplateBinding Padding}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+
+  <!-- ===== 헤더 아이콘 버튼 ===== -->
+  <Style Selector="Button.icon">
+    <Setter Property="Width" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.icon:pointerover">
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.icon:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <Style Selector="Button.icon Path">
+    <Setter Property="Stroke" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="StrokeThickness" Value="1.4" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Stroke" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.icon:pointerover Path">
+    <Setter Property="Stroke" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.icon.danger:pointerover Path">
+    <Setter Property="Stroke" Value="{StaticResource HighBrush}" />
+  </Style>
+  <Style Selector="Button.icon.pinned Path">
+    <Setter Property="Stroke" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Fill" Value="{StaticResource AccentBrush}" />
+  </Style>
+
+  <!-- ===== 세그먼트 탭 ===== -->
+  <Style Selector="Button.tab">
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="0,6" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Foreground" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.tab:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="#232329" />
+  </Style>
+  <Style Selector="Button.tab.active">
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.tab.active /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+
+  <!-- ===== 항목 행 (행 전체가 클릭 대상) ===== -->
+  <Style Selector="Button.row">
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="6,6" />
+    <Setter Property="Margin" Value="-6,0" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.row:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+  </Style>
+  <Style Selector="Button.row:pressed /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+  </Style>
+
+  <!-- ===== 체크 링 (시각 표시 전용) ===== -->
+  <Style Selector="Border.ring">
+    <Setter Property="Width" Value="19" />
+    <Setter Property="Height" Value="19" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Background" Value="{StaticResource FadeFromAccentBrush}" />
+    <Setter Property="BorderThickness" Value="1.6" />
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.18" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.18" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.ring.high">
+    <Setter Property="BorderBrush" Value="{StaticResource HighBrush}" />
+  </Style>
+  <Style Selector="Border.ring.medium">
+    <Setter Property="BorderBrush" Value="{StaticResource MediumBrush}" />
+  </Style>
+  <Style Selector="Border.ring.low">
+    <Setter Property="BorderBrush" Value="{StaticResource LowBrush}" />
+  </Style>
+  <Style Selector="Button.row:pointerover Border.ring">
+    <Setter Property="BorderBrush" Value="{StaticResource TextSecondaryBrush}" />
+  </Style>
+  <Style Selector="Border.ring Path">
+    <Setter Property="Stroke" Value="#17171A" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.row.done Border.ring">
+    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+  </Style>
+  <Style Selector="Button.row.done Border.ring Path">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <!-- ===== 항목 제목 ===== -->
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{StaticResource TextBodyBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Foreground" Duration="0:0:0.18" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.row.done TextBlock.title">
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="TextDecorations" Value="Strikethrough" />
+  </Style>
+
+  <!-- ===== 행 안의 삭제 버튼 (마우스를 올렸을 때만 보인다) ===== -->
+  <Style Selector="Button.rowaction">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.rowaction:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <Style Selector="Button.row:pointerover Button.rowaction">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Button.rowaction Path">
+    <Setter Property="Stroke" Value="{StaticResource TextDisabledBrush}" />
+    <Setter Property="StrokeThickness" Value="1.3" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+  </Style>
+  <Style Selector="Button.rowaction:pointerover Path">
+    <Setter Property="Stroke" Value="{StaticResource HighBrush}" />
+  </Style>
+
+  <!-- ===== 이름 바꾸기 입력칸 ===== -->
+  <Style Selector="TextBox.rename">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="5" />
+    <Setter Property="Padding" Value="5,1" />
+    <Setter Property="Margin" Value="-5,0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox.rename /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <!-- ===== 오늘 예정이 아닌 루틴 표시 ===== -->
+  <Style Selector="TextBlock.notoday">
+    <Setter Property="Width" Value="19" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- ===== 크기 조절 손잡이 ===== -->
+  <Style Selector="Border.grip">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.grip Path">
+    <Setter Property="Stroke" Value="{StaticResource TextDisabledBrush}" />
+    <Setter Property="StrokeThickness" Value="1.2" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="Opacity" Value="0.7" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.grip:pointerover Path">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="Stroke" Value="{StaticResource TextSecondaryBrush}" />
+  </Style>
+
+  <!-- ===== 라벨 / 뱃지 ===== -->
+  <Style Selector="TextBlock.sectionlabel">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+  </Style>
+  <Style Selector="TextBlock.meta">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.badge">
+    <Setter Property="CornerRadius" Value="5" />
+    <Setter Property="Padding" Value="6,2" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <Style Selector="Border.badge.overdue">
+    <Setter Property="Background" Value="{StaticResource OverdueBgBrush}" />
+  </Style>
+  <Style Selector="Border.badge.overdue TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource OverdueTextBrush}" />
+  </Style>
+
+  <!-- ===== 빠른 추가 ===== -->
+  <Style Selector="TextBox.quickadd">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox.quickadd /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <Style Selector="Border.quickaddshell">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="12,9" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.quickaddshell:focus-within">
+    <Setter Property="BorderBrush" Value="{StaticResource AccentDimBrush}" />
+  </Style>
+
+  <!-- ===== 진행률 ===== -->
+  <Style Selector="ProgressBar.thin">
+    <Setter Property="Height" Value="4" />
+    <Setter Property="MinHeight" Value="4" />
+    <Setter Property="Minimum" Value="0" />
+    <Setter Property="Maximum" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Background" Value="#26262B" />
+    <Setter Property="CornerRadius" Value="2" />
+  </Style>
+
+  <!-- ===== 히트맵 ===== -->
+  <Style Selector="Border.heat">
+    <Setter Property="Width" Value="11" />
+    <Setter Property="Height" Value="11" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Background" Value="{StaticResource Heat0Brush}" />
+  </Style>
+  <Style Selector="Border.heat.l1"><Setter Property="Background" Value="{StaticResource Heat1Brush}" /></Style>
+  <Style Selector="Border.heat.l2"><Setter Property="Background" Value="{StaticResource Heat2Brush}" /></Style>
+  <Style Selector="Border.heat.l3"><Setter Property="Background" Value="{StaticResource Heat3Brush}" /></Style>
+  <Style Selector="Border.heat.l4"><Setter Property="Background" Value="{StaticResource Heat4Brush}" /></Style>
+  <Style Selector="Border.heat.today">
+    <Setter Property="BorderBrush" Value="{StaticResource TextSecondaryBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <!-- ===== 설정 ===== -->
+  <Style Selector="ToggleButton.switch">
+    <Setter Property="Width" Value="38" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="track" CornerRadius="11" Background="{StaticResource SurfaceActiveBrush}">
+          <Border.Transitions>
+            <Transitions>
+              <BrushTransition Property="Background" Duration="0:0:0.18" />
+            </Transitions>
+          </Border.Transitions>
+          <Ellipse Name="knob" Width="16" Height="16"
+                   Fill="{StaticResource TextSecondaryBrush}"
+                   HorizontalAlignment="Left"
+                   Margin="3,0,0,0"
+                   RenderTransform="translateX(0px)">
+            <Ellipse.Transitions>
+              <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+                <BrushTransition Property="Fill" Duration="0:0:0.18" />
+              </Transitions>
+            </Ellipse.Transitions>
+          </Ellipse>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.switch:checked /template/ Border#track">
+    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.switch:checked /template/ Ellipse#knob">
+    <Setter Property="RenderTransform" Value="translateX(16px)" />
+    <Setter Property="Fill" Value="#17171A" />
+  </Style>
+
+  <!-- ===== 작은 스테퍼 버튼 ===== -->
+  <Style Selector="Button.step">
+    <Setter Property="Width" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.step:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <Style Selector="Button.step:pointerover">
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+
+  <!-- ===== 작은 프리셋 칩 ===== -->
+  <Style Selector="Button.chip">
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="0,5" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.chip:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="#232329" />
+  </Style>
+  <Style Selector="Button.chip.active">
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.chip.active /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <Style Selector="TextBlock.settinglabel">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource TextBodyBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.settinghint">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!-- ===== 텍스트 버튼 ===== -->
+  <Style Selector="Button.link">
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="Padding" Value="6,6" />
+    <Setter Property="Margin" Value="-6,0" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.link:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+  </Style>
+  <Style Selector="Button.link Path.chev">
+    <Setter Property="Stroke" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="StrokeThickness" Value="1.4" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="RenderTransform" Value="rotate(0deg)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.link.open Path.chev">
+    <Setter Property="RenderTransform" Value="rotate(90deg)" />
+  </Style>
+
+  <!-- ===== 빈 상태 ===== -->
+  <Style Selector="TextBlock.empty">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="Margin" Value="0,28,0,0" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!-- ===== 업데이트 알림 ===== -->
+  <Style Selector="Button.updatebar">
+    <Setter Property="Background" Value="#1B3D33" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="12,9" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.updatebar:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="#215047" />
+  </Style>
+
+  <!-- ===== 사용법 ===== -->
+  <Style Selector="TextBlock.helpsection">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Margin" Value="0,0,0,7" />
+  </Style>
+  <Style Selector="TextBlock.helpbody">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="LineHeight" Value="19" />
+  </Style>
+  <Style Selector="TextBlock.helpin">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource TextBodyBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.helpout">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="10,0,0,0" />
+  </Style>
+  <Style Selector="Border.helpblock">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="11,9" />
+  </Style>
+
+  <!-- ===== 스크롤바 ===== -->
+  <Style Selector="ScrollBar:vertical">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ScrollBar:vertical /template/ Border#TrackRect">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="ScrollBar /template/ Thumb">
+    <Setter Property="Background" Value="#3A3A42" />
+  </Style>
+
+</Styles>

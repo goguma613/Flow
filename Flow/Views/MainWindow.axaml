@@ -1,0 +1,670 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Flow.ViewModels"
+        x:Class="Flow.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Flow"
+        Icon="/Assets/flow.ico"
+        Width="340"
+        MinWidth="280" MaxWidth="680"
+        MinHeight="220" MaxHeight="1100"
+        CanResize="True"
+        WindowDecorations="None"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        ShowInTaskbar="True"
+        Topmost="{Binding AlwaysOnTop}"
+        FontFamily="Inter, Malgun Gothic, Segoe UI">
+
+  <Window.Transitions>
+    <Transitions>
+      <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+    </Transitions>
+  </Window.Transitions>
+
+  <Panel>
+
+    <Border CornerRadius="16"
+            Background="#F217171A"
+            BorderThickness="1"
+            BorderBrush="{StaticResource BorderBrush}"
+            ClipToBounds="True">
+
+      <DockPanel LastChildFill="True">
+
+        <!-- ════════ 헤더 ════════ -->
+        <StackPanel Name="HeaderArea" DockPanel.Dock="Top" Margin="16,14,16,0" Spacing="12">
+
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+              <TextBlock Text="{Binding DateText}"
+                         FontSize="17"
+                         FontWeight="Medium"
+                         Foreground="{StaticResource TextPrimaryBrush}" />
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <TextBlock Text="{Binding WeekdayText}"
+                           FontSize="12"
+                           Foreground="{StaticResource TextSecondaryBrush}" />
+                <TextBlock Text="·"
+                           FontSize="12"
+                           Foreground="{StaticResource TextDisabledBrush}"
+                           IsVisible="{Binding HasStatus}" />
+                <TextBlock Text="{Binding StatusText}"
+                           FontSize="12"
+                           Foreground="{StaticResource AccentBrush}"
+                           IsVisible="{Binding HasStatus}" />
+              </StackPanel>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="1" VerticalAlignment="Top">
+              <Button Name="PinButton" Classes="icon" Classes.pinned="{Binding AlwaysOnTop}" ToolTip.Tip="항상 위에 고정">
+                <Path Data="{StaticResource PinIcon}" Width="13" Height="13" Stretch="Uniform" />
+              </Button>
+              <Button Classes="icon" Content="?" Command="{Binding ToggleHelpCommand}" ToolTip.Tip="사용법" />
+              <Button Classes="icon" Command="{Binding ToggleSettingsCommand}" ToolTip.Tip="설정">
+                <StackPanel Orientation="Horizontal" Spacing="2.5" VerticalAlignment="Center">
+                  <Ellipse Width="3" Height="3" Fill="{StaticResource TextMutedBrush}" />
+                  <Ellipse Width="3" Height="3" Fill="{StaticResource TextMutedBrush}" />
+                  <Ellipse Width="3" Height="3" Fill="{StaticResource TextMutedBrush}" />
+                </StackPanel>
+              </Button>
+              <Button Name="MinimizeButton" Classes="icon" ToolTip.Tip="트레이로 숨기기  (Ctrl+Alt+Space로 다시 열기)">
+                <Path Data="{StaticResource MinimizeIcon}" Width="16" Height="16" Stretch="None" />
+              </Button>
+              <Button Name="CloseButton" Classes="icon danger" ToolTip.Tip="종료">
+                <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+              </Button>
+            </StackPanel>
+          </Grid>
+
+          <Grid ColumnDefinitions="*,Auto">
+            <ProgressBar Classes="thin" Value="{Binding Progress}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1"
+                       Text="{Binding ProgressText}"
+                       Classes="meta"
+                       Margin="10,0,0,0" />
+          </Grid>
+
+          <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="3">
+            <UniformGrid Columns="3">
+              <Button Classes="tab" Classes.active="{Binding IsTodayTab}" Content="오늘"
+                      Command="{Binding SelectTabCommand}" CommandParameter="0" />
+              <Button Classes="tab" Classes.active="{Binding IsRoutineTab}" Content="루틴"
+                      Command="{Binding SelectTabCommand}" CommandParameter="1" />
+              <Button Classes="tab" Classes.active="{Binding IsUpcomingTab}" Content="예정"
+                      Command="{Binding SelectTabCommand}" CommandParameter="2" />
+            </UniformGrid>
+          </Border>
+
+        </StackPanel>
+
+        <!-- ════════ 빠른 추가 ════════ -->
+        <StackPanel DockPanel.Dock="Bottom" Margin="16,10,16,12" Spacing="6">
+          <Button Classes="updatebar"
+                  IsVisible="{Binding UpdateReady}"
+                  Command="{Binding ApplyUpdateCommand}"
+                  Margin="0,0,0,2">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="{Binding UpdateText}" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="지금 재시작 →" VerticalAlignment="Center"
+                         Foreground="{StaticResource TextPrimaryBrush}" />
+            </Grid>
+          </Button>
+          <TextBlock Text="{Binding QuickAddHint}"
+                     FontSize="11"
+                     Foreground="{StaticResource AccentBrush}"
+                     Margin="4,0,0,0"
+                     IsVisible="{Binding QuickAddHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <Border Classes="quickaddshell">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <Path Data="{StaticResource PlusIcon}"
+                    Width="13" Height="13"
+                    Stretch="Uniform"
+                    Stroke="{StaticResource TextMutedBrush}"
+                    StrokeThickness="1.4"
+                    StrokeLineCap="Round"
+                    VerticalAlignment="Center" />
+              <TextBox Name="QuickAddBox"
+                       Grid.Column="1"
+                       Classes="quickadd"
+                       Margin="9,0,8,0"
+                       PlaceholderText="{Binding QuickAddPlaceholder}"
+                       Text="{Binding QuickAddText}" />
+              <Border Grid.Column="2"
+                      Background="{StaticResource SurfaceActiveBrush}"
+                      CornerRadius="4"
+                      Padding="5,2"
+                      VerticalAlignment="Center">
+                <TextBlock Text="Enter" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" />
+              </Border>
+            </Grid>
+          </Border>
+        </StackPanel>
+
+        <!-- ════════ 목록 ════════ -->
+        <ScrollViewer Margin="16,14,16,0"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <Panel>
+
+            <!-- ─── 오늘 ─── -->
+            <StackPanel IsVisible="{Binding IsTodayTab}">
+
+              <TextBlock Classes="sectionlabel" Text="반복 루틴" IsVisible="{Binding HasTodayRoutines}" />
+              <ItemsControl ItemsSource="{Binding TodayRoutines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:RoutineRow">
+                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Button.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                      </Button.ContextMenu>
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Border Classes="ring">
+                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                          <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
+                          <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
+                                   AttachedToVisualTree="OnRenameAttached"
+                                   KeyDown="OnRenameKeyDown"
+                                   LostFocus="OnRenameLostFocus" />
+                        </Panel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
+                                    VerticalAlignment="Center" IsVisible="{Binding HasStreak}">
+                          <Path Data="{StaticResource FlameIcon}"
+                                Fill="{StaticResource StreakBrush}"
+                                Width="10" Height="10" Stretch="Uniform" />
+                          <TextBlock Text="{Binding Streak}" FontSize="11"
+                                     Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
+                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
+                        </Button>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <Border Height="1" Background="{StaticResource BorderSoftBrush}" Margin="0,12"
+                      IsVisible="{Binding HasTodayTasks}" />
+
+              <TextBlock Classes="sectionlabel" Text="할 일" IsVisible="{Binding HasTodayTasks}" />
+              <ItemsControl ItemsSource="{Binding TodayTasks}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:TaskRow">
+                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Button.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
+                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                      </Button.ContextMenu>
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                        <Border Classes="ring"
+                                Classes.high="{Binding IsHigh}"
+                                Classes.medium="{Binding IsMedium}"
+                                Classes.low="{Binding IsLow}">
+                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                          <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
+                          <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
+                                   AttachedToVisualTree="OnRenameAttached"
+                                   KeyDown="OnRenameKeyDown"
+                                   LostFocus="OnRenameLostFocus" />
+                        </Panel>
+                        <TextBlock Grid.Column="2" Classes="meta" Text="{Binding CarryOverText}"
+                                   Foreground="{StaticResource TextDisabledBrush}"
+                                   Margin="0,0,6,0" IsVisible="{Binding HasCarryOver}" />
+                        <Border Grid.Column="3" Classes="badge" Classes.overdue="{Binding IsOverdue}"
+                                IsVisible="{Binding HasDue}">
+                          <TextBlock Text="{Binding DueText}" FontSize="11"
+                                     Foreground="{StaticResource TextSecondaryBrush}" />
+                        </Border>
+                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
+                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
+                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
+                        </Button>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <Button Classes="link" Classes.open="{Binding ShowCompleted}"
+                      Command="{Binding ToggleCompletedCommand}"
+                      Margin="-6,10,-6,0"
+                      IsVisible="{Binding HasCompleted}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="11" Height="11" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding CompletedHeader}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+
+              <ItemsControl ItemsSource="{Binding CompletedTasks}" IsVisible="{Binding ShowCompleted}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:TaskRow">
+                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Border Classes="ring">
+                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Grid.Column="1" Classes="title" Text="{Binding Title}" Margin="10,0,8,0" />
+                        <Button Grid.Column="2" Classes="rowaction"
+                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
+                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
+                        </Button>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Classes="empty" IsVisible="{Binding TodayIsEmpty}"
+                         Text="오늘 할 일이 없습니다&#x0a;아래에 입력해 시작하세요" />
+
+            </StackPanel>
+
+            <!-- ─── 루틴 ─── -->
+            <StackPanel IsVisible="{Binding IsRoutineTab}">
+
+              <TextBlock Classes="sectionlabel" Text="최근 4주 달성률" />
+              <ItemsControl ItemsSource="{Binding Heatmap}" Margin="0,2,0,0">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:HeatCell">
+                    <Border Classes="heat"
+                            Classes.l1="{Binding Level1}"
+                            Classes.l2="{Binding Level2}"
+                            Classes.l3="{Binding Level3}"
+                            Classes.l4="{Binding Level4}"
+                            Classes.today="{Binding IsToday}"
+                            Margin="0,0,3,3"
+                            ToolTip.Tip="{Binding Tooltip}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Text="{Binding StreakSummary}" Classes="meta" Margin="0,6,0,0"
+                         Foreground="{StaticResource TextMutedBrush}" />
+
+              <Border Height="1" Background="{StaticResource BorderSoftBrush}" Margin="0,14" />
+
+              <TextBlock Classes="sectionlabel" Text="전체 루틴" IsVisible="{Binding HasRoutines}" />
+              <ItemsControl ItemsSource="{Binding AllRoutines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:RoutineRow">
+                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Button.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                      </Button.ContextMenu>
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Panel>
+                          <Border Classes="ring" IsVisible="{Binding IsScheduledToday}">
+                            <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          </Border>
+                          <TextBlock Classes="notoday" Text="·"
+                                     IsVisible="{Binding !IsScheduledToday}"
+                                     ToolTip.Tip="오늘은 예정된 날이 아닙니다" />
+                        </Panel>
+                        <StackPanel Grid.Column="1" Spacing="1" Margin="10,0,8,0">
+                          <Panel>
+                            <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
+                            <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
+                                     AttachedToVisualTree="OnRenameAttached"
+                                     KeyDown="OnRenameKeyDown"
+                                     LostFocus="OnRenameLostFocus" />
+                          </Panel>
+                          <TextBlock Classes="meta" Text="{Binding DaysText}"
+                                     Foreground="{StaticResource TextMutedBrush}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
+                                    VerticalAlignment="Center" IsVisible="{Binding HasStreak}">
+                          <Path Data="{StaticResource FlameIcon}"
+                                Fill="{StaticResource StreakBrush}"
+                                Width="10" Height="10" Stretch="Uniform" />
+                          <TextBlock Text="{Binding Streak}" FontSize="11"
+                                     Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
+                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
+                        </Button>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Classes="empty" IsVisible="{Binding !HasRoutines}"
+                         Text="아직 루틴이 없습니다&#x0a;아래에 &quot;물 2L 마시기&quot; 처럼 입력하세요" />
+
+            </StackPanel>
+
+            <!-- ─── 예정 ─── -->
+            <StackPanel IsVisible="{Binding IsUpcomingTab}">
+
+              <TextBlock Classes="sectionlabel" Text="다가오는 할 일" IsVisible="{Binding HasUpcoming}" />
+              <ItemsControl ItemsSource="{Binding UpcomingTasks}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:TaskRow">
+                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Button.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
+                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                      </Button.ContextMenu>
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Border Classes="ring"
+                                Classes.high="{Binding IsHigh}"
+                                Classes.medium="{Binding IsMedium}"
+                                Classes.low="{Binding IsLow}">
+                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                          <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
+                          <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
+                                   AttachedToVisualTree="OnRenameAttached"
+                                   KeyDown="OnRenameKeyDown"
+                                   LostFocus="OnRenameLostFocus" />
+                        </Panel>
+                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding HasDue}">
+                          <TextBlock Text="{Binding DueText}" FontSize="11"
+                                     Foreground="{StaticResource TextSecondaryBrush}" />
+                        </Border>
+                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
+                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
+                        </Button>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Classes="empty" IsVisible="{Binding UpcomingIsEmpty}"
+                         Text="예정된 할 일이 없습니다&#x0a;&quot;9/15 세금 신고&quot; 처럼 입력해보세요" />
+
+            </StackPanel>
+
+          </Panel>
+        </ScrollViewer>
+
+      </DockPanel>
+    </Border>
+
+    <!-- ════════ 크기 조절 손잡이 ════════ -->
+    <Border Name="ResizeRight" Classes="grip" Width="6"
+            HorizontalAlignment="Right" VerticalAlignment="Stretch"
+            Margin="0,20,0,20" Cursor="SizeWestEast" />
+    <Border Name="ResizeBottom" Classes="grip" Height="6"
+            HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+            Margin="20,0,20,0" Cursor="SizeNorthSouth" />
+    <Border Name="ResizeCorner" Classes="grip" Width="18" Height="18"
+            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+            Cursor="BottomRightCorner" ToolTip.Tip="끌어서 크기 조절 · 두 번 클릭하면 자동 높이">
+      <Path Data="{StaticResource GripIcon}" Width="11" Height="11"
+            Stretch="Uniform" Margin="0,0,3,3"
+            HorizontalAlignment="Right" VerticalAlignment="Bottom" />
+    </Border>
+
+    <!-- ════════ 사용법 ════════ -->
+    <Border IsVisible="{Binding IsHelpOpen}"
+            CornerRadius="16"
+            Background="#181820"
+            BorderThickness="1"
+            BorderBrush="{StaticResource BorderBrush}">
+      <DockPanel LastChildFill="True" Margin="16,14,16,14">
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+          <StackPanel Spacing="2">
+            <TextBlock Text="사용법" FontSize="16" FontWeight="Medium"
+                       Foreground="{StaticResource TextPrimaryBrush}" />
+            <TextBlock Text="30초면 다 익힙니다" FontSize="11"
+                       Foreground="{StaticResource TextMutedBrush}" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="icon" Command="{Binding ToggleHelpCommand}" VerticalAlignment="Top">
+            <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+          </Button>
+        </Grid>
+
+        <Button DockPanel.Dock="Bottom" Classes="chip" Content="설정 열기"
+                Command="{Binding ToggleSettingsCommand}"
+                HorizontalAlignment="Left" Padding="12,6" Margin="0,14,0,0" />
+
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="16">
+
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="1 · 적기" />
+              <TextBlock Classes="helpbody"
+                         Text="맨 아래 칸에 한 줄로 적고 Enter. 날짜와 시간을 말하듯 적으면 알아서 읽습니다." />
+              <Border Classes="helpblock">
+                <StackPanel Spacing="7">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="매일 물 2L 마시기" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="매일 반복" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="월수금 저녁 운동" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="월·수·금 반복" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="평일 아침 회의" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="월~금 반복" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="내일 오후 3시 거래처 미팅" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="내일 15:00" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="9/15 정산 마감" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="9월 15일" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="보고서 제출 !1" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="중요 표시" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+              <TextBlock Classes="helpbody"
+                         Text="!1 빨강 · !2 주황 · !3 파랑 으로 중요도를 표시합니다." />
+            </StackPanel>
+
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="2 · 다루기" />
+              <Border Classes="helpblock">
+                <StackPanel Spacing="7">
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="줄을 클릭" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="완료 · 완료 취소" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="줄에서 오른쪽 클릭" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="이름 바꾸기 · 삭제" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="날짜를 잡고 끌기" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="창 옮기기" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="오른쪽 아래 모서리" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="크기 조절" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="Ctrl + Alt + Space" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="어디서나 불러오기" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+              <TextBlock Classes="helpbody"
+                         Text="맨 위 − 는 트레이로 숨기기, X 는 완전 종료입니다." />
+            </StackPanel>
+
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="3 · 하루가 바뀌면" />
+              <TextBlock Classes="helpbody"
+                         Text="새벽 4시에 날짜가 넘어가면서 반복 루틴 체크가 자동으로 풀립니다. 자정이 아니라 4시인 건, 늦게까지 일한 날 기록이 억울하게 끊기지 않게 하려는 것입니다." />
+              <TextBlock Classes="helpbody"
+                         Text="못 끝낸 할 일은 오늘로 넘어오면서 밀린 일수가 붙습니다. 컴퓨터를 며칠 꺼놨어도 켜는 순간 그동안의 기록을 한 번에 정리합니다." />
+              <TextBlock Classes="helpbody"
+                         Text="루틴을 연달아 해내면 옆에 불꽃과 함께 며칠째인지 나옵니다. 예정된 날을 빠뜨리면 처음부터 다시 셉니다." />
+            </StackPanel>
+
+          </StackPanel>
+        </ScrollViewer>
+
+      </DockPanel>
+    </Border>
+
+    <!-- ════════ 설정 ════════ -->
+    <Border IsVisible="{Binding IsSettingsOpen}"
+            CornerRadius="16"
+            Background="#181820"
+            BorderThickness="1"
+            BorderBrush="{StaticResource BorderBrush}">
+      <DockPanel LastChildFill="True" Margin="16,14,16,14">
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+          <TextBlock Text="설정" FontSize="16" FontWeight="Medium"
+                     Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Classes="icon" Command="{Binding ToggleSettingsCommand}">
+            <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+          </Button>
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Bottom" Spacing="3" Margin="0,16,0,0">
+          <TextBlock Classes="settinghint" Text="데이터 저장 위치" />
+          <TextBlock Classes="settinghint" Text="{Binding DataPath}"
+                     Foreground="{StaticResource TextDisabledBrush}" FontSize="10" />
+        </StackPanel>
+
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="18">
+
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="settinglabel" Text="하루 시작 시각" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Button Classes="step" Content="−" Command="{Binding StepDayStartHourCommand}" CommandParameter="-1" />
+                  <TextBlock Text="{Binding DayStartHourText}"
+                             FontSize="14"
+                             MinWidth="46"
+                             TextAlignment="Center"
+                             VerticalAlignment="Center"
+                             Foreground="{StaticResource TextPrimaryBrush}" />
+                  <Button Classes="step" Content="+" Command="{Binding StepDayStartHourCommand}" CommandParameter="1" />
+                </StackPanel>
+              </Grid>
+              <TextBlock Classes="settinghint"
+                         Text="이 시각에 루틴 체크가 풀리고 날짜가 넘어갑니다. 04시로 두면 새벽 작업이 전날로 집계됩니다." />
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="settinglabel" Text="미완료 할 일 자동 이월" />
+                <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding CarryOverIncomplete}" />
+              </Grid>
+              <TextBlock Classes="settinghint" Text="끝내지 못한 할 일을 다음 날로 옮기고 밀린 일수를 표시합니다." />
+            </StackPanel>
+
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="settinglabel" Text="항상 위에 표시" />
+              <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AlwaysOnTop}" />
+            </Grid>
+
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="settinglabel" Text="부팅 시 자동 시작" />
+              <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding RunAtStartup}" />
+            </Grid>
+
+            <StackPanel Spacing="7">
+              <TextBlock Classes="settinglabel" Text="마우스를 뗐을 때 투명도" />
+              <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="3">
+                <UniformGrid Columns="4">
+                  <Button Classes="chip" Classes.active="{Binding IsOpacityFull}" Content="100%"
+                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="1.0" />
+                  <Button Classes="chip" Classes.active="{Binding IsOpacityHigh}" Content="92%"
+                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.92" />
+                  <Button Classes="chip" Classes.active="{Binding IsOpacityMid}" Content="80%"
+                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.80" />
+                  <Button Classes="chip" Classes.active="{Binding IsOpacityLow}" Content="65%"
+                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.65" />
+                </UniformGrid>
+              </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+              <TextBlock Classes="settinglabel" Text="창 크기" />
+              <TextBlock Classes="settinghint"
+                         Text="오른쪽 아래 모서리를 끌면 조절됩니다. 두 번 클릭하면 내용에 맞는 높이로 돌아갑니다." />
+              <Button Name="ResetSizeButton" Classes="chip" Content="기본 크기로 되돌리기"
+                      HorizontalAlignment="Left" Padding="10,5" />
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="settinglabel" Text="자동 업데이트" />
+                <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
+              </Grid>
+              <TextBlock Classes="settinghint"
+                         Text="하루에 한 번 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
+              <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2,0,0">
+                <TextBlock Classes="settinghint" Text="{Binding AppVersionText}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Classes="settinghint" Text="{Binding UpdateStatus}"
+                           Margin="8,0,8,0" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextMutedBrush}" />
+                <Button Grid.Column="2" Classes="chip" Content="지금 확인"
+                        Command="{Binding CheckForUpdatesCommand}" Padding="10,5" />
+              </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+              <TextBlock Classes="settinglabel" Text="사용법" />
+              <Button Classes="chip" Content="사용법 다시 보기"
+                      Command="{Binding ToggleHelpCommand}"
+                      HorizontalAlignment="Left" Padding="10,5" />
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+              <TextBlock Classes="settinglabel" Text="단축키" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="settinghint" Text="어디서나 불러오기" VerticalAlignment="Center" />
+                <Border Grid.Column="1" Classes="badge">
+                  <TextBlock Text="Ctrl + Alt + Space" FontSize="11"
+                             Foreground="{StaticResource TextSecondaryBrush}" />
+                </Border>
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="settinghint" Text="이름 바꾸기 · 삭제" VerticalAlignment="Center" />
+                <Border Grid.Column="1" Classes="badge">
+                  <TextBlock Text="항목 위에서 오른쪽 클릭" FontSize="11"
+                             Foreground="{StaticResource TextSecondaryBrush}" />
+                </Border>
+              </Grid>
+            </StackPanel>
+
+          </StackPanel>
+        </ScrollViewer>
+
+      </DockPanel>
+    </Border>
+
+  </Panel>
+</Window>
