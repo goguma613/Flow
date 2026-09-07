@@ -30,13 +30,17 @@
             BorderBrush="{StaticResource BorderBrush}"
             ClipToBounds="True">
 
-      <DockPanel LastChildFill="True">
+      <!-- 줄 0 머리말 · 1 탭(보통) · 2 목록 · 3 업데이트 · 4 탭(컴팩트) · 5 입력.
+           컴팩트에서는 목록이 2~5줄을 통째로 덮는다. 그래야 탭과 입력칸이
+           떴다 사라져도 목록이 밀리지 않는다. -->
+      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
 
         <!-- ════════ 헤더 ════════ -->
-        <StackPanel Name="HeaderArea" DockPanel.Dock="Top"
+        <StackPanel Name="HeaderArea" Grid.Row="0"
                     Classes="headerarea" Classes.compact="{Binding IsCompact}">
 
-          <Grid ColumnDefinitions="*,Auto">
+          <!-- MinHeight 는 아이콘 버튼 높이. 버튼이 나타나도 머리말이 안 늘어난다. -->
+          <Grid ColumnDefinitions="*,Auto" MinHeight="26">
             <StackPanel Spacing="2">
               <StackPanel Orientation="Horizontal" Spacing="9">
                 <TextBlock Text="{Binding DateText}"
@@ -64,7 +68,8 @@
               </StackPanel>
             </StackPanel>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="1" VerticalAlignment="Top">
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="1" VerticalAlignment="Top"
+                        IsVisible="{Binding ChromeVisible}">
               <Button Name="PinButton" Classes="icon" Classes.pinned="{Binding AlwaysOnTop}" ToolTip.Tip="항상 위에 고정">
                 <Path Data="{StaticResource PinIcon}" Width="13" Height="13" Stretch="Uniform" />
               </Button>
@@ -93,84 +98,13 @@
                        Margin="10,0,0,0" />
           </Grid>
 
-          <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="3">
-            <UniformGrid Columns="3">
-              <Button Classes="tab" Classes.active="{Binding IsTodayTab}" Content="오늘"
-                      Command="{Binding SelectTabCommand}" CommandParameter="0" />
-              <Button Classes="tab" Classes.active="{Binding IsRoutineTab}" Content="루틴"
-                      Command="{Binding SelectTabCommand}" CommandParameter="1" />
-              <Button Classes="tab" Classes.active="{Binding IsUpcomingTab}" Content="예정"
-                      Command="{Binding SelectTabCommand}" CommandParameter="2" />
-            </UniformGrid>
-          </Border>
-
-        </StackPanel>
-
-        <!-- ════════ 빠른 추가 ════════ -->
-        <StackPanel DockPanel.Dock="Bottom" Classes="addarea" Classes.compact="{Binding IsCompact}" Spacing="6">
-          <Border Classes="updateinfo" IsVisible="{Binding IsUpdateBusy}" Margin="0,0,0,2">
-            <StackPanel Spacing="6">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="{Binding UpdateBusyText}"
-                           FontSize="12"
-                           Foreground="{StaticResource TextSecondaryBrush}"
-                           VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1"
-                           Text="{Binding UpdatePercentText}"
-                           FontSize="12"
-                           Foreground="{StaticResource AccentBrush}"
-                           VerticalAlignment="Center"
-                           IsVisible="{Binding IsUpdateDownloading}" />
-              </Grid>
-              <ProgressBar Classes="thin"
-                           Value="{Binding UpdateProgress}"
-                           IsVisible="{Binding IsUpdateDownloading}" />
-            </StackPanel>
-          </Border>
-
-          <Button Classes="updatebar"
-                  IsVisible="{Binding UpdateReady}"
-                  Command="{Binding ApplyUpdateCommand}"
-                  Margin="0,0,0,2">
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Text="{Binding UpdateText}" VerticalAlignment="Center" />
-              <TextBlock Grid.Column="1" Text="지금 재시작 →" VerticalAlignment="Center"
-                         Foreground="{StaticResource TextPrimaryBrush}" />
-            </Grid>
-          </Button>
-          <TextBlock Text="{Binding QuickAddHint}"
-                     FontSize="11"
-                     Foreground="{StaticResource AccentBrush}"
-                     Margin="4,0,0,0"
-                     IsVisible="{Binding QuickAddHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <Border Classes="quickaddshell">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-              <Path Data="{StaticResource PlusIcon}"
-                    Width="13" Height="13"
-                    Stretch="Uniform"
-                    Stroke="{StaticResource TextMutedBrush}"
-                    StrokeThickness="1.4"
-                    StrokeLineCap="Round"
-                    VerticalAlignment="Center" />
-              <TextBox Name="QuickAddBox"
-                       Grid.Column="1"
-                       Classes="quickadd"
-                       Margin="9,0,8,0"
-                       PlaceholderText="{Binding QuickAddPlaceholder}"
-                       Text="{Binding QuickAddText}" />
-              <Border Grid.Column="2"
-                      Background="{StaticResource SurfaceActiveBrush}"
-                      CornerRadius="4"
-                      Padding="5,2"
-                      VerticalAlignment="Center">
-                <TextBlock Text="Enter" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" />
-              </Border>
-            </Grid>
-          </Border>
         </StackPanel>
 
         <!-- ════════ 목록 ════════ -->
-        <ScrollViewer Margin="16,14,16,0"
+        <ScrollViewer Grid.Row="2" Grid.RowSpan="{Binding ListRowSpan}"
+                      Classes="list"
+                      Classes.compact="{Binding IsCompact}"
+                      Classes.revealed="{Binding CompactRevealed}"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
           <Panel>
@@ -178,11 +112,11 @@
             <!-- ─── 오늘 ─── -->
             <StackPanel IsVisible="{Binding IsTodayTab}">
 
-              <TextBlock Classes="sectionlabel" Text="반복 루틴" IsVisible="{Binding HasTodayRoutines}" />
+              <TextBlock Classes="sectionlabel" Text="반복 루틴" IsVisible="{Binding ShowRoutineLabel}" />
               <ItemsControl ItemsSource="{Binding TodayRoutines}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:RoutineRow">
-                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
@@ -202,7 +136,7 @@
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
-                                    VerticalAlignment="Center" IsVisible="{Binding HasStreak}">
+                                    VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
                                 Width="10" Height="10" Stretch="Uniform" />
@@ -219,14 +153,14 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
 
-              <Border Height="1" Background="{StaticResource BorderSoftBrush}" Margin="0,12"
+              <Border Classes="divider" Classes.compact="{Binding IsCompact}"
                       IsVisible="{Binding HasTodayTasks}" />
 
-              <TextBlock Classes="sectionlabel" Text="할 일" IsVisible="{Binding HasTodayTasks}" />
+              <TextBlock Classes="sectionlabel" Text="할 일" IsVisible="{Binding ShowTaskLabel}" />
               <ItemsControl ItemsSource="{Binding TodayTasks}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
@@ -281,7 +215,7 @@
               <ItemsControl ItemsSource="{Binding CompletedTasks}" IsVisible="{Binding ShowCompleted}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Grid ColumnDefinitions="Auto,*,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
@@ -305,6 +239,9 @@
 
             <!-- ─── 루틴 ─── -->
             <StackPanel IsVisible="{Binding IsRoutineTab}">
+
+              <!-- 달성률 그래프는 컴팩트에서 접는다. 진행바와 같은 성격이고 50px 넘게 먹는다. -->
+              <StackPanel IsVisible="{Binding !IsCompact}">
 
               <TextBlock Classes="sectionlabel" Text="최근 4주 달성률" />
               <ItemsControl ItemsSource="{Binding Heatmap}" Margin="0,2,0,0">
@@ -332,11 +269,13 @@
 
               <Border Height="1" Background="{StaticResource BorderSoftBrush}" Margin="0,14" />
 
-              <TextBlock Classes="sectionlabel" Text="전체 루틴" IsVisible="{Binding HasRoutines}" />
+              </StackPanel>
+
+              <TextBlock Classes="sectionlabel" Text="전체 루틴" IsVisible="{Binding ShowAllRoutineLabel}" />
               <ItemsControl ItemsSource="{Binding AllRoutines}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:RoutineRow">
-                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
@@ -365,7 +304,7 @@
                                      Foreground="{StaticResource TextMutedBrush}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
-                                    VerticalAlignment="Center" IsVisible="{Binding HasStreak}">
+                                    VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
                                 Width="10" Height="10" Stretch="Uniform" />
@@ -390,11 +329,11 @@
             <!-- ─── 예정 ─── -->
             <StackPanel IsVisible="{Binding IsUpcomingTab}">
 
-              <TextBlock Classes="sectionlabel" Text="다가오는 할 일" IsVisible="{Binding HasUpcoming}" />
+              <TextBlock Classes="sectionlabel" Text="다가오는 할 일" IsVisible="{Binding ShowUpcomingLabel}" />
               <ItemsControl ItemsSource="{Binding UpcomingTasks}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
@@ -439,7 +378,94 @@
           </Panel>
         </ScrollViewer>
 
-      </DockPanel>
+        <!-- ════════ 탭 ════════ -->
+        <Border Grid.Row="{Binding TabRow}"
+                Classes="tabstrip" Classes.compact="{Binding IsCompact}"
+                IsVisible="{Binding ChromeVisible}">
+          <UniformGrid Columns="3">
+            <Button Classes="tab" Classes.active="{Binding IsTodayTab}" Content="오늘"
+                    Command="{Binding SelectTabCommand}" CommandParameter="0" />
+            <Button Classes="tab" Classes.active="{Binding IsRoutineTab}" Content="루틴"
+                    Command="{Binding SelectTabCommand}" CommandParameter="1" />
+            <Button Classes="tab" Classes.active="{Binding IsUpcomingTab}" Content="예정"
+                    Command="{Binding SelectTabCommand}" CommandParameter="2" />
+          </UniformGrid>
+        </Border>
+
+        <!-- ════════ 업데이트 소식 ════════
+             컴팩트에서도 접지 않는다. 놓치면 안 되는 이야기다. -->
+        <StackPanel Grid.Row="3" Classes="updatearea" Spacing="6"
+                    IsVisible="{Binding HasUpdateNotice}">
+          <Border Classes="updateinfo" IsVisible="{Binding IsUpdateBusy}">
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding UpdateBusyText}"
+                           FontSize="12"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding UpdatePercentText}"
+                           FontSize="12"
+                           Foreground="{StaticResource AccentBrush}"
+                           VerticalAlignment="Center"
+                           IsVisible="{Binding IsUpdateDownloading}" />
+              </Grid>
+              <ProgressBar Classes="thin"
+                           Value="{Binding UpdateProgress}"
+                           IsVisible="{Binding IsUpdateDownloading}" />
+            </StackPanel>
+          </Border>
+
+          <Button Classes="updatebar"
+                  IsVisible="{Binding UpdateReady}"
+                  Command="{Binding ApplyUpdateCommand}">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="{Binding UpdateText}" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="지금 재시작 →" VerticalAlignment="Center"
+                         Foreground="{StaticResource TextPrimaryBrush}" />
+            </Grid>
+          </Button>
+        </StackPanel>
+
+        <!-- ════════ 빠른 추가 ════════ -->
+        <Border Grid.Row="5"
+                Classes="addshell" Classes.compact="{Binding IsCompact}"
+                IsVisible="{Binding ChromeVisible}">
+          <StackPanel Spacing="6">
+            <TextBlock Text="{Binding QuickAddHint}"
+                       FontSize="11"
+                       Foreground="{StaticResource AccentBrush}"
+                       Margin="4,0,0,0"
+                       IsVisible="{Binding QuickAddHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <Border Classes="quickaddshell">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <Path Data="{StaticResource PlusIcon}"
+                      Width="13" Height="13"
+                      Stretch="Uniform"
+                      Stroke="{StaticResource TextMutedBrush}"
+                      StrokeThickness="1.4"
+                      StrokeLineCap="Round"
+                      VerticalAlignment="Center" />
+                <TextBox Name="QuickAddBox"
+                         Grid.Column="1"
+                         Classes="quickadd"
+                         Margin="9,0,8,0"
+                         PlaceholderText="{Binding QuickAddPlaceholder}"
+                         Text="{Binding QuickAddText}" />
+                <Border Grid.Column="2"
+                        Background="{StaticResource SurfaceActiveBrush}"
+                        CornerRadius="4"
+                        Padding="5,2"
+                        VerticalAlignment="Center">
+                  <TextBlock Text="Enter" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" />
+                </Border>
+              </Grid>
+            </Border>
+          </StackPanel>
+        </Border>
+
+
+      </Grid>
     </Border>
 
     <!-- ════════ 크기 조절 손잡이 ════════ -->
@@ -558,6 +584,16 @@
                          Text="못 끝낸 할 일은 오늘로 넘어오면서 밀린 일수가 붙습니다. 컴퓨터를 며칠 꺼놨어도 켜는 순간 그동안의 기록을 한 번에 정리합니다." />
               <TextBlock Classes="helpbody"
                          Text="루틴을 연달아 해내면 옆에 불꽃과 함께 며칠째인지 나옵니다. 예정된 날을 빠뜨리면 처음부터 다시 셉니다." />
+            </StackPanel>
+
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="4 · 컴팩트 모드" />
+              <TextBlock Classes="helpbody"
+                         Text="Ctrl+Shift+C 를 누르면 날짜 한 줄과 목록만 남습니다. 창을 400px보다 낮게 줄여도 저절로 켜집니다." />
+              <TextBlock Classes="helpbody"
+                         Text="탭·버튼·입력칸은 사라진 게 아니라 접힌 것입니다. 마우스를 창 위에 올리면 제자리에 다시 뜨고, 그동안에도 목록은 움직이지 않습니다. 적는 중에는 마우스를 치워도 입력칸이 남아 있습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="탭은 Ctrl+1 오늘, Ctrl+2 루틴, Ctrl+3 예정으로도 넘길 수 있습니다. 삭제는 컴팩트에서도 항목을 오른쪽 클릭하면 나옵니다." />
             </StackPanel>
 
           </StackPanel>
@@ -711,6 +747,18 @@
 
                   <Border Classes="groupline" />
 
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="3">
+                      <TextBlock Classes="settinglabel" Text="컴팩트 모드" />
+                      <TextBlock Classes="settinghint"
+                                 Text="내용만 남기고 나머지는 마우스를 올릴 때만 보여줍니다.  Ctrl+Shift+C" />
+                    </StackPanel>
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding CompactMode}"
+                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                  </Grid>
+
+                  <Border Classes="groupline" />
+
                   <TextBlock Classes="settinglabel" Text="마우스를 뗐을 때 투명도" />
                   <Border Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="3">
                     <UniformGrid Columns="4">
@@ -729,7 +777,7 @@
 
                   <TextBlock Classes="settinglabel" Text="크기" />
                   <TextBlock Classes="settinghint"
-                             Text="오른쪽 아래 모서리를 끌면 조절됩니다. 두 번 클릭하면 내용에 맞는 높이로 돌아갑니다. 작게 줄이면 위쪽이 접히고 목록이 그 자리를 씁니다." />
+                             Text="오른쪽 아래 모서리를 끌면 조절됩니다. 두 번 클릭하면 내용에 맞는 높이로 돌아갑니다. 400px보다 낮게 줄이면 컴팩트 모드가 저절로 켜집니다." />
                   <Button Name="ResetSizeButton" Classes="chip" Content="기본 크기로 되돌리기"
                           HorizontalAlignment="Left" Padding="11,6" />
 

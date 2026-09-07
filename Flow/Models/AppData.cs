@@ -79,6 +79,9 @@ public sealed class AppSettings
 
     public bool AlwaysOnTop { get; set; } = true;
 
+    /// <summary>머리말·탭·입력칸을 마우스가 올라올 때만 보여주는 모드.</summary>
+    public bool CompactMode { get; set; }
+
     /// <summary>마우스가 벗어났을 때의 창 불투명도(0.3-1.0).</summary>
     public double IdleOpacity { get; set; } = 0.92;
 

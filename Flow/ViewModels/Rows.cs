@@ -11,6 +11,16 @@ public abstract partial class RowBase : ObservableObject
 {
     [ObservableProperty] private bool _isEditing;
 
+    /// <summary>컴팩트 모드에서는 곁다리(연속일수·삭제 버튼)를 접고 줄 높이를 줄인다.</summary>
+    [ObservableProperty] private bool _isCompact;
+
+    partial void OnIsCompactChanged(bool value) => OnCompactChanged();
+
+    /// <summary>컴팩트 여부에 따라 값이 달라지는 속성이 있으면 여기서 다시 알린다.</summary>
+    protected virtual void OnCompactChanged()
+    {
+    }
+
     /// <summary>모델에서 뷰로 값을 밀어 넣는 동안 변경 콜백이 되돌아 실행되는 것을 막는다.</summary>
     protected bool Suppressed { get; set; }
 
@@ -34,13 +44,19 @@ public sealed partial class RoutineRow : RowBase
     {
         Model = model;
         _owner = owner;
+        IsCompact = owner.IsCompact;
         Sync();
     }
+
+    protected override void OnCompactChanged() => OnPropertyChanged(nameof(ShowStreak));
 
     public Routine Model { get; }
 
     public int Streak => Model.Streak;
     public bool HasStreak => Model.Streak > 1;
+
+    /// <summary>연속일수 불꽃은 컴팩트에서 접는다. 제목을 읽는 데 방해가 된다.</summary>
+    public bool ShowStreak => HasStreak && !IsCompact;
     public bool IsEveryDay => Model.IsEveryDay;
 
     /// <summary>오늘 해야 하는 루틴인지. 아닌 날에는 체크할 수 없다.</summary>
@@ -61,6 +77,7 @@ public sealed partial class RoutineRow : RowBase
 
         OnPropertyChanged(nameof(Streak));
         OnPropertyChanged(nameof(HasStreak));
+        OnPropertyChanged(nameof(ShowStreak));
         OnPropertyChanged(nameof(DaysText));
         OnPropertyChanged(nameof(IsEveryDay));
         OnPropertyChanged(nameof(IsScheduledToday));
@@ -139,6 +156,7 @@ public sealed partial class TaskRow : RowBase
     {
         Model = model;
         _owner = owner;
+        IsCompact = owner.IsCompact;
         Today = today;
         Sync(today);
     }

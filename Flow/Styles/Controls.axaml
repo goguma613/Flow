@@ -536,20 +536,64 @@
     <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
 
-  <!-- ===== 좁은 창에서 머리말 접기 ===== -->
+  <!-- ===== 컴팩트 모드 =====
+       컴팩트에서는 목록이 아래쪽 줄들까지 통째로 덮고, 탭과 입력칸이 그 위에 겹쳐 뜬다.
+       그래서 둘이 나타나고 사라져도 목록은 한 픽셀도 움직이지 않는다. -->
   <Style Selector="StackPanel.headerarea">
     <Setter Property="Margin" Value="16,14,16,0" />
     <Setter Property="Spacing" Value="12" />
   </Style>
   <Style Selector="StackPanel.headerarea.compact">
-    <Setter Property="Margin" Value="16,9,16,0" />
+    <Setter Property="Margin" Value="16,10,16,0" />
     <Setter Property="Spacing" Value="8" />
   </Style>
-  <Style Selector="StackPanel.addarea">
+
+  <Style Selector="Border.tabstrip">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="3" />
+    <Setter Property="Margin" Value="16,12,16,0" />
+  </Style>
+  <!-- 겹쳐 뜰 때는 밑에 깔린 목록과 구분되도록 테두리를 준다. -->
+  <Style Selector="Border.tabstrip.compact">
+    <Setter Property="Margin" Value="14,0,14,0" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+  </Style>
+
+  <Style Selector="StackPanel.updatearea">
+    <Setter Property="Margin" Value="16,10,16,0" />
+  </Style>
+
+  <Style Selector="Border.addshell">
     <Setter Property="Margin" Value="16,10,16,12" />
   </Style>
-  <Style Selector="StackPanel.addarea.compact">
-    <Setter Property="Margin" Value="16,7,16,8" />
+  <Style Selector="Border.addshell.compact">
+    <Setter Property="Margin" Value="14,8,14,10" />
+    <Setter Property="Padding" Value="5" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+  </Style>
+
+  <Style Selector="ScrollViewer.list">
+    <Setter Property="Margin" Value="16,14,16,0" />
+  </Style>
+  <Style Selector="ScrollViewer.list.compact">
+    <Setter Property="Margin" Value="16,9,16,0" />
+  </Style>
+  <!-- 겹쳐 뜬 탭과 입력칸이 마지막 줄을 가리지 않도록, 떠 있는 동안만 아래를 늘린다.
+       위쪽은 건드리지 않으므로 이미 보이던 줄은 제자리에 있다. -->
+  <Style Selector="ScrollViewer.list.compact.revealed">
+    <Setter Property="Padding" Value="0,0,0,108" />
+  </Style>
+
+  <Style Selector="Border.divider">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Background" Value="{StaticResource BorderSoftBrush}" />
+    <Setter Property="Margin" Value="0,12" />
+  </Style>
+  <Style Selector="Border.divider.compact">
+    <Setter Property="Margin" Value="0,7" />
   </Style>
 
   <!-- ===== 업데이트 알림 ===== -->
@@ -649,6 +693,24 @@
   </Style>
   <Style Selector="ScrollBar /template/ Thumb">
     <Setter Property="Background" Value="#3A3A42" />
+  </Style>
+
+  <!-- ===== 컴팩트에서의 줄 =====
+       기본 규칙들보다 반드시 뒤에 있어야 한다. Avalonia 는 나중에 적힌 쪽이 이긴다. -->
+  <Style Selector="Button.row.compact">
+    <Setter Property="Padding" Value="6,3" />
+  </Style>
+  <Style Selector="Button.row.compact TextBlock.title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LineHeight" Value="18" />
+  </Style>
+  <Style Selector="Button.row.compact Border.ring">
+    <Setter Property="Width" Value="17" />
+    <Setter Property="Height" Value="17" />
+  </Style>
+  <!-- 삭제·중요도 버튼은 접는다. 삭제는 우클릭 메뉴에 그대로 있다. -->
+  <Style Selector="Button.row.compact Button.rowaction">
+    <Setter Property="IsVisible" Value="False" />
   </Style>
 
 </Styles>

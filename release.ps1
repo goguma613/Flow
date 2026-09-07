@@ -56,7 +56,11 @@ Write-Host "  버전 표기 완료"
 
 # ── 2. 빌드
 Write-Host "▸ 빌드 중…" -ForegroundColor Cyan
-Get-Process Flow -ErrorAction SilentlyContinue | Stop-Process -Force
+# 이 저장소 안에서 돌고 있는 것만 닫는다.
+# 사용자가 쓰고 있는 실제사용파일\Flow.exe 를 죽이면 저장 안 된 입력이 날아간다.
+Get-Process Flow -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
+    Stop-Process -Force
 Start-Sleep -Seconds 1
 
 dotnet publish $csproj -c Release -o $dist --nologo -v q
@@ -79,7 +83,8 @@ Write-Host "  Flow.exe $mb MB"
 Write-Host "▸ 커밋과 태그" -ForegroundColor Cyan
 git -C $root add -A
 if ((git -C $root status --porcelain).Length -gt 0) {
-    git -C $root commit -m "Release v$Version"
+    $message = "Release v$Version`n`nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+    git -C $root commit -m $message
 }
 git -C $root tag -f "v$Version"
 git -C $root push origin HEAD

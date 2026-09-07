@@ -83,14 +83,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isHelpOpen;
 
     /// <summary>창을 직접 작게 줄였을 때. 머리말을 접어 목록에 자리를 내준다.</summary>
-    [ObservableProperty] private bool _isCompact;
-    [ObservableProperty] private bool _updateReady;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChromeVisible))]
+    [NotifyPropertyChangedFor(nameof(TabRow))]
+    [NotifyPropertyChangedFor(nameof(ListRowSpan))]
+    [NotifyPropertyChangedFor(nameof(ShowRoutineLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowTaskLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowAllRoutineLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowUpcomingLabel))]
+    private bool _isCompact;
+
+    /// <summary>컴팩트일 때 마우스가 창 위에 있거나 입력칸에 커서가 놓인 상태.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChromeVisible))]
+    private bool _compactRevealed;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
+    private bool _updateReady;
     [ObservableProperty] private string _updateText = "";
     [ObservableProperty] private bool _isCheckingUpdate;
     [ObservableProperty] private string _updateStatus = "";
 
     /// <summary>확인·내려받기가 진행 중일 때만 켜진다. 위쪽에 진행 줄을 띄운다.</summary>
-    [ObservableProperty] private bool _isUpdateBusy;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
+    private bool _isUpdateBusy;
     [ObservableProperty] private bool _isUpdateDownloading;
     [ObservableProperty] private string _updateBusyText = "";
     [ObservableProperty] private string _updatePercentText = "";
@@ -103,10 +120,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _hasCompleted;
     [ObservableProperty] private bool _todayIsEmpty;
     [ObservableProperty] private string _streakSummary = "";
-    [ObservableProperty] private bool _hasTodayRoutines;
-    [ObservableProperty] private bool _hasTodayTasks;
-    [ObservableProperty] private bool _hasUpcoming;
-    [ObservableProperty] private bool _hasRoutines;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRoutineLabel))]
+    private bool _hasTodayRoutines;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowTaskLabel))]
+    private bool _hasTodayTasks;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowUpcomingLabel))]
+    private bool _hasUpcoming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAllRoutineLabel))]
+    private bool _hasRoutines;
     [ObservableProperty] private bool _upcomingIsEmpty;
 
     public MainViewModel()
@@ -215,6 +240,49 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 탭이 바뀌면 같은 문장도 다르게 해석되므로 미리보기를 다시 만든다.
         UpdateQuickAddHint(QuickAddText);
     }
+
+    /// <summary>
+    /// 탭·버튼·입력칸을 지금 보여줄지. 보통 모드에서는 늘 보이고,
+    /// 컴팩트에서는 마우스가 올라와 있을 때만 보인다.
+    /// </summary>
+    public bool ChromeVisible => !IsCompact || CompactRevealed;
+
+    /// <summary>탭이 놓이는 줄. 컴팩트에서는 아래쪽 묶음으로 내려간다.</summary>
+    public int TabRow => IsCompact ? 4 : 1;
+
+    /// <summary>
+    /// 컴팩트에서는 목록이 아래쪽 줄들까지 덮는다.
+    /// 그래야 탭과 입력칸이 나타나고 사라져도 목록의 크기가 그대로다.
+    /// </summary>
+    public int ListRowSpan => IsCompact ? 4 : 1;
+
+    /// <summary>업데이트 소식이 있을 때만 그 자리를 차지한다.</summary>
+    public bool HasUpdateNotice => IsUpdateBusy || UpdateReady;
+
+    public bool ShowRoutineLabel => HasTodayRoutines && !IsCompact;
+    public bool ShowTaskLabel => HasTodayTasks && !IsCompact;
+    public bool ShowAllRoutineLabel => HasRoutines && !IsCompact;
+    public bool ShowUpcomingLabel => HasUpcoming && !IsCompact;
+
+    /// <summary>설정에 저장되는 컴팩트 모드. 창을 작게 줄여 자동으로 걸린 것과는 별개다.</summary>
+    public bool CompactMode
+    {
+        get => _data.Settings.CompactMode;
+        set
+        {
+            if (_data.Settings.CompactMode == value) return;
+            _data.Settings.CompactMode = value;
+            OnPropertyChanged();
+            Persist();
+            CompactModeChanged?.Invoke();
+        }
+    }
+
+    /// <summary>창 쪽에서 실제 접힘 여부를 다시 계산하도록 알린다.</summary>
+    public event Action? CompactModeChanged;
+
+    [RelayCommand]
+    private void ToggleCompact() => CompactMode = !CompactMode;
 
     public bool AlwaysOnTop
     {
@@ -518,6 +586,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void RaiseSettingsChanged()
     {
         OnPropertyChanged(nameof(AlwaysOnTop));
+        OnPropertyChanged(nameof(CompactMode));
         OnPropertyChanged(nameof(CarryOverIncomplete));
         OnPropertyChanged(nameof(RunAtStartup));
         OnPropertyChanged(nameof(AutoUpdate));
@@ -691,6 +760,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void ToggleCompleted() => ShowCompleted = !ShowCompleted;
+
+    partial void OnIsCompactChanged(bool value)
+    {
+        foreach (var row in TodayRoutines) row.IsCompact = value;
+        foreach (var row in AllRoutines) row.IsCompact = value;
+        foreach (var row in TodayTasks) row.IsCompact = value;
+        foreach (var row in CompletedTasks) row.IsCompact = value;
+        foreach (var row in UpcomingTasks) row.IsCompact = value;
+    }
 
     [RelayCommand]
     private void ToggleSettings()

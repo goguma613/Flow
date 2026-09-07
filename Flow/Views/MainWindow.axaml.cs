@@ -20,13 +20,18 @@ public partial class MainWindow : Window
 
     private const double DefaultWidth = 340;
 
-    /// <summary>이보다 낮게 줄이면 머리말을 접는다. 내용을 볼 자리가 없어지기 때문이다.</summary>
+    /// <summary>이보다 낮게 줄이면 컴팩트로 넘어간다. 머리말을 다 그릴 자리가 없어지기 때문이다.</summary>
     private const double CompactHeight = 400;
 
+    /// <summary>스쳐 지나가는 마우스에는 반응하지 않도록 이만큼 머물러야 펼친다.</summary>
+    private static readonly TimeSpan RevealDelay = TimeSpan.FromMilliseconds(150);
+
     private readonly DispatcherTimer _placementSaveTimer;
+    private readonly DispatcherTimer _revealTimer;
     private Control? _headerArea;
     private TextBox? _quickAddBox;
     private bool _placementRestored;
+    private bool _pointerInside;
 
     public MainWindow()
     {
@@ -36,7 +41,14 @@ public partial class MainWindow : Window
         _quickAddBox = this.FindControl<TextBox>("QuickAddBox");
 
         if (_headerArea is not null) _headerArea.PointerPressed += OnHeaderPressed;
-        if (_quickAddBox is not null) _quickAddBox.KeyDown += OnQuickAddKeyDown;
+        if (_quickAddBox is not null)
+        {
+            _quickAddBox.KeyDown += OnQuickAddKeyDown;
+
+            // 적는 도중에 입력칸이 사라지면 안 된다. 커서가 들어오고 나갈 때마다 다시 판단한다.
+            _quickAddBox.GotFocus += (_, _) => UpdateReveal();
+            _quickAddBox.LostFocus += (_, _) => UpdateReveal();
+        }
 
         var pin = this.FindControl<Button>("PinButton");
         if (pin is not null) pin.Click += (_, _) => Toggle(vm => vm.AlwaysOnTop = !vm.AlwaysOnTop);
@@ -72,10 +84,30 @@ public partial class MainWindow : Window
             UpdateCompactMode();
         };
 
-        PointerEntered += (_, _) => Opacity = 1.0;
-        PointerExited += (_, _) => ApplyIdleOpacity();
+        _revealTimer = new DispatcherTimer { Interval = RevealDelay };
+        _revealTimer.Tick += (_, _) =>
+        {
+            _revealTimer.Stop();
+            UpdateReveal();
+        };
+
+        PointerEntered += (_, _) =>
+        {
+            Opacity = 1.0;
+            _pointerInside = true;
+            _revealTimer.Start();
+        };
+        PointerExited += (_, _) =>
+        {
+            _pointerInside = false;
+            _revealTimer.Stop();
+            ApplyIdleOpacity();
+            UpdateReveal();
+        };
         Activated += (_, _) => ViewModel?.CheckRollover();
         Deactivated += (_, _) => ApplyIdleOpacity();
+        // 단축키는 입력칸에 커서가 있어도 먹어야 한다. TextBox 가 삼키기 전에 먼저 잡는다.
+        AddHandler(KeyDownEvent, OnShortcutKeyDown, RoutingStrategies.Tunnel);
         KeyDown += OnWindowKeyDown;
     }
 
@@ -85,8 +117,13 @@ public partial class MainWindow : Window
     {
         base.OnDataContextChanged(e);
 
+        if (ViewModel is not { } vm) return;
+
         // 새 실행 파일로 갈아탄 뒤에는 이 프로세스가 물러나야 한다.
-        if (ViewModel is { } vm) vm.RestartRequested += () => Dispatcher.UIThread.Post(ShutdownForUpdate);
+        vm.RestartRequested += () => Dispatcher.UIThread.Post(ShutdownForUpdate);
+        vm.CompactModeChanged += OnCompactModeChanged;
+
+        UpdateCompactMode();
     }
 
     private void ShutdownForUpdate()
@@ -143,14 +180,44 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 설정으로 켰거나, 사용자가 일부러 작게 줄여 머리말을 다 그릴 자리가 없을 때 접는다.
     /// 내용에 맞춰 높이가 정해질 때는 접지 않는다. 그때는 이미 딱 맞는 크기다.
-    /// 사용자가 일부러 작게 줄였을 때만 머리말을 접어 목록 자리를 만든다.
     /// </summary>
     private void UpdateCompactMode()
     {
         if (ViewModel is not { } vm) return;
 
-        vm.IsCompact = vm.Settings.WindowSizedByUser && Height < CompactHeight;
+        vm.IsCompact = vm.CompactMode || (vm.Settings.WindowSizedByUser && Height < CompactHeight);
+        UpdateReveal();
+    }
+
+    private void OnCompactModeChanged()
+    {
+        if (ViewModel is not { } vm) return;
+
+        if (vm.CompactMode)
+        {
+            // 컴팩트는 고정된 작은 창을 전제한다. 내용에 맞춰 높이가 따라다니면
+            // 겹쳐 뜬 입력칸이 창을 밀어내며 들썩인다.
+            SizeToContent = SizeToContent.Manual;
+            vm.Settings.WindowSizedByUser = true;
+        }
+        else if (Height < CompactHeight)
+        {
+            // 껐는데 창이 너무 낮으면 자동 규칙이 곧바로 다시 접어 버려서
+            // 아무 일도 안 일어난 것처럼 보인다. 먼저 자리를 만들어 준다.
+            Height = CompactHeight;
+        }
+
+        UpdateCompactMode();
+    }
+
+    /// <summary>컴팩트에서 탭·버튼·입력칸을 지금 보여줄지 다시 판단한다.</summary>
+    private void UpdateReveal()
+    {
+        if (ViewModel is not { } vm) return;
+
+        vm.CompactRevealed = _pointerInside || _quickAddBox?.IsFocused == true;
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -334,11 +401,39 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>Ctrl 조합 단축키. 포커스가 어디에 있든 창이 먼저 본다.</summary>
+    private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (ViewModel is not { } vm) return;
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
+
+        if (e.Key == Key.C && e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            vm.ToggleCompactCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        // 컴팩트에서는 탭이 숨어 있으니 손으로도 넘길 수 있어야 한다.
+        var tab = e.Key switch
+        {
+            Key.D1 => "0",
+            Key.D2 => "1",
+            Key.D3 => "2",
+            _ => null
+        };
+
+        if (tab is null) return;
+
+        vm.SelectTabCommand.Execute(tab);
+        e.Handled = true;
+    }
+
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Escape) return;
-
         if (ViewModel is not { } vm) return;
+
+        if (e.Key != Key.Escape) return;
 
         if (vm.IsRestoreOpen)
         {
