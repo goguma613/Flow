@@ -46,8 +46,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>켜 둔 채로 며칠 지나는 경우를 위한 재확인 주기. 시작할 때는 이와 무관하게 한 번 본다.</summary>
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(20);
 
-    /// <summary>시작하자마자 네트워크를 건드리지 않도록 잠깐 미룬다.</summary>
-    private static readonly TimeSpan UpdateCheckDelay = TimeSpan.FromSeconds(20);
+    /// <summary>
+    /// 창이 뜨고 자리를 잡을 때까지만 기다린다.
+    /// 확인 자체는 배경에서 도는 작은 요청이라 시작을 늦추지 않는다.
+    /// </summary>
+    private static readonly TimeSpan UpdateCheckDelay = TimeSpan.FromSeconds(0.8);
 
     /// <summary>
     /// 진행 표시를 최소 이만큼은 띄워 둔다.

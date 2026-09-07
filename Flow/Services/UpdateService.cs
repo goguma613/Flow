@@ -26,7 +26,8 @@ public sealed class UpdateService
     /// <summary>릴리스에 올라가는 실행 파일 이름. 이 이름이 아니면 찾지 못한다.</summary>
     private const string AssetName = "Flow.exe";
 
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
+    /// <summary>응답이 없을 때 오래 붙잡고 있지 않는다. 실패했다고 빨리 알려주는 편이 낫다.</summary>
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
 
     /// <summary>현재 실행 중인 앱의 버전.</summary>
     public static Version Current { get; } =
