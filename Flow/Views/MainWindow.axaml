@@ -582,10 +582,15 @@
           </Button>
         </Grid>
 
-        <StackPanel DockPanel.Dock="Bottom" Spacing="3" Margin="0,16,0,0">
-          <TextBlock Classes="settinghint" Text="데이터 저장 위치" />
+        <StackPanel DockPanel.Dock="Bottom" Spacing="5" Margin="0,16,0,0">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="settinghint" Text="데이터 저장 위치" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Classes="chip" Content="폴더 열기"
+                    Command="{Binding OpenDataFolderCommand}" Padding="11,6" />
+          </Grid>
           <TextBlock Classes="settinghint" Text="{Binding DataPath}"
-                     Foreground="{StaticResource TextDisabledBrush}" FontSize="10" />
+                     Foreground="{StaticResource TextDisabledBrush}" FontSize="10"
+                     TextWrapping="Wrap" />
         </StackPanel>
 
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
@@ -691,6 +696,36 @@
                     <Button Grid.Column="2" Classes="chip" Content="지금 확인"
                             Command="{Binding CheckForUpdatesCommand}" Padding="11,6" />
                   </Grid>
+
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- ─ 백업 ─ -->
+            <StackPanel>
+              <TextBlock Classes="groupheader" Text="백업" />
+              <Border Classes="group">
+                <StackPanel Spacing="10">
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="자동 백업" />
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoBackup}" />
+                  </Grid>
+                  <TextBlock Classes="settinghint"
+                             Text="하루에 한 번, 그리고 업데이트 직전에 복사본을 남깁니다. 최근 20개를 보관합니다." />
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinghint" Text="{Binding BackupSummary}" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="chip" Content="지금 백업"
+                            Command="{Binding BackUpNowCommand}" Padding="11,6" />
+                  </Grid>
+                  <Button Classes="chip" Content="백업 폴더 열기"
+                          Command="{Binding OpenBackupFolderCommand}"
+                          HorizontalAlignment="Left" Padding="11,6" />
+                  <TextBlock Classes="settinghint"
+                             Text="되돌리려면 백업 파일을 data.json 이라는 이름으로 바꿔 저장 폴더에 덮어쓰면 됩니다. 앱은 꺼 두고 하세요." />
 
                 </StackPanel>
               </Border>

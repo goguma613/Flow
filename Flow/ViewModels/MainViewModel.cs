@@ -92,6 +92,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _updateBusyText = "";
     [ObservableProperty] private string _updatePercentText = "";
     [ObservableProperty] private double _updateProgress;
+    [ObservableProperty] private string _backupSummary = "";
     [ObservableProperty] private bool _showCompleted;
     [ObservableProperty] private string _completedHeader = "";
     [ObservableProperty] private bool _hasCompleted;
@@ -139,6 +140,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         UpdateService.CleanUpAfterUpdate();
         ScheduleUpdateCheck();
+        BackUpIfDue();
+        RefreshBackupSummary();
 
         RebuildAll();
         if (result.Changed) Announce(result.DaysElapsed == 1
@@ -173,6 +176,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     public string DataPath => DataStore.FilePath;
+
+    public bool AutoBackup
+    {
+        get => _data.Settings.AutoBackup;
+        set
+        {
+            if (_data.Settings.AutoBackup == value) return;
+            _data.Settings.AutoBackup = value;
+            OnPropertyChanged();
+            Persist();
+        }
+    }
 
     public bool IsTodayTab => SelectedTab == 0;
     public bool IsRoutineTab => SelectedTab == 1;
@@ -308,6 +323,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DayEngine.SyncToday(_data, current);
         _store.RequestSave(_data);
 
+        BackUpIfDue();
+        RefreshBackupSummary();
         RebuildAll();
 
         if (result.Changed)
@@ -414,8 +431,78 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         FlushNow();
 
+        // 새 버전에 문제가 있어도 되돌릴 수 있게, 갈아타기 직전 상태를 남긴다.
+        if (_data.Settings.AutoBackup) BackupService.Create("update");
+
         if (_updates.ApplyAndRestart()) RestartRequested?.Invoke();
         else UpdateStatus = "적용하지 못했습니다 — 파일이 잠겨 있는지 확인하세요";
+    }
+
+    // ───────────────────────── 백업
+
+    /// <summary>하루에 한 번만 남긴다. 같은 날 여러 번 켜도 하나뿐이다.</summary>
+    private void BackUpIfDue()
+    {
+        if (!_data.Settings.AutoBackup) return;
+        if (_data.Settings.LastBackupDate == _today) return;
+
+        _store.Flush();
+        if (BackupService.Create() is null) return;
+
+        _data.Settings.LastBackupDate = _today;
+        Persist();
+    }
+
+    private void RefreshBackupSummary()
+    {
+        var (count, newest) = BackupService.Summary();
+
+        BackupSummary = count == 0
+            ? "백업 없음"
+            : $"{count}개 · 최근 {newest:M월 d일 HH:mm}";
+    }
+
+    [RelayCommand]
+    private void BackUpNow()
+    {
+        _store.Flush();
+
+        if (BackupService.Create("manual") is null)
+        {
+            Announce("백업하지 못했습니다");
+            return;
+        }
+
+        _data.Settings.LastBackupDate = _today;
+        Persist();
+        RefreshBackupSummary();
+        Announce("백업했습니다");
+    }
+
+    [RelayCommand]
+    private void OpenDataFolder() => OpenFolder(DataStore.Directory);
+
+    [RelayCommand]
+    private void OpenBackupFolder()
+    {
+        System.IO.Directory.CreateDirectory(BackupService.Directory);
+        OpenFolder(BackupService.Directory);
+    }
+
+    private void OpenFolder(string path)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception)
+        {
+            Announce("폴더를 열지 못했습니다");
+        }
     }
 
     public void Persist() => _store.RequestSave(_data);

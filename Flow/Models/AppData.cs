@@ -91,6 +91,12 @@ public sealed class AppSettings
     /// <summary>GitHub 릴리스에서 새 버전을 하루 한 번 확인할지.</summary>
     public bool AutoUpdate { get; set; } = true;
 
+    /// <summary>하루에 한 번, 그리고 업데이트 직전에 자동으로 복사본을 남길지.</summary>
+    public bool AutoBackup { get; set; } = true;
+
+    /// <summary>마지막으로 자동 백업한 날. 하루 한 번만 만들기 위해 본다.</summary>
+    public DateOnly? LastBackupDate { get; set; }
+
     /// <summary>마지막으로 업데이트를 확인한 시각.</summary>
     public DateTime? LastUpdateCheck { get; set; }
 
