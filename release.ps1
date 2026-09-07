@@ -1,4 +1,4 @@
-<#
+﻿<#
     새 버전을 내는 스크립트.
 
     사용법:
@@ -44,7 +44,7 @@ if ((gh auth status 2>&1 | Out-String) -notmatch 'Logged in') {
 
 # ── 1. 버전 올리기
 $text = Get-Content $csproj -Raw
-if ($text -notmatch '<Version>[\d.]+</Version>') { throw "Flow.csproj 에서 <Version> 을 찾지 못했습니다." }
+if ($text -notmatch '<Version>[\d.]+</Version>') { throw 'Flow.csproj 에서 Version 태그를 찾지 못했습니다.' }
 $text = $text -replace '<Version>[\d.]+</Version>', "<Version>$Version</Version>"
 Set-Content $csproj -Value $text -Encoding utf8 -NoNewline
 Write-Host "  버전 표기 완료"
