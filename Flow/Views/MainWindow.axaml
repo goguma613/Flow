@@ -589,108 +589,142 @@
         </StackPanel>
 
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Spacing="18">
+          <StackPanel Spacing="16">
 
-            <StackPanel Spacing="6">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="settinglabel" Text="하루 시작 시각" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <Button Classes="step" Content="−" Command="{Binding StepDayStartHourCommand}" CommandParameter="-1" />
-                  <TextBlock Text="{Binding DayStartHourText}"
-                             FontSize="14"
-                             MinWidth="46"
-                             TextAlignment="Center"
-                             VerticalAlignment="Center"
-                             Foreground="{StaticResource TextPrimaryBrush}" />
-                  <Button Classes="step" Content="+" Command="{Binding StepDayStartHourCommand}" CommandParameter="1" />
+            <!-- ─ 하루 ─ -->
+            <StackPanel>
+              <TextBlock Classes="groupheader" Text="하루" />
+              <Border Classes="group">
+                <StackPanel Spacing="10">
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="하루 시작 시각" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <Button Classes="step" Content="−" Command="{Binding StepDayStartHourCommand}" CommandParameter="-1" />
+                      <TextBlock Text="{Binding DayStartHourText}"
+                                 FontSize="14"
+                                 MinWidth="46"
+                                 TextAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 Foreground="{StaticResource TextPrimaryBrush}" />
+                      <Button Classes="step" Content="+" Command="{Binding StepDayStartHourCommand}" CommandParameter="1" />
+                    </StackPanel>
+                  </Grid>
+                  <TextBlock Classes="settinghint"
+                             Text="이 시각에 루틴 체크가 풀리고 날짜가 넘어갑니다. 04시로 두면 새벽 작업이 전날로 집계됩니다." />
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="미완료 할 일 자동 이월" />
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding CarryOverIncomplete}" />
+                  </Grid>
+                  <TextBlock Classes="settinghint" Text="끝내지 못한 할 일을 다음 날로 옮기고 밀린 일수를 표시합니다." />
+
                 </StackPanel>
-              </Grid>
-              <TextBlock Classes="settinghint"
-                         Text="이 시각에 루틴 체크가 풀리고 날짜가 넘어갑니다. 04시로 두면 새벽 작업이 전날로 집계됩니다." />
-            </StackPanel>
-
-            <StackPanel Spacing="6">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="settinglabel" Text="미완료 할 일 자동 이월" />
-                <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding CarryOverIncomplete}" />
-              </Grid>
-              <TextBlock Classes="settinghint" Text="끝내지 못한 할 일을 다음 날로 옮기고 밀린 일수를 표시합니다." />
-            </StackPanel>
-
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="settinglabel" Text="항상 위에 표시" />
-              <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AlwaysOnTop}" />
-            </Grid>
-
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="settinglabel" Text="부팅 시 자동 시작" />
-              <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding RunAtStartup}" />
-            </Grid>
-
-            <StackPanel Spacing="7">
-              <TextBlock Classes="settinglabel" Text="마우스를 뗐을 때 투명도" />
-              <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="3">
-                <UniformGrid Columns="4">
-                  <Button Classes="chip" Classes.active="{Binding IsOpacityFull}" Content="100%"
-                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="1.0" />
-                  <Button Classes="chip" Classes.active="{Binding IsOpacityHigh}" Content="92%"
-                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.92" />
-                  <Button Classes="chip" Classes.active="{Binding IsOpacityMid}" Content="80%"
-                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.80" />
-                  <Button Classes="chip" Classes.active="{Binding IsOpacityLow}" Content="65%"
-                          Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.65" />
-                </UniformGrid>
               </Border>
             </StackPanel>
 
-            <StackPanel Spacing="6">
-              <TextBlock Classes="settinglabel" Text="창 크기" />
-              <TextBlock Classes="settinghint"
-                         Text="오른쪽 아래 모서리를 끌면 조절됩니다. 두 번 클릭하면 내용에 맞는 높이로 돌아갑니다." />
-              <Button Name="ResetSizeButton" Classes="chip" Content="기본 크기로 되돌리기"
-                      HorizontalAlignment="Left" Padding="10,5" />
+            <!-- ─ 창 ─ -->
+            <StackPanel>
+              <TextBlock Classes="groupheader" Text="창" />
+              <Border Classes="group">
+                <StackPanel Spacing="10">
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="항상 위에 표시" />
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AlwaysOnTop}" />
+                  </Grid>
+
+                  <Border Classes="groupline" />
+
+                  <TextBlock Classes="settinglabel" Text="마우스를 뗐을 때 투명도" />
+                  <Border Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="3">
+                    <UniformGrid Columns="4">
+                      <Button Classes="chip" Classes.active="{Binding IsOpacityFull}" Content="100%"
+                              Command="{Binding SetIdleOpacityCommand}" CommandParameter="1.0" />
+                      <Button Classes="chip" Classes.active="{Binding IsOpacityHigh}" Content="92%"
+                              Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.92" />
+                      <Button Classes="chip" Classes.active="{Binding IsOpacityMid}" Content="80%"
+                              Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.80" />
+                      <Button Classes="chip" Classes.active="{Binding IsOpacityLow}" Content="65%"
+                              Command="{Binding SetIdleOpacityCommand}" CommandParameter="0.65" />
+                    </UniformGrid>
+                  </Border>
+
+                  <Border Classes="groupline" />
+
+                  <TextBlock Classes="settinglabel" Text="크기" />
+                  <TextBlock Classes="settinghint"
+                             Text="오른쪽 아래 모서리를 끌면 조절됩니다. 두 번 클릭하면 내용에 맞는 높이로 돌아갑니다. 작게 줄이면 위쪽이 접히고 목록이 그 자리를 씁니다." />
+                  <Button Name="ResetSizeButton" Classes="chip" Content="기본 크기로 되돌리기"
+                          HorizontalAlignment="Left" Padding="11,6" />
+
+                </StackPanel>
+              </Border>
             </StackPanel>
 
-            <StackPanel Spacing="6">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="settinglabel" Text="자동 업데이트" />
-                <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
-              </Grid>
-              <TextBlock Classes="settinghint"
-                         Text="앱을 켤 때마다 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
-              <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2,0,0">
-                <TextBlock Classes="settinghint" Text="{Binding AppVersionText}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Classes="settinghint" Text="{Binding UpdateStatus}"
-                           Margin="8,0,8,0" VerticalAlignment="Center"
-                           Foreground="{StaticResource TextMutedBrush}" />
-                <Button Grid.Column="2" Classes="chip" Content="지금 확인"
-                        Command="{Binding CheckForUpdatesCommand}" Padding="10,5" />
-              </Grid>
+            <!-- ─ 앱 ─ -->
+            <StackPanel>
+              <TextBlock Classes="groupheader" Text="앱" />
+              <Border Classes="group">
+                <StackPanel Spacing="10">
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="부팅 시 자동 시작" />
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding RunAtStartup}" />
+                  </Grid>
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="자동 업데이트" />
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
+                  </Grid>
+                  <TextBlock Classes="settinghint"
+                             Text="앱을 켤 때마다 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Classes="settinghint" Text="{Binding AppVersionText}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="settinghint" Text="{Binding UpdateStatus}"
+                               Margin="8,0,8,0" VerticalAlignment="Center"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                    <Button Grid.Column="2" Classes="chip" Content="지금 확인"
+                            Command="{Binding CheckForUpdatesCommand}" Padding="11,6" />
+                  </Grid>
+
+                </StackPanel>
+              </Border>
             </StackPanel>
 
-            <StackPanel Spacing="6">
-              <TextBlock Classes="settinglabel" Text="사용법" />
-              <Button Classes="chip" Content="사용법 다시 보기"
-                      Command="{Binding ToggleHelpCommand}"
-                      HorizontalAlignment="Left" Padding="10,5" />
-            </StackPanel>
+            <!-- ─ 도움말 ─ -->
+            <StackPanel>
+              <TextBlock Classes="groupheader" Text="도움말" />
+              <Border Classes="group">
+                <StackPanel Spacing="10">
 
-            <StackPanel Spacing="6">
-              <TextBlock Classes="settinglabel" Text="단축키" />
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="settinghint" Text="어디서나 불러오기" VerticalAlignment="Center" />
-                <Border Grid.Column="1" Classes="badge">
-                  <TextBlock Text="Ctrl + Alt + Space" FontSize="11"
-                             Foreground="{StaticResource TextSecondaryBrush}" />
-                </Border>
-              </Grid>
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="settinghint" Text="이름 바꾸기 · 삭제" VerticalAlignment="Center" />
-                <Border Grid.Column="1" Classes="badge">
-                  <TextBlock Text="항목 위에서 오른쪽 클릭" FontSize="11"
-                             Foreground="{StaticResource TextSecondaryBrush}" />
-                </Border>
-              </Grid>
+                  <Button Classes="chip" Content="사용법 다시 보기"
+                          Command="{Binding ToggleHelpCommand}"
+                          HorizontalAlignment="Left" Padding="11,6" />
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinghint" Text="어디서나 불러오기" VerticalAlignment="Center" />
+                    <Border Grid.Column="1" Classes="badge">
+                      <TextBlock Text="Ctrl + Alt + Space" FontSize="11"
+                                 Foreground="{StaticResource TextSecondaryBrush}" />
+                    </Border>
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinghint" Text="이름 바꾸기 · 삭제" VerticalAlignment="Center" />
+                    <Border Grid.Column="1" Classes="badge">
+                      <TextBlock Text="항목 위에서 오른쪽 클릭" FontSize="11"
+                                 Foreground="{StaticResource TextSecondaryBrush}" />
+                    </Border>
+                  </Grid>
+
+                </StackPanel>
+              </Border>
             </StackPanel>
 
           </StackPanel>

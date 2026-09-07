@@ -576,6 +576,26 @@
     <Setter Property="Background" Value="#215047" />
   </Style>
 
+  <!-- ===== 설정 묶음 ===== -->
+  <Style Selector="TextBlock.groupheader">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Margin" Value="3,0,0,7" />
+  </Style>
+  <Style Selector="Border.group">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderSoftBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="13,12" />
+  </Style>
+  <!-- 묶음 안에서 항목끼리 나누는 실선 -->
+  <Style Selector="Border.groupline">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Background" Value="{StaticResource BorderSoftBrush}" />
+    <Setter Property="Margin" Value="-13,2,-13,2" />
+  </Style>
+
   <!-- ===== 사용법 ===== -->
   <Style Selector="TextBlock.helpsection">
     <Setter Property="FontSize" Value="11" />
