@@ -49,11 +49,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>시작하자마자 네트워크를 건드리지 않도록 잠깐 미룬다.</summary>
     private static readonly TimeSpan UpdateCheckDelay = TimeSpan.FromSeconds(20);
 
+    /// <summary>
+    /// 진행 표시를 최소 이만큼은 띄워 둔다.
+    /// 회선이 빠르면 47MB가 2초 만에 끝나는데, 그대로면 번쩍하고 사라져 고장처럼 보인다.
+    /// </summary>
+    private static readonly TimeSpan MinimumBusyDisplay = TimeSpan.FromSeconds(1.6);
+
     private readonly DataStore _store;
     private readonly UpdateService _updates = new();
     private DispatcherTimer? _updateTimer;
+    private DateTime _busyStartedAt;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _statusTimer;
+    private readonly DispatcherTimer _busyTimer;
 
     private AppData _data;
     private DateOnly _today;
@@ -77,6 +85,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _updateText = "";
     [ObservableProperty] private bool _isCheckingUpdate;
     [ObservableProperty] private string _updateStatus = "";
+
+    /// <summary>확인·내려받기가 진행 중일 때만 켜진다. 위쪽에 진행 줄을 띄운다.</summary>
+    [ObservableProperty] private bool _isUpdateBusy;
+    [ObservableProperty] private bool _isUpdateDownloading;
+    [ObservableProperty] private string _updateBusyText = "";
+    [ObservableProperty] private string _updatePercentText = "";
+    [ObservableProperty] private double _updateProgress;
     [ObservableProperty] private bool _showCompleted;
     [ObservableProperty] private string _completedHeader = "";
     [ObservableProperty] private bool _hasCompleted;
@@ -101,6 +116,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _timer = new DispatcherTimer { Interval = TickInterval };
         _timer.Tick += (_, _) => CheckRollover();
         _timer.Start();
+
+        _busyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        _busyTimer.Tick += (_, _) =>
+        {
+            _busyTimer.Stop();
+            IsUpdateBusy = false;
+        };
 
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
         _statusTimer.Tick += (_, _) =>
@@ -327,18 +349,40 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IsCheckingUpdate = true;
         UpdateStatus = "확인 중…";
 
-        var found = await _updates.CheckAndStageAsync().ConfigureAwait(true);
+        _busyTimer.Stop();
+        IsUpdateBusy = true;
+        _busyStartedAt = DateTime.Now;
+        IsUpdateDownloading = false;
+        UpdateProgress = 0;
+        UpdatePercentText = "";
+        UpdateBusyText = "새 버전이 있는지 확인하는 중…";
+
+        var progress = new Progress<double>(value =>
+        {
+            // 내려받기가 시작된 순간부터 진행 줄을 보여준다.
+            IsUpdateDownloading = true;
+            UpdateProgress = value;
+            UpdatePercentText = $"{Math.Round(value * 100)}%";
+            UpdateBusyText = "새 버전을 내려받는 중…";
+        });
+
+        var found = await _updates.CheckAndStageAsync(progress).ConfigureAwait(true);
+        await HoldBusyDisplayAsync().ConfigureAwait(true);
 
         _data.Settings.LastUpdateCheck = DateTime.Now;
         Persist();
 
         IsCheckingUpdate = false;
+        IsUpdateDownloading = false;
 
         if (found is not null)
         {
             UpdateReady = true;
             UpdateText = $"새 버전 {found.Major}.{found.Minor}.{found.Build} 준비됨";
             UpdateStatus = UpdateText;
+
+            // 준비되면 아래쪽 초록 막대가 대신 알려준다.
+            IsUpdateBusy = false;
             Announce(UpdateText);
             return;
         }
@@ -346,12 +390,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (_updates.LastError is { Length: > 0 })
         {
             UpdateStatus = "확인하지 못했습니다";
+            UpdateBusyText = "업데이트를 확인하지 못했습니다";
+            _busyTimer.Start();
             if (manual) Announce("업데이트를 확인하지 못했습니다");
             return;
         }
 
         UpdateStatus = "최신 버전입니다";
+        UpdateBusyText = "최신 버전입니다";
+        _busyTimer.Start();
         if (manual) Announce("최신 버전입니다");
+    }
+
+    /// <summary>진행 표시가 눈에 남을 만큼은 유지한다.</summary>
+    private async Task HoldBusyDisplayAsync()
+    {
+        var remaining = MinimumBusyDisplay - (DateTime.Now - _busyStartedAt);
+        if (remaining > TimeSpan.Zero) await Task.Delay(remaining).ConfigureAwait(true);
     }
 
     [RelayCommand]
@@ -674,6 +729,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _timer.Stop();
         _statusTimer.Stop();
+        _busyTimer.Stop();
         _updateTimer?.Stop();
         _store.Dispose();
     }

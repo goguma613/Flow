@@ -108,6 +108,26 @@
 
         <!-- ════════ 빠른 추가 ════════ -->
         <StackPanel DockPanel.Dock="Bottom" Classes="addarea" Classes.compact="{Binding IsCompact}" Spacing="6">
+          <Border Classes="updateinfo" IsVisible="{Binding IsUpdateBusy}" Margin="0,0,0,2">
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding UpdateBusyText}"
+                           FontSize="12"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding UpdatePercentText}"
+                           FontSize="12"
+                           Foreground="{StaticResource AccentBrush}"
+                           VerticalAlignment="Center"
+                           IsVisible="{Binding IsUpdateDownloading}" />
+              </Grid>
+              <ProgressBar Classes="thin"
+                           Value="{Binding UpdateProgress}"
+                           IsVisible="{Binding IsUpdateDownloading}" />
+            </StackPanel>
+          </Border>
+
           <Button Classes="updatebar"
                   IsVisible="{Binding UpdateReady}"
                   Command="{Binding ApplyUpdateCommand}"
@@ -171,7 +191,8 @@
                       </Button.ContextMenu>
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                         <Border Classes="ring">
-                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <Panel Grid.Column="1" Margin="10,0,8,0">
                           <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
@@ -218,7 +239,8 @@
                                 Classes.high="{Binding IsHigh}"
                                 Classes.medium="{Binding IsMedium}"
                                 Classes.low="{Binding IsLow}">
-                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <Panel Grid.Column="1" Margin="10,0,8,0">
                           <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
@@ -262,7 +284,8 @@
                     <Button Classes="row" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Grid ColumnDefinitions="Auto,*,Auto">
                         <Border Classes="ring">
-                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <TextBlock Grid.Column="1" Classes="title" Text="{Binding Title}" Margin="10,0,8,0" />
                         <Button Grid.Column="2" Classes="rowaction"
@@ -323,7 +346,8 @@
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                         <Panel>
                           <Border Classes="ring" IsVisible="{Binding IsScheduledToday}">
-                            <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                           </Border>
                           <TextBlock Classes="notoday" Text="·"
                                      IsVisible="{Binding !IsScheduledToday}"
@@ -383,7 +407,8 @@
                                 Classes.high="{Binding IsHigh}"
                                 Classes.medium="{Binding IsMedium}"
                                 Classes.low="{Binding IsLow}">
-                          <Path Data="{StaticResource CheckIcon}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <Panel Grid.Column="1" Margin="10,0,8,0">
                           <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />

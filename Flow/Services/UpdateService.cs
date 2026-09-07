@@ -46,7 +46,10 @@ public sealed class UpdateService
     /// 새 버전이 있으면 내려받아 둔다. 성공하면 적용 준비가 된 버전을 돌려준다.
     /// 예외는 밖으로 던지지 않는다 — 업데이트 실패가 앱을 방해해선 안 된다.
     /// </summary>
-    public async Task<Version?> CheckAndStageAsync(CancellationToken token = default)
+    /// <param name="downloadProgress">0~1 사이의 내려받기 진행률. 화면에 보여주는 용도.</param>
+    public async Task<Version?> CheckAndStageAsync(
+        IProgress<double>? downloadProgress = null,
+        CancellationToken token = default)
     {
         try
         {
@@ -55,7 +58,7 @@ public sealed class UpdateService
             var info = await FetchLatestAsync(token).ConfigureAwait(false);
             if (info is null || info.Version <= Current) return null;
 
-            await DownloadAsync(info, token).ConfigureAwait(false);
+            await DownloadAsync(info, downloadProgress, token).ConfigureAwait(false);
 
             StagedVersion = info.Version;
             return info.Version;
@@ -98,7 +101,8 @@ public sealed class UpdateService
         return null;
     }
 
-    private static async Task DownloadAsync(UpdateInfo info, CancellationToken token)
+    private static async Task DownloadAsync(
+        UpdateInfo info, IProgress<double>? progress, CancellationToken token)
     {
         var directory = Path.GetDirectoryName(StagedPath)!;
         Directory.CreateDirectory(directory);
@@ -109,9 +113,37 @@ public sealed class UpdateService
         {
             http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Flow", CurrentText));
 
-            await using var source = await http.GetStreamAsync(info.DownloadUrl, token).ConfigureAwait(false);
+            using var response = await http
+                .GetAsync(info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, token)
+                .ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var total = response.Content.Headers.ContentLength ?? 0;
+
+            await using var source = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
             await using var target = File.Create(temporary);
-            await source.CopyToAsync(target, token).ConfigureAwait(false);
+
+            var buffer = new byte[81920];
+            long received = 0;
+            var lastReported = -1;
+
+            while (true)
+            {
+                var read = await source.ReadAsync(buffer, token).ConfigureAwait(false);
+                if (read == 0) break;
+
+                await target.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+                received += read;
+
+                if (total <= 0 || progress is null) continue;
+
+                // 1%가 바뀔 때만 알린다. 매 조각마다 알리면 화면이 쉴 새 없이 갱신된다.
+                var percent = (int)(received * 100 / total);
+                if (percent == lastReported) continue;
+
+                lastReported = percent;
+                progress.Report(percent / 100.0);
+            }
         }
 
         // 다 받은 뒤에 제자리로 옮긴다. 중간에 끊겨도 반쪽짜리가 남지 않는다.

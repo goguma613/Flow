@@ -198,7 +198,8 @@
   </Style>
   <Style Selector="Border.ring Path">
     <Setter Property="Stroke" Value="#17171A" />
-    <Setter Property="StrokeThickness" Value="2" />
+    <!-- Stretch 로 도형을 키우면 선 두께도 같은 비율로 굵어진다. -->
+    <Setter Property="StrokeThickness" Value="1.4" />
     <Setter Property="StrokeLineCap" Value="Round" />
     <Setter Property="StrokeJoin" Value="Round" />
     <Setter Property="Opacity" Value="0" />
@@ -552,6 +553,14 @@
   </Style>
 
   <!-- ===== 업데이트 알림 ===== -->
+  <Style Selector="Border.updateinfo">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderSoftBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="12,9" />
+  </Style>
+
   <Style Selector="Button.updatebar">
     <Setter Property="Background" Value="#1B3D33" />
     <Setter Property="BorderThickness" Value="0" />
