@@ -158,7 +158,8 @@ Todoist 데스크톱 앱은 Electron 기반이라 보통 300MB 이상 씁니다.
 
 ## 자동 업데이트
 
-하루에 한 번, 시작 20초 뒤에 [GitHub Releases](https://github.com/goguma613/Flow/releases)를 확인합니다.
+**앱을 켤 때마다** 한 번, 시작 20초 뒤에 [GitHub Releases](https://github.com/goguma613/Flow/releases)를 확인합니다.
+껐다 켜지 않고 며칠씩 두는 경우를 위해 20시간마다 한 번 더 봅니다.
 요청 한 건에 수 KB라 평소 동작에는 영향이 없고, 인터넷이 없거나 GitHub이 응답하지 않아도 조용히 넘어갑니다.
 
 새 버전이 있으면 백그라운드로 받아둔 뒤 입력칸 위에 `새 버전 1.0.1 준비됨 · 지금 재시작 →` 막대를 띄웁니다.

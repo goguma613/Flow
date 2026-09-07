@@ -43,7 +43,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private const int HeatmapDays = 28;
 
-    /// <summary>업데이트 확인 주기. 하루 한 번이면 충분하다.</summary>
+    /// <summary>켜 둔 채로 며칠 지나는 경우를 위한 재확인 주기. 시작할 때는 이와 무관하게 한 번 본다.</summary>
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(20);
 
     /// <summary>시작하자마자 네트워크를 건드리지 않도록 잠깐 미룬다.</summary>
@@ -51,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private readonly DataStore _store;
     private readonly UpdateService _updates = new();
+    private DispatcherTimer? _updateTimer;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _statusTimer;
 
@@ -299,25 +300,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void ScheduleUpdateCheck()
     {
-        if (!_data.Settings.AutoUpdate) return;
-
-        var last = _data.Settings.LastUpdateCheck;
-        if (last is { } when && DateTime.Now - when < UpdateCheckInterval) return;
-
-        var timer = new DispatcherTimer { Interval = UpdateCheckDelay };
-        timer.Tick += (_, _) =>
+        // 실행할 때마다 한 번 확인한다. 시작을 늦추지 않도록 잠깐만 미룬다.
+        var startup = new DispatcherTimer { Interval = UpdateCheckDelay };
+        startup.Tick += (_, _) =>
         {
-            timer.Stop();
-            _ = RunUpdateCheckAsync(announceWhenUpToDate: false);
+            startup.Stop();
+            _ = RunUpdateCheckAsync(manual: false);
         };
-        timer.Start();
+        startup.Start();
+
+        // 껐다 켜지 않고 며칠씩 두는 경우를 위해 하루에 한 번 더 본다.
+        _updateTimer = new DispatcherTimer { Interval = UpdateCheckInterval };
+        _updateTimer.Tick += (_, _) => _ = RunUpdateCheckAsync(manual: false);
+        _updateTimer.Start();
     }
 
     [RelayCommand]
-    private Task CheckForUpdates() => RunUpdateCheckAsync(announceWhenUpToDate: true);
+    private Task CheckForUpdates() => RunUpdateCheckAsync(manual: true);
 
-    private async Task RunUpdateCheckAsync(bool announceWhenUpToDate)
+    private async Task RunUpdateCheckAsync(bool manual)
     {
+        // 자동 확인을 꺼 뒀으면 아무 것도 하지 않는다. 직접 누른 경우는 그래도 확인한다.
+        if (!manual && !_data.Settings.AutoUpdate) return;
         if (IsCheckingUpdate) return;
 
         IsCheckingUpdate = true;
@@ -342,12 +346,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (_updates.LastError is { Length: > 0 })
         {
             UpdateStatus = "확인하지 못했습니다";
-            if (announceWhenUpToDate) Announce("업데이트를 확인하지 못했습니다");
+            if (manual) Announce("업데이트를 확인하지 못했습니다");
             return;
         }
 
         UpdateStatus = "최신 버전입니다";
-        if (announceWhenUpToDate) Announce("최신 버전입니다");
+        if (manual) Announce("최신 버전입니다");
     }
 
     [RelayCommand]
@@ -670,6 +674,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _timer.Stop();
         _statusTimer.Stop();
+        _updateTimer?.Stop();
         _store.Dispose();
     }
 }

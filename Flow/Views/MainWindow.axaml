@@ -632,7 +632,7 @@
                 <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
               </Grid>
               <TextBlock Classes="settinghint"
-                         Text="하루에 한 번 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
+                         Text="앱을 켤 때마다 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
               <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2,0,0">
                 <TextBlock Classes="settinghint" Text="{Binding AppVersionText}" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Classes="settinghint" Text="{Binding UpdateStatus}"
