@@ -98,10 +98,15 @@ if ($alreadyPublished) {
     git -C $root push origin "v$Version" --force
 }
 
-gh release create "v$Version" $exe `
-    --repo goguma613/Flow `
-    --title "v$Version" `
-    --notes $Notes
+# 여러 줄 문자열을 네이티브 명령에 직접 넘기면 PowerShell 5.1 이 인자를 쪼갠다.
+# 파일로 넘기면 그런 일이 없다.
+$notesFile = Join-Path $env:TEMP "flow_release_notes.md"
+Set-Content -LiteralPath $notesFile -Value $Notes -Encoding utf8
+
+gh release create "v$Version" $exe --repo goguma613/Flow --title "v$Version" --notes-file $notesFile
+if ($LASTEXITCODE -ne 0) { throw "릴리스 업로드에 실패했습니다." }
+
+Remove-Item -LiteralPath $notesFile -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "✓ v$Version 배포 완료" -ForegroundColor Green
