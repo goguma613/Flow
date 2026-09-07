@@ -93,6 +93,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _updatePercentText = "";
     [ObservableProperty] private double _updateProgress;
     [ObservableProperty] private string _backupSummary = "";
+    [ObservableProperty] private bool _isRestoreOpen;
+    [ObservableProperty] private bool _hasBackups;
     [ObservableProperty] private bool _showCompleted;
     [ObservableProperty] private string _completedHeader = "";
     [ObservableProperty] private bool _hasCompleted;
@@ -155,6 +157,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<TaskRow> CompletedTasks { get; } = [];
     public ObservableCollection<TaskRow> UpcomingTasks { get; } = [];
     public ObservableCollection<HeatCell> Heatmap { get; } = [];
+    public ObservableCollection<BackupRow> Backups { get; } = [];
 
     public AppSettings Settings => _data.Settings;
 
@@ -457,9 +460,72 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var (count, newest) = BackupService.Summary();
 
+        HasBackups = count > 0;
         BackupSummary = count == 0
             ? "백업 없음"
             : $"{count}개 · 최근 {newest:M월 d일 HH:mm}";
+    }
+
+    [RelayCommand]
+    private void ToggleRestore()
+    {
+        IsRestoreOpen = !IsRestoreOpen;
+        if (!IsRestoreOpen) return;
+
+        IsSettingsOpen = false;
+        IsHelpOpen = false;
+        RebuildBackupList();
+    }
+
+    private void RebuildBackupList()
+    {
+        Backups.Clear();
+        foreach (var entry in BackupService.List()) Backups.Add(new BackupRow(entry, this));
+    }
+
+    /// <summary>
+    /// 고른 백업으로 되돌리고, 앱을 끄지 않고 그 자리에서 다시 읽어들인다.
+    /// </summary>
+    public void RestoreFrom(BackupRow row)
+    {
+        _store.Flush();
+
+        if (!BackupService.Restore(row.Entry.Path))
+        {
+            Announce("되돌리지 못했습니다");
+            return;
+        }
+
+        _data = _store.Load();
+        _today = DayEngine.LogicalDate(DateTime.Now, _data.Settings.DayStartHour);
+        DayEngine.Rollover(_data, _today);
+        DayEngine.SyncToday(_data, _today);
+        _store.RequestSave(_data);
+
+        RaiseSettingsChanged();
+        RebuildAll();
+        RefreshBackupSummary();
+        RebuildBackupList();
+
+        IsRestoreOpen = false;
+        Announce($"{row.WhenText} 상태로 되돌렸습니다");
+    }
+
+    /// <summary>설정 값들은 _data 를 직접 보므로, 데이터를 갈아끼우면 다시 읽으라고 알려야 한다.</summary>
+    private void RaiseSettingsChanged()
+    {
+        OnPropertyChanged(nameof(AlwaysOnTop));
+        OnPropertyChanged(nameof(CarryOverIncomplete));
+        OnPropertyChanged(nameof(RunAtStartup));
+        OnPropertyChanged(nameof(AutoUpdate));
+        OnPropertyChanged(nameof(AutoBackup));
+        OnPropertyChanged(nameof(IdleOpacity));
+        OnPropertyChanged(nameof(IsOpacityFull));
+        OnPropertyChanged(nameof(IsOpacityHigh));
+        OnPropertyChanged(nameof(IsOpacityMid));
+        OnPropertyChanged(nameof(IsOpacityLow));
+        OnPropertyChanged(nameof(DayStartHour));
+        OnPropertyChanged(nameof(DayStartHourText));
     }
 
     [RelayCommand]
@@ -627,7 +693,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ToggleSettings()
     {
         IsSettingsOpen = !IsSettingsOpen;
-        if (IsSettingsOpen) IsHelpOpen = false;
+        if (!IsSettingsOpen) return;
+
+        IsHelpOpen = false;
+        IsRestoreOpen = false;
     }
 
     [RelayCommand]

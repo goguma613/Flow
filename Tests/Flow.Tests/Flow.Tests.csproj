@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="../../Flow/Services/DataStore.cs" />
+    <Compile Include="../../Flow/Services/BackupService.cs" />
     <Compile Include="../../Flow/Models/AppData.cs" />
     <Compile Include="../../Flow/Services/DayEngine.cs" />
     <Compile Include="../../Flow/Services/QuickAddParser.cs" />

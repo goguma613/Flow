@@ -43,6 +43,9 @@ internal static class Program
         Section("저장 · 직렬화");
         SerializationTests();
 
+        Section("백업 · 되돌리기");
+        BackupTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;
@@ -397,6 +400,71 @@ internal static class Program
         Check("히스토리 왕복", back.History[0].RoutinesDone, 2);
         Check("창 위치 왕복", back.Settings.WindowLeft, 1548d);
         Check("우선순위는 문자열로 기록", json.Contains("\"High\""), true);
+    }
+
+    private static void BackupTests()
+    {
+        // 이 테스트는 FLOW_DATA_DIR 로 지정된 임시 폴더에서만 돈다.
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 백업 테스트 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        // 깨끗한 상태에서 시작
+        if (System.IO.Directory.Exists(DataStore.Directory))
+            System.IO.Directory.Delete(DataStore.Directory, true);
+
+        using var store = new DataStore();
+
+        // 1) 루틴 3개짜리 상태를 저장하고 백업
+        var first = new AppData { LastLogicalDate = new DateOnly(2026, 9, 7) };
+        first.Routines.Add(new Routine { Title = "가" });
+        first.Routines.Add(new Routine { Title = "나" });
+        first.Routines.Add(new Routine { Title = "다" });
+        store.RequestSave(first);
+        store.Flush();
+
+        var madePath = BackupService.Create();
+        Check("백업 파일이 만들어짐", madePath is not null && System.IO.File.Exists(madePath), true);
+
+        var listed = BackupService.List();
+        Check("목록에 1개", listed.Count, 1);
+        Check("루틴 개수를 읽어냄", listed[0].Routines, 3);
+        Check("할 일 개수를 읽어냄", listed[0].Tasks, 0);
+
+        // 2) 내용을 바꾼다 (루틴 1개 + 할 일 2개)
+        var second = new AppData { LastLogicalDate = new DateOnly(2026, 9, 7) };
+        second.Routines.Add(new Routine { Title = "라" });
+        second.Tasks.Add(new TaskItem { Title = "할일1" });
+        second.Tasks.Add(new TaskItem { Title = "할일2" });
+        store.RequestSave(second);
+        store.Flush();
+
+        var changed = store.Load();
+        Check("바뀐 내용이 저장됨", changed.Routines.Count, 1);
+
+        // 3) 되돌린다
+        Check("되돌리기 성공", BackupService.Restore(listed[0].Path), true);
+
+        var restored = store.Load();
+        Check("루틴이 3개로 돌아옴", restored.Routines.Count, 3);
+        Check("할 일이 사라짐", restored.Tasks.Count, 0);
+        Check("첫 루틴 이름", restored.Routines[0].Title, "가");
+
+        // 4) 되돌리기 직전 상태도 백업돼 있어야 한다
+        var after = BackupService.List();
+        Check("백업이 2개로 늘어남", after.Count, 2);
+
+        var safety = after.FirstOrDefault(b => b.Tag == "before-restore");
+        Check("되돌리기 직전 백업이 있음", safety is not null, true);
+        Check("그 백업은 되돌리기 전 내용", safety!.Routines, 1);
+        Check("그 백업의 할 일 2개", safety.Tasks, 2);
+
+        // 5) 그걸로 다시 되돌리면 원상복구
+        Check("다시 되돌리기", BackupService.Restore(safety.Path), true);
+        var again = store.Load();
+        Check("바뀐 내용으로 복귀", again.Tasks.Count, 2);
     }
 
     private static bool TrySerialize(AppData data, out string json)

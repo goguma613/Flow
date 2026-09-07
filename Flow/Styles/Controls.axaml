@@ -576,6 +576,17 @@
     <Setter Property="Background" Value="#215047" />
   </Style>
 
+  <!-- ===== 되돌리기처럼 되돌릴 수 없는 동작 ===== -->
+  <Style Selector="Button.chip.danger">
+    <Setter Property="Foreground" Value="{StaticResource OverdueTextBrush}" />
+  </Style>
+  <Style Selector="Button.chip.danger /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource OverdueBgBrush}" />
+  </Style>
+  <Style Selector="Button.chip.danger:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="#4A2626" />
+  </Style>
+
   <!-- ===== 설정 묶음 ===== -->
   <Style Selector="TextBlock.groupheader">
     <Setter Property="FontSize" Value="11" />

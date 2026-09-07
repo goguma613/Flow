@@ -340,7 +340,12 @@ public partial class MainWindow : Window
 
         if (ViewModel is not { } vm) return;
 
-        if (vm.IsHelpOpen)
+        if (vm.IsRestoreOpen)
+        {
+            vm.IsRestoreOpen = false;
+            e.Handled = true;
+        }
+        else if (vm.IsHelpOpen)
         {
             vm.IsHelpOpen = false;
             e.Handled = true;

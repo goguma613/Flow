@@ -3,6 +3,7 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Flow.Models;
+using Flow.Services;
 
 namespace Flow.ViewModels;
 
@@ -257,4 +258,42 @@ public sealed partial class TaskRow : RowBase
         Title = Model.Title;
         Suppressed = false;
     }
+}
+
+public sealed partial class BackupRow : ObservableObject
+{
+    private readonly MainViewModel _owner;
+
+    [ObservableProperty] private bool _isConfirming;
+
+    public BackupRow(BackupEntry entry, MainViewModel owner)
+    {
+        Entry = entry;
+        _owner = owner;
+    }
+
+    public BackupEntry Entry { get; }
+
+    public string WhenText => Entry.CreatedAt.ToString("M월 d일 (ddd) HH:mm");
+
+    public string DetailText => $"루틴 {Entry.Routines} · 할 일 {Entry.Tasks}";
+
+    public bool HasTag => Entry.Tag.Length > 0;
+
+    public string TagText => Entry.Tag switch
+    {
+        "update" => "업데이트 직전",
+        "manual" => "직접 만듦",
+        "before-restore" => "되돌리기 직전",
+        _ => Entry.Tag
+    };
+
+    [RelayCommand]
+    private void Ask() => IsConfirming = true;
+
+    [RelayCommand]
+    private void Cancel() => IsConfirming = false;
+
+    [RelayCommand]
+    private void Confirm() => _owner.RestoreFrom(this);
 }

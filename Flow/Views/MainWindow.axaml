@@ -566,6 +566,79 @@
       </DockPanel>
     </Border>
 
+    <!-- ════════ 백업에서 되돌리기 ════════ -->
+    <Border IsVisible="{Binding IsRestoreOpen}"
+            CornerRadius="16"
+            Background="#181820"
+            BorderThickness="1"
+            BorderBrush="{StaticResource BorderBrush}">
+      <DockPanel LastChildFill="True" Margin="16,14,16,14">
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+          <StackPanel Spacing="2">
+            <TextBlock Text="백업에서 되돌리기" FontSize="16" FontWeight="Medium"
+                       Foreground="{StaticResource TextPrimaryBrush}" />
+            <TextBlock Text="고른 시점의 내용으로 바꿉니다" FontSize="11"
+                       Foreground="{StaticResource TextMutedBrush}" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="icon" Command="{Binding ToggleRestoreCommand}" VerticalAlignment="Top">
+            <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+          </Button>
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Bottom" Classes="settinghint" Margin="0,12,0,0"
+                   Text="되돌리기 직전 상태도 자동으로 백업되니, 잘못 골라도 다시 돌아올 수 있습니다." />
+
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <ItemsControl ItemsSource="{Binding Backups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:BackupRow">
+                  <Border Classes="group" Padding="12,10" Margin="0,0,0,8">
+                    <StackPanel Spacing="9">
+
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Spacing="3">
+                          <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Text="{Binding WhenText}" Classes="settinglabel" />
+                            <Border Classes="badge" IsVisible="{Binding HasTag}">
+                              <TextBlock Text="{Binding TagText}" FontSize="10"
+                                         Foreground="{StaticResource TextSecondaryBrush}" />
+                            </Border>
+                          </StackPanel>
+                          <TextBlock Text="{Binding DetailText}" Classes="settinghint" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="chip" Content="되돌리기"
+                                Command="{Binding AskCommand}"
+                                IsVisible="{Binding !IsConfirming}"
+                                Padding="11,6" VerticalAlignment="Center" />
+                      </Grid>
+
+                      <StackPanel Spacing="8" IsVisible="{Binding IsConfirming}">
+                        <TextBlock Classes="settinghint"
+                                   Text="지금 적혀 있는 내용을 이 시점의 것으로 덮어씁니다." />
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                          <Button Classes="chip danger" Content="되돌리기"
+                                  Command="{Binding ConfirmCommand}" Padding="11,6" />
+                          <Button Classes="chip" Content="취소"
+                                  Command="{Binding CancelCommand}" Padding="11,6" />
+                        </StackPanel>
+                      </StackPanel>
+
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Classes="empty" IsVisible="{Binding !HasBackups}"
+                       Text="아직 백업이 없습니다" />
+          </StackPanel>
+        </ScrollViewer>
+
+      </DockPanel>
+    </Border>
+
     <!-- ════════ 설정 ════════ -->
     <Border IsVisible="{Binding IsSettingsOpen}"
             CornerRadius="16"
@@ -582,16 +655,11 @@
           </Button>
         </Grid>
 
-        <StackPanel DockPanel.Dock="Bottom" Spacing="5" Margin="0,16,0,0">
-          <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Classes="settinghint" Text="데이터 저장 위치" VerticalAlignment="Center" />
-            <Button Grid.Column="1" Classes="chip" Content="폴더 열기"
-                    Command="{Binding OpenDataFolderCommand}" Padding="11,6" />
-          </Grid>
-          <TextBlock Classes="settinghint" Text="{Binding DataPath}"
-                     Foreground="{StaticResource TextDisabledBrush}" FontSize="10"
-                     TextWrapping="Wrap" />
-        </StackPanel>
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,16,0,0">
+          <TextBlock Classes="settinghint" Text="데이터 저장 위치" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Classes="chip" Content="폴더 열기"
+                  Command="{Binding OpenDataFolderCommand}" Padding="11,6" />
+        </Grid>
 
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="16">
@@ -721,11 +789,12 @@
                     <Button Grid.Column="1" Classes="chip" Content="지금 백업"
                             Command="{Binding BackUpNowCommand}" Padding="11,6" />
                   </Grid>
-                  <Button Classes="chip" Content="백업 폴더 열기"
-                          Command="{Binding OpenBackupFolderCommand}"
-                          HorizontalAlignment="Left" Padding="11,6" />
-                  <TextBlock Classes="settinghint"
-                             Text="되돌리려면 백업 파일을 data.json 이라는 이름으로 바꿔 저장 폴더에 덮어쓰면 됩니다. 앱은 꺼 두고 하세요." />
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <Button Classes="chip" Content="백업에서 되돌리기"
+                            Command="{Binding ToggleRestoreCommand}" Padding="11,6" />
+                    <Button Classes="chip" Content="폴더 열기"
+                            Command="{Binding OpenBackupFolderCommand}" Padding="11,6" />
+                  </StackPanel>
 
                 </StackPanel>
               </Border>
