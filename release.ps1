@@ -38,9 +38,13 @@ foreach ($tool in @('dotnet', 'git', 'gh')) {
     }
 }
 
-if ((gh auth status 2>&1 | Out-String) -notmatch 'Logged in') {
-    throw "GitHub 로그인이 필요합니다. 먼저 'gh auth login' 을 실행하세요."
-}
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+gh auth status *> $null
+$loggedIn = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $previous
+
+if (-not $loggedIn) { throw "GitHub 로그인이 필요합니다. 먼저 'gh auth login' 을 실행하세요." }
 
 # ── 1. 버전 올리기
 $text = Get-Content $csproj -Raw
@@ -80,8 +84,17 @@ git -C $root push origin "v$Version" --force
 Write-Host "▸ GitHub 릴리스 올리는 중…" -ForegroundColor Cyan
 if ([string]::IsNullOrWhiteSpace($Notes)) { $Notes = "Flow $Version" }
 
-if ((gh release view "v$Version" --repo goguma613/Flow 2>&1 | Out-String) -notmatch 'release not found') {
-    gh release delete "v$Version" --repo goguma613/Flow --yes --cleanup-tag 2>&1 | Out-Null
+# PowerShell 5.1 은 네이티브 명령의 stderr 를 오류로 승격시킨다.
+# 여기서는 종료 코드만 보면 되므로 잠시 꺼 둔다.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+gh release view "v$Version" --repo goguma613/Flow *> $null
+$alreadyPublished = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $previous
+
+if ($alreadyPublished) {
+    Write-Host "  같은 버전이 이미 있어 지우고 다시 올립니다"
+    gh release delete "v$Version" --repo goguma613/Flow --yes
     git -C $root push origin "v$Version" --force
 }
 
