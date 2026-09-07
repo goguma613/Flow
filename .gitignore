@@ -5,6 +5,10 @@ obj/
 # 배포본 — 실행 파일은 GitHub Releases 로만 올린다 (50MB짜리를 저장소에 두지 않는다)
 dist/
 
+# 실제로 쓰는 사본과 그 데이터. 저장소에 들어갈 것이 아니다.
+실제사용파일/
+data/
+
 # 작업 중 생긴 것들
 screenshot.png
 *.user

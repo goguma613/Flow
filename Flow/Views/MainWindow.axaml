@@ -33,15 +33,23 @@
       <DockPanel LastChildFill="True">
 
         <!-- ════════ 헤더 ════════ -->
-        <StackPanel Name="HeaderArea" DockPanel.Dock="Top" Margin="16,14,16,0" Spacing="12">
+        <StackPanel Name="HeaderArea" DockPanel.Dock="Top"
+                    Classes="headerarea" Classes.compact="{Binding IsCompact}">
 
           <Grid ColumnDefinitions="*,Auto">
             <StackPanel Spacing="2">
-              <TextBlock Text="{Binding DateText}"
-                         FontSize="17"
-                         FontWeight="Medium"
-                         Foreground="{StaticResource TextPrimaryBrush}" />
-              <StackPanel Orientation="Horizontal" Spacing="5">
+              <StackPanel Orientation="Horizontal" Spacing="9">
+                <TextBlock Text="{Binding DateText}"
+                           FontSize="17"
+                           FontWeight="Medium"
+                           Foreground="{StaticResource TextPrimaryBrush}" />
+                <TextBlock Text="{Binding ProgressText}"
+                           Classes="meta"
+                           VerticalAlignment="Bottom"
+                           Margin="0,0,0,2"
+                           IsVisible="{Binding IsCompact}" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding !IsCompact}">
                 <TextBlock Text="{Binding WeekdayText}"
                            FontSize="12"
                            Foreground="{StaticResource TextSecondaryBrush}" />
@@ -77,7 +85,7 @@
             </StackPanel>
           </Grid>
 
-          <Grid ColumnDefinitions="*,Auto">
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCompact}">
             <ProgressBar Classes="thin" Value="{Binding Progress}" VerticalAlignment="Center" />
             <TextBlock Grid.Column="1"
                        Text="{Binding ProgressText}"
@@ -99,7 +107,7 @@
         </StackPanel>
 
         <!-- ════════ 빠른 추가 ════════ -->
-        <StackPanel DockPanel.Dock="Bottom" Margin="16,10,16,12" Spacing="6">
+        <StackPanel DockPanel.Dock="Bottom" Classes="addarea" Classes.compact="{Binding IsCompact}" Spacing="6">
           <Button Classes="updatebar"
                   IsVisible="{Binding UpdateReady}"
                   Command="{Binding ApplyUpdateCommand}"

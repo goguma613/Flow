@@ -535,6 +535,22 @@
     <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
 
+  <!-- ===== 좁은 창에서 머리말 접기 ===== -->
+  <Style Selector="StackPanel.headerarea">
+    <Setter Property="Margin" Value="16,14,16,0" />
+    <Setter Property="Spacing" Value="12" />
+  </Style>
+  <Style Selector="StackPanel.headerarea.compact">
+    <Setter Property="Margin" Value="16,9,16,0" />
+    <Setter Property="Spacing" Value="8" />
+  </Style>
+  <Style Selector="StackPanel.addarea">
+    <Setter Property="Margin" Value="16,10,16,12" />
+  </Style>
+  <Style Selector="StackPanel.addarea.compact">
+    <Setter Property="Margin" Value="16,7,16,8" />
+  </Style>
+
   <!-- ===== 업데이트 알림 ===== -->
   <Style Selector="Button.updatebar">
     <Setter Property="Background" Value="#1B3D33" />

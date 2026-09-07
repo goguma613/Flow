@@ -20,6 +20,9 @@ public partial class MainWindow : Window
 
     private const double DefaultWidth = 340;
 
+    /// <summary>이보다 낮게 줄이면 머리말을 접는다. 내용을 볼 자리가 없어지기 때문이다.</summary>
+    private const double CompactHeight = 400;
+
     private readonly DispatcherTimer _placementSaveTimer;
     private Control? _headerArea;
     private TextBox? _quickAddBox;
@@ -63,7 +66,11 @@ public partial class MainWindow : Window
         };
 
         PositionChanged += (_, _) => SchedulePlacementSave();
-        Resized += (_, _) => SchedulePlacementSave();
+        Resized += (_, _) =>
+        {
+            SchedulePlacementSave();
+            UpdateCompactMode();
+        };
 
         PointerEntered += (_, _) => Opacity = 1.0;
         PointerExited += (_, _) => ApplyIdleOpacity();
@@ -131,7 +138,19 @@ public partial class MainWindow : Window
     {
         base.OnOpened(e);
         RestoreWindowPlacement();
+        UpdateCompactMode();
         ApplyIdleOpacity();
+    }
+
+    /// <summary>
+    /// 내용에 맞춰 높이가 정해질 때는 접지 않는다. 그때는 이미 딱 맞는 크기다.
+    /// 사용자가 일부러 작게 줄였을 때만 머리말을 접어 목록 자리를 만든다.
+    /// </summary>
+    private void UpdateCompactMode()
+    {
+        if (ViewModel is not { } vm) return;
+
+        vm.IsCompact = vm.Settings.WindowSizedByUser && Height < CompactHeight;
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -157,6 +176,7 @@ public partial class MainWindow : Window
             SizeToContent = SizeToContent.Manual;
             if (ViewModel is { } vm) vm.Settings.WindowSizedByUser = true;
 
+            UpdateCompactMode();
             BeginResizeDrag(edge, e);
         };
     }
@@ -169,6 +189,7 @@ public partial class MainWindow : Window
 
         if (ViewModel is { } vm)
         {
+            vm.IsCompact = false;
             vm.Settings.WindowSizedByUser = false;
             vm.Settings.WindowWidth = DefaultWidth;
             vm.Persist();

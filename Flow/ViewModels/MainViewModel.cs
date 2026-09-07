@@ -69,6 +69,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _selectedTab;
     [ObservableProperty] private bool _isSettingsOpen;
     [ObservableProperty] private bool _isHelpOpen;
+
+    /// <summary>창을 직접 작게 줄였을 때. 머리말을 접어 목록에 자리를 내준다.</summary>
+    [ObservableProperty] private bool _isCompact;
     [ObservableProperty] private bool _updateReady;
     [ObservableProperty] private string _updateText = "";
     [ObservableProperty] private bool _isCheckingUpdate;

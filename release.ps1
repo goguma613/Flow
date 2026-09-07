@@ -47,7 +47,8 @@ $ErrorActionPreference = $previous
 if (-not $loggedIn) { throw "GitHub 로그인이 필요합니다. 먼저 'gh auth login' 을 실행하세요." }
 
 # ── 1. 버전 올리기
-$text = Get-Content $csproj -Raw
+# -Encoding 을 빼면 5.1 이 UTF-8 파일을 ANSI 로 읽어 한글이 깨진다
+$text = Get-Content $csproj -Raw -Encoding UTF8
 if ($text -notmatch '<Version>[\d.]+</Version>') { throw 'Flow.csproj 에서 Version 태그를 찾지 못했습니다.' }
 $text = $text -replace '<Version>[\d.]+</Version>', "<Version>$Version</Version>"
 Set-Content $csproj -Value $text -Encoding utf8 -NoNewline
