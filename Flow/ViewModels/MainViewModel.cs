@@ -1022,7 +1022,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             parts.Add(FormatDue(parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : (DateOnly?)null), parsed.DueTime));
 
         // 자동으로 붙되, 붙는다는 것을 적는 순간 눈으로 보게 한다.
-        if (parsed.DueTime.HasValue) parts.Add("알림");
+        // 그리고 안 울릴 것에는 붙이지 않는다 — 붙여 놓고 조용하면 그게 더 나쁘다.
+        if (parsed.DueTime is { } hintTime) parts.Add(WillRing(parsed, hintTime) ? "알림" : "이미 지난 시각");
 
         if (parsed.Priority != Priority.None)
             parts.Add(parsed.Priority switch
@@ -1188,6 +1189,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DayOfWeek.Saturday => "토",
         _ => "일"
     };
+
+    /// <summary>
+    /// 지금 적고 있는 것이 실제로 울릴지.
+    ///
+    /// 밤 9시에 "오후 3시 회의"라고 적으면 오늘 15시가 되어 이미 지난 시각이다.
+    /// 날짜를 지어내지 않는 대신, 안 울린다는 것을 적는 순간 보여 준다.
+    /// 루틴은 다음 예정일에 다시 오므로 지난 시각이어도 언젠가 울린다.
+    /// </summary>
+    private bool WillRing(QuickAddResult parsed, TimeOnly time)
+    {
+        if (parsed.IsRoutine) return true;
+
+        var due = parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : _today);
+        var at = DayEngine.AtLogicalTime(due, time, _data.Settings.DayStartHour);
+
+        return (DateTime.Now - at).TotalMinutes <= _data.Settings.MissedGraceMinutes;
+    }
 
     /// <summary>날짜가 없으면 어디에 놓이는지를 알려 준다. 빈칸으로 두면 어디로 갔는지 알 수 없다.</summary>
     private string FormatDue(DateOnly? due, TimeOnly? time)

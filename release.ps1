@@ -81,14 +81,26 @@ Write-Host "  Flow.exe $mb MB"
 
 # ── 3. 커밋 · 태그 · 푸시
 Write-Host "▸ 커밋과 태그" -ForegroundColor Cyan
+# git 도 줄바꿈 경고 같은 것을 stderr 로 낸다. 5.1 은 그걸 오류로 승격시켜 배포를 멈춘다.
+# gh 와 같은 이유로 잠시 꺼 두고 종료 코드만 본다.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+
 git -C $root add -A
+if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "git add 에 실패했습니다." }
+
 if ((git -C $root status --porcelain).Length -gt 0) {
     $message = "Release v$Version`n`nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
     git -C $root commit -m $message
+    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "커밋에 실패했습니다." }
 }
+
 git -C $root tag -f "v$Version"
 git -C $root push origin HEAD
+if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "푸시에 실패했습니다." }
 git -C $root push origin "v$Version" --force
+
+$ErrorActionPreference = $previous
 
 # ── 4. 릴리스
 Write-Host "▸ GitHub 릴리스 올리는 중…" -ForegroundColor Cyan
