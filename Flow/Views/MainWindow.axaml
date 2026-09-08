@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Flow.ViewModels"
         x:Class="Flow.Views.MainWindow"
@@ -639,6 +639,8 @@
                          Text="'예정' 탭에서 날짜 없이 적을 때만 내일로 잡습니다. 그러지 않으면 방금 적은 것이 오늘로 가 버려 눈앞에서 사라집니다." />
               <TextBlock Classes="helpbody"
                          Text="시각을 적으면 그때 알려줍니다. 적는 동안 미리보기에 '알림'이 붙어 눈으로 확인됩니다. 원치 않으면 시각을 빼거나, 이미 적었다면 그 줄을 오른쪽 클릭해 알림을 끄면 됩니다." />
+              <TextBlock Classes="helpbody"
+                         Text="오전·오후를 안 적으면 아직 오지 않은 쪽으로 읽습니다. 밤 9시에 &quot;9시 22분&quot;이라고 적으면 오후 9시 22분입니다. 아침을 뜻했다면 &quot;오전 9시&quot;라고 적으시면 됩니다." />
             </StackPanel>
 
             <StackPanel Spacing="7">

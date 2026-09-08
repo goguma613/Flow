@@ -84,7 +84,12 @@ public static partial class QuickAddParser
     /// 루틴 탭에서 입력할 때 참. "매일" 같은 말을 안 붙여도 루틴으로 만들고,
     /// "월수금 운동"처럼 요일만 앞에 적은 것도 읽는다.
     /// </param>
-    public static QuickAddResult Parse(string input, DateOnly today, bool assumeRoutine = false)
+    /// <param name="now">
+    /// 지금 시각. 주면 "9시"처럼 오전·오후를 안 적은 시각을 아직 오지 않은 쪽으로 읽는다.
+    /// 안 주면 적힌 숫자 그대로 읽는다.
+    /// </param>
+    public static QuickAddResult Parse(string input, DateOnly today, bool assumeRoutine = false,
+        TimeOnly? now = null)
     {
         var text = input ?? "";
         var priority = Priority.None;
@@ -92,6 +97,9 @@ public static partial class QuickAddParser
         var isRoutine = false;
         DateOnly? due = null;
         TimeOnly? time = null;
+
+        // 오전·오후를 적지 않은 맨 숫자인지. 맨 숫자만 뜻이 두 개다.
+        var bareHour = false;
 
         text = Consume(text, PriorityPattern(), m =>
         {
@@ -156,6 +164,7 @@ public static partial class QuickAddParser
 
             if (meridiem is "오후" or "저녁" or "밤" && hour < 12) hour += 12;
             else if (meridiem is "오전" or "아침" && hour == 12) hour = 0;
+            else if (meridiem.Length == 0) bareHour = true;
 
             if (hour <= 23 && minute <= 59) time = new TimeOnly(hour, minute);
         });
@@ -169,6 +178,17 @@ public static partial class QuickAddParser
         if (!isRoutine) text = ParseDate(text, today, ref due);
 
         if (due is null && time is not null && !isRoutine) due = today;
+
+        // 밤 9시에 "9시 22분"이라고 적은 사람은 아침 9시를 뜻하지 않았다.
+        // 오전·오후를 안 적었고 그대로 읽으면 이미 지난 오늘이 될 때만 오후로 옮긴다.
+        //
+        // 루틴은 옮기지 않는다. 내일 아침에 다시 오므로 오전 9시도 멀쩡한 뜻이고,
+        // 밤에 아침 루틴을 적는 일이 그 반대보다 훨씬 흔하다.
+        if (bareHour && !isRoutine && now is { } current
+            && time is { Hour: >= 1 and <= 11 } bare && due == today && bare < current)
+        {
+            time = bare.AddHours(12);
+        }
 
         var title = ExtraSpacePattern().Replace(text, " ").Trim(' ', ',', '·', '、');
 

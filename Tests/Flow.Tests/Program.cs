@@ -205,6 +205,38 @@ internal static class Program
     {
         var today = new DateOnly(2026, 9, 7);   // 월요일
 
+        // ── 오전·오후를 안 적은 시각은 아직 오지 않은 쪽으로 읽는다.
+        //    밤 9시에 "9시 22분"이라고 적은 사람은 아침 9시를 뜻하지 않았다.
+        var night = new TimeOnly(21, 21);
+        var morning = new TimeOnly(8, 0);
+
+        Check("밤에 적은 맨 '9시 22분'은 오후로",
+            QuickAddParser.Parse("9시 22분 테스트", today, now: night).DueTime, new TimeOnly(21, 22));
+        Check("아침에 적은 맨 '9시 22분'은 그대로",
+            QuickAddParser.Parse("9시 22분 테스트", today, now: morning).DueTime, new TimeOnly(9, 22));
+
+        Check("오전이라고 적었으면 옮기지 않는다",
+            QuickAddParser.Parse("오전 9시 22분 테스트", today, now: night).DueTime, new TimeOnly(9, 22));
+        Check("오후라고 적었으면 그대로",
+            QuickAddParser.Parse("오후 9시 22분 테스트", today, now: morning).DueTime, new TimeOnly(21, 22));
+        Check("24시간 표기는 건드리지 않는다",
+            QuickAddParser.Parse("09:22 테스트", today, now: night).DueTime, new TimeOnly(9, 22));
+
+        // 날짜를 따로 적었으면 오늘이 아니므로 옮길 이유가 없다
+        Check("내일 것은 옮기지 않는다",
+            QuickAddParser.Parse("내일 9시 회의", today, now: night).DueTime, new TimeOnly(9, 0));
+
+        // 루틴은 내일 아침에 다시 오므로 오전 9시도 멀쩡한 뜻이다
+        Check("루틴은 옮기지 않는다",
+            QuickAddParser.Parse("매일 9시 약 먹기", today, now: night).DueTime, new TimeOnly(9, 0));
+
+        Check("12시는 애매하지 않으므로 그대로",
+            QuickAddParser.Parse("12시 30분 점심", today, now: new TimeOnly(13, 0)).DueTime,
+            new TimeOnly(12, 30));
+
+        Check("지금 시각을 안 주면 적힌 그대로",
+            QuickAddParser.Parse("9시 22분 테스트", today).DueTime, new TimeOnly(9, 22));
+
         var a = QuickAddParser.Parse("내일 오후 3시 보고서 제출 !1", today);
         Check("[할 일] 제목", a.Title, "보고서 제출");
         Check("[할 일] 내일로 마감", a.Due, new DateOnly(2026, 9, 8));
@@ -720,7 +752,8 @@ internal static class Program
 
         foreach (var routineMode in new[] { false, true })
         {
-            var r = QuickAddParser.Parse(input, today, routineMode);
+            // 앱과 같은 답을 내야 확인 도구로 쓸모가 있다. 지금 시각을 똑같이 넘긴다.
+            var r = QuickAddParser.Parse(input, today, routineMode, TimeOnly.FromDateTime(DateTime.Now));
             Console.WriteLine();
             Console.WriteLine(routineMode ? "── 루틴 탭에서 입력했을 때" : "── 오늘/예정 탭에서 입력했을 때");
             Console.WriteLine($"   입력   : {input}");

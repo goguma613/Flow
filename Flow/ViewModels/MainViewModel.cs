@@ -912,7 +912,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var input = QuickAddText?.Trim();
         if (string.IsNullOrWhiteSpace(input)) return;
 
-        var parsed = QuickAddParser.Parse(input, _today, IsRoutineTab);
+        var parsed = QuickAddParser.Parse(input, _today, IsRoutineTab, TimeOnly.FromDateTime(DateTime.Now));
         var title = string.IsNullOrWhiteSpace(parsed.Title) ? input : parsed.Title;
 
         if (parsed.IsRoutine)
@@ -1013,7 +1013,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var parsed = QuickAddParser.Parse(value, _today, IsRoutineTab);
+        // 미리보기와 실제 추가가 같은 '지금'을 봐야 적힌 것과 들어간 것이 어긋나지 않는다.
+        var parsed = QuickAddParser.Parse(value, _today, IsRoutineTab, TimeOnly.FromDateTime(DateTime.Now));
         var parts = new List<string>();
 
         if (parsed.IsRoutine)
