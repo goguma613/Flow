@@ -38,8 +38,11 @@ public sealed partial class HeatCell(DateOnly date, double rate, bool isToday) :
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
-    /// <summary>날짜 변경 확인 주기. DateTime 비교 한 번이라 유휴 부하가 사실상 없다.</summary>
-    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// 분 경계를 얼마나 지나서 깨울지. 0으로 두면 타이머가 살짝 이르게 깨어
+    /// 아직 그 분이 되지 않았다고 판정하고 다음 분까지 통째로 놓친다.
+    /// </summary>
+    private static readonly TimeSpan TickGuard = TimeSpan.FromMilliseconds(150);
 
     private const int HeatmapDays = 28;
 
@@ -156,12 +159,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DayEngine.SyncToday(_data, _today);
         _store.RequestSave(_data);
 
-        _timer = new DispatcherTimer { Interval = TickInterval };
+        // 고정 주기로 돌면 앱을 켠 시점에 따라 분 경계와 어긋난다.
+        // 21:22 알림이 21:22:28에 울리는 식인데, 사람은 그걸 늦다고 느낀다.
+        // 알림 시각은 늘 분 단위이므로 분 경계 바로 뒤로 맞춘다 —
+        // 늦는 느낌이 사라지고, 깨는 횟수는 분당 2번에서 1번으로 오히려 줄어든다.
+        _timer = new DispatcherTimer();
         _timer.Tick += (_, _) =>
         {
+            ScheduleNextTick();
             CheckRollover();
             FireDueReminders(DateTime.Now);
         };
+
+        ScheduleNextTick();
         _timer.Start();
 
         _busyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -466,7 +476,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DayStartHour = (DayStartHour + step + 24) % 24;
     }
 
-    /// <summary>30초마다, 그리고 창이 활성화될 때마다 날짜가 넘어갔는지 확인한다.</summary>
+    /// <summary>다음 분 경계 바로 뒤에 깨도록 간격을 다시 잡는다.</summary>
+    private void ScheduleNextTick()
+    {
+        var now = DateTime.Now;
+        var intoMinute = TimeSpan.FromSeconds(now.Second) + TimeSpan.FromMilliseconds(now.Millisecond);
+
+        _timer.Interval = TimeSpan.FromMinutes(1) - intoMinute + TickGuard;
+    }
+
+    /// <summary>매 분, 그리고 창이 활성화될 때마다 날짜가 넘어갔는지 확인한다.</summary>
     public void CheckRollover()
     {
         var current = DayEngine.LogicalDate(DateTime.Now, _data.Settings.DayStartHour);
