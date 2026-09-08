@@ -760,9 +760,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            // 날짜를 안 적었으면 보고 있는 탭에 맞춘다.
-            // '예정' 탭에서 추가한 항목이 오늘로 들어가 눈앞에서 사라지면 안 된다.
-            var due = parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : _today);
+            // 날짜를 안 적었으면 비워 둔다. 날짜 없는 것은 오늘 화면에 놓이므로
+            // 눈앞에서 사라지지 않고, 정한 적 없는 마감을 놓쳤다며 밀린 일수가 붙지도 않는다.
+            // 다만 '예정' 탭에서 적은 것까지 오늘로 보내면 방금 추가한 게 사라져 보인다.
+            var due = parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : (DateOnly?)null);
 
             _data.Tasks.Add(new TaskItem
             {
@@ -844,7 +845,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (parsed.IsRoutine)
             parts.Add(parsed.Days.Count == 0 ? "매일 반복" : $"매주 {string.Join("", parsed.Days.Select(ShortDay))}");
         else
-            parts.Add(FormatDue(parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : _today), parsed.DueTime));
+            parts.Add(FormatDue(parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : (DateOnly?)null), parsed.DueTime));
 
         if (parsed.Priority != Priority.None)
             parts.Add(parsed.Priority switch
@@ -909,13 +910,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             var row = new TaskRow(task, this, _today);
 
-            if (task.Done)
+            switch (DayEngine.BucketOf(task, _today))
             {
-                // 지난 날 완료한 항목은 보관만 하고 오늘 화면에는 넣지 않는다.
-                if (task.CompletedDate == _today) CompletedTasks.Add(row);
+                case TaskBucket.DoneToday: CompletedTasks.Add(row); break;
+                case TaskBucket.Upcoming: UpcomingTasks.Add(row); break;
+                case TaskBucket.Today: TodayTasks.Add(row); break;
+                // Archived — 지난 날 완료한 것. 보관만 하고 어느 목록에도 넣지 않는다.
             }
-            else if (!task.Due.HasValue || task.Due.Value > _today) UpcomingTasks.Add(row);
-            else TodayTasks.Add(row);
         }
 
         HasCompleted = CompletedTasks.Count > 0;
@@ -984,16 +985,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _ => "일"
     };
 
-    private string FormatDue(DateOnly due, TimeOnly? time)
+    /// <summary>날짜가 없으면 어디에 놓이는지를 알려 준다. 빈칸으로 두면 어디로 갔는지 알 수 없다.</summary>
+    private string FormatDue(DateOnly? due, TimeOnly? time)
     {
-        var delta = due.DayNumber - _today.DayNumber;
+        if (due is not { } value) return time.HasValue ? $"오늘 목록 {time.Value:HH:mm}" : "오늘 목록";
+
+        var delta = value.DayNumber - _today.DayNumber;
         var label = delta switch
         {
             0 => "오늘",
             1 => "내일",
             2 => "모레",
             > 0 and < 7 => $"{delta}일 뒤",
-            _ => $"{due.Month}/{due.Day}"
+            _ => $"{value.Month}/{value.Day}"
         };
 
         return time.HasValue ? $"{label} {time.Value:HH:mm}" : label;

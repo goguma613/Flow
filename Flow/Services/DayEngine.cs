@@ -14,8 +14,38 @@ public readonly record struct RolloverResult(bool Changed, int DaysElapsed)
 /// 날짜 롤오버 엔진. 순수 함수로만 구성되어 있어 시간을 주입해 테스트할 수 있다.
 /// 실제 자정이 아니라 <see cref="AppSettings.DayStartHour"/> 를 기준으로 "논리적 날짜"를 계산한다.
 /// </summary>
+/// <summary>할 일 하나가 어느 화면에 놓이는지.</summary>
+public enum TaskBucket
+{
+    /// <summary>오늘 화면. 오늘까지인 것, 지난 것, 그리고 날짜를 안 정한 것.</summary>
+    Today,
+
+    /// <summary>예정 화면. 날짜가 정해져 있고 아직 오지 않은 것.</summary>
+    Upcoming,
+
+    /// <summary>오늘 끝낸 것.</summary>
+    DoneToday,
+
+    /// <summary>지난 날 끝낸 것. 보관만 하고 어느 화면에도 내놓지 않는다.</summary>
+    Archived
+}
+
 public static class DayEngine
 {
+    /// <summary>
+    /// 할 일이 어느 화면에 놓이는지 정한다.
+    ///
+    /// 날짜를 안 정한 것은 '예정'이 아니다. 예정은 날짜가 정해진 앞일을 뜻하는데,
+    /// 날짜 없는 것은 아무 날에도 걸려 있지 않다. 그런 것을 예정에 넣으면
+    /// 기본 화면인 오늘에서는 흔적조차 안 보여 그대로 잊힌다.
+    /// </summary>
+    public static TaskBucket BucketOf(TaskItem task, DateOnly today)
+    {
+        if (task.Done) return task.CompletedDate == today ? TaskBucket.DoneToday : TaskBucket.Archived;
+
+        return task.Due is { } due && due > today ? TaskBucket.Upcoming : TaskBucket.Today;
+    }
+
     /// <summary>루틴 히스토리 보관 기간.</summary>
     private const int HistoryRetentionDays = 370;
 

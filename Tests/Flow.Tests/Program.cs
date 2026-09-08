@@ -37,6 +37,9 @@ internal static class Program
         Section("할 일 이월 · 정리");
         CarryOverTests();
 
+        Section("할 일이 놓이는 화면");
+        BucketTests();
+
         Section("빠른 추가 파서");
         ParserTests();
 
@@ -465,6 +468,47 @@ internal static class Program
         Check("다시 되돌리기", BackupService.Restore(safety.Path), true);
         var again = store.Load();
         Check("바뀐 내용으로 복귀", again.Tasks.Count, 2);
+    }
+
+    private static void BucketTests()
+    {
+        var today = new DateOnly(2026, 9, 8);
+
+        static TaskItem Task(DateOnly? due = null, bool done = false, DateOnly? completed = null)
+            => new() { Title = "무엇", Due = due, Done = done, CompletedDate = completed };
+
+        // 날짜를 안 정한 것은 예정이 아니다. 예정으로 보내면 기본 화면에서 영영 안 보인다.
+        Check("날짜 없음 → 오늘", DayEngine.BucketOf(Task(), today), TaskBucket.Today);
+        Check("오늘 마감 → 오늘", DayEngine.BucketOf(Task(today), today), TaskBucket.Today);
+        Check("어제 마감 → 오늘", DayEngine.BucketOf(Task(today.AddDays(-1)), today), TaskBucket.Today);
+        Check("한참 지난 마감 → 오늘", DayEngine.BucketOf(Task(today.AddDays(-30)), today), TaskBucket.Today);
+
+        Check("내일 마감 → 예정", DayEngine.BucketOf(Task(today.AddDays(1)), today), TaskBucket.Upcoming);
+        Check("다음 달 마감 → 예정", DayEngine.BucketOf(Task(today.AddDays(30)), today), TaskBucket.Upcoming);
+
+        Check("오늘 끝냄 → 완료됨",
+            DayEngine.BucketOf(Task(today, done: true, completed: today), today), TaskBucket.DoneToday);
+        Check("날짜 없이 오늘 끝냄 → 완료됨",
+            DayEngine.BucketOf(Task(done: true, completed: today), today), TaskBucket.DoneToday);
+        Check("어제 끝냄 → 보관",
+            DayEngine.BucketOf(Task(today, done: true, completed: today.AddDays(-1)), today), TaskBucket.Archived);
+        Check("내일 마감이어도 끝냈으면 완료됨",
+            DayEngine.BucketOf(Task(today.AddDays(1), done: true, completed: today), today), TaskBucket.DoneToday);
+
+        // 날짜가 없으면 이월도 없다. 정한 적 없는 마감을 놓쳤다고 셀 수는 없다.
+        var data = new AppData { LastLogicalDate = today.AddDays(-3) };
+        data.Settings.CarryOverIncomplete = true;
+        var loose = Task();
+        var dated = Task(today.AddDays(-3));
+        data.Tasks.Add(loose);
+        data.Tasks.Add(dated);
+
+        DayEngine.Rollover(data, today);
+
+        Check("날짜 없는 것은 밀린 일수가 안 붙음", loose.CarryOverCount, 0);
+        Check("날짜 없는 것은 날짜가 안 생김", loose.Due.HasValue, false);
+        Check("날짜 없어도 오늘에 그대로 있음", DayEngine.BucketOf(loose, today), TaskBucket.Today);
+        Check("날짜 있는 것은 이월됨", dated.CarryOverCount, 3);
     }
 
     private static bool TrySerialize(AppData data, out string json)

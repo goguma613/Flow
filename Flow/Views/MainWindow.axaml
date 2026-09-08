@@ -582,6 +582,10 @@
               </Border>
               <TextBlock Classes="helpbody"
                          Text="!1 빨강 · !2 주황 · !3 파랑 으로 중요도를 표시합니다." />
+              <TextBlock Classes="helpbody"
+                         Text="날짜를 안 적으면 날짜 없이 그대로 둡니다. 오늘 목록에 놓여 눈에 보이고, 정한 적 없는 마감을 놓쳤다며 밀린 일수가 붙지도 않습니다. 끝낼 때까지 조용히 남아 있습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="'예정' 탭에서 날짜 없이 적을 때만 내일로 잡습니다. 그러지 않으면 방금 적은 것이 오늘로 가 버려 눈앞에서 사라집니다." />
             </StackPanel>
 
             <StackPanel Spacing="7">
