@@ -26,18 +26,31 @@ public partial class MainWindow : Window
     /// <summary>스쳐 지나가는 마우스에는 반응하지 않도록 이만큼 머물러야 펼친다.</summary>
     private static readonly TimeSpan RevealDelay = TimeSpan.FromMilliseconds(150);
 
+    /// <summary>아래쪽 묶음을 부르는 자리. 창 맨 아래 이만큼 안으로 들어오면 올라온다.</summary>
+    private const double BottomTriggerZone = 26;
+
+    /// <summary>
+    /// 곧바로 내리면 탭을 겨누다 살짝 위로 벗어났을 때 사라져 버린다.
+    /// 잠깐 기다렸다가 내린다.
+    /// </summary>
+    private static readonly TimeSpan BottomHideDelay = TimeSpan.FromMilliseconds(220);
+
     private readonly DispatcherTimer _placementSaveTimer;
     private readonly DispatcherTimer _revealTimer;
+    private readonly DispatcherTimer _bottomHideTimer;
     private Control? _headerArea;
+    private Control? _tabStrip;
     private TextBox? _quickAddBox;
     private bool _placementRestored;
     private bool _pointerInside;
+    private Point _pointer;
 
     public MainWindow()
     {
         InitializeComponent();
 
         _headerArea = this.FindControl<Control>("HeaderArea");
+        _tabStrip = this.FindControl<Control>("TabStrip");
         _quickAddBox = this.FindControl<TextBox>("QuickAddBox");
 
         if (_headerArea is not null) _headerArea.PointerPressed += OnHeaderPressed;
@@ -91,11 +104,23 @@ public partial class MainWindow : Window
             UpdateReveal();
         };
 
+        _bottomHideTimer = new DispatcherTimer { Interval = BottomHideDelay };
+        _bottomHideTimer.Tick += (_, _) =>
+        {
+            _bottomHideTimer.Stop();
+            if (ViewModel is { } vm) vm.CompactBottomRevealed = false;
+        };
+
         PointerEntered += (_, _) =>
         {
             Opacity = 1.0;
             _pointerInside = true;
             _revealTimer.Start();
+        };
+        PointerMoved += (_, e) =>
+        {
+            _pointer = e.GetPosition(this);
+            UpdateBottom();
         };
         PointerExited += (_, _) =>
         {
@@ -212,12 +237,57 @@ public partial class MainWindow : Window
         UpdateCompactMode();
     }
 
-    /// <summary>컴팩트에서 탭·버튼·입력칸을 지금 보여줄지 다시 판단한다.</summary>
+    /// <summary>컴팩트에서 머리말 버튼을 지금 보여줄지 다시 판단한다.</summary>
     private void UpdateReveal()
     {
         if (ViewModel is not { } vm) return;
 
         vm.CompactRevealed = _pointerInside || _quickAddBox?.IsFocused == true;
+        UpdateBottom();
+    }
+
+    /// <summary>
+    /// 탭과 입력칸은 목록을 덮는다. 목록 위에서 떠 버리면 누르려던 항목이 가려져
+    /// 체크를 할 수 없다. 그래서 창 맨 아래에 다가갔을 때만 올린다.
+    /// </summary>
+    private void UpdateBottom()
+    {
+        if (ViewModel is not { } vm) return;
+
+        if (!vm.IsCompact)
+        {
+            _bottomHideTimer.Stop();
+            vm.CompactBottomRevealed = false;
+            return;
+        }
+
+        // 적는 중에는 마우스가 어디에 있든 내리지 않는다.
+        var wanted = _quickAddBox?.IsFocused == true
+                     || (_pointerInside && _pointer.Y >= Bounds.Height - CurrentBottomZone(vm));
+
+        if (wanted)
+        {
+            _bottomHideTimer.Stop();
+            vm.CompactBottomRevealed = true;
+        }
+        else if (vm.CompactBottomRevealed && !_bottomHideTimer.IsEnabled)
+        {
+            _bottomHideTimer.Start();
+        }
+    }
+
+    /// <summary>
+    /// 내려가 있을 때는 얇은 자리만으로 부른다.
+    /// 올라와 있을 때는 묶음 위를 지나도 유지되도록 묶음 전체를 자리로 친다.
+    /// </summary>
+    private double CurrentBottomZone(MainViewModel vm)
+    {
+        if (!vm.CompactBottomRevealed || _tabStrip is null) return BottomTriggerZone;
+
+        var top = _tabStrip.TranslatePoint(new Point(0, 0), this);
+        if (top is not { } point) return BottomTriggerZone;
+
+        return Math.Max(BottomTriggerZone, Bounds.Height - point.Y + 10);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

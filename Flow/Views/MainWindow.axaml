@@ -143,7 +143,7 @@
         <ScrollViewer Grid.Row="2" Grid.RowSpan="{Binding ListRowSpan}"
                       Classes="list"
                       Classes.compact="{Binding IsCompact}"
-                      Classes.revealed="{Binding CompactRevealed}"
+                      Classes.revealed="{Binding CompactBottomRevealed}"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
           <Panel>
@@ -397,10 +397,21 @@
           </Panel>
         </ScrollViewer>
 
+        <!-- ════════ 아래 묶음의 받침 ════════
+             탭과 입력칸은 서로 다른 줄에 있어서, 판을 따로 깔지 않으면
+             그 사이와 아래 틈으로 목록 글자가 비쳐 보인다. -->
+        <Border Grid.Row="4" Grid.RowSpan="2"
+                IsVisible="{Binding CompactBottomRevealed}"
+                Background="{StaticResource PanelBrush}"
+                CornerRadius="14,14,0,0"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{StaticResource BorderSoftBrush}" />
+
         <!-- ════════ 탭 ════════ -->
-        <Border Grid.Row="{Binding TabRow}"
+        <Border Name="TabStrip"
+                Grid.Row="{Binding TabRow}"
                 Classes="tabstrip" Classes.compact="{Binding IsCompact}"
-                IsVisible="{Binding ChromeVisible}">
+                IsVisible="{Binding BottomVisible}">
           <UniformGrid Columns="3">
             <Button Classes="tab" Classes.active="{Binding IsTodayTab}" Content="오늘"
                     Command="{Binding SelectTabCommand}" CommandParameter="0" />
@@ -449,7 +460,7 @@
         <!-- ════════ 빠른 추가 ════════ -->
         <Border Grid.Row="5"
                 Classes="addshell" Classes.compact="{Binding IsCompact}"
-                IsVisible="{Binding ChromeVisible}">
+                IsVisible="{Binding BottomVisible}">
           <StackPanel Spacing="6">
             <TextBlock Text="{Binding QuickAddHint}"
                        FontSize="11"
@@ -486,6 +497,14 @@
 
       </Grid>
     </Border>
+
+    <!-- ════════ 아래쪽에 탭·입력칸이 숨어 있다는 표시 ════════ -->
+    <Border IsVisible="{Binding ShowBottomHint}"
+            Width="30" Height="3" CornerRadius="2"
+            Background="{StaticResource BorderSoftBrush}"
+            HorizontalAlignment="Center" VerticalAlignment="Bottom"
+            Margin="0,0,0,9"
+            IsHitTestVisible="False" />
 
     <!-- ════════ 크기 조절 손잡이 ════════ -->
     <Border Name="ResizeRight" Classes="grip" Width="6"
@@ -610,7 +629,11 @@
               <TextBlock Classes="helpbody"
                          Text="Ctrl+Shift+C 를 누르면 날짜 한 줄과 목록만 남습니다. 창을 400px보다 낮게 줄여도 저절로 켜집니다." />
               <TextBlock Classes="helpbody"
-                         Text="탭·버튼·입력칸은 사라진 게 아니라 접힌 것입니다. 마우스를 창 위에 올리면 제자리에 다시 뜨고, 그동안에도 목록은 움직이지 않습니다. 적는 중에는 마우스를 치워도 입력칸이 남아 있습니다." />
+                         Text="접힌 것들은 사라진 게 아닙니다. 위쪽 버튼은 마우스를 창 위에 올리면 나타납니다. 머리말에 비워 둔 자리에 뜨므로 목록을 가리지 않습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="탭과 입력칸은 창 맨 아래에 마우스를 가져가야 올라옵니다. 목록 위에서 떠 버리면 누르려던 항목을 덮어 체크를 막기 때문입니다. 아래쪽 가운데 짧은 선이 그 자리를 알려 줍니다." />
+              <TextBlock Classes="helpbody"
+                         Text="올라와 있는 동안에도 목록은 움직이지 않습니다. 마우스를 위로 올리면 곧 내려가고, 적는 중에는 마우스를 치워도 입력칸이 남아 있습니다." />
               <TextBlock Classes="helpbody"
                          Text="탭은 Ctrl+1 오늘, Ctrl+2 루틴, Ctrl+3 예정으로도 넘길 수 있습니다. 삭제는 컴팩트에서도 항목을 오른쪽 클릭하면 나옵니다." />
             </StackPanel>
@@ -770,7 +793,7 @@
                     <StackPanel Spacing="3">
                       <TextBlock Classes="settinglabel" Text="컴팩트 모드" />
                       <TextBlock Classes="settinghint"
-                                 Text="내용만 남기고 나머지는 마우스를 올릴 때만 보여줍니다.  Ctrl+Shift+C" />
+                                 Text="내용만 남깁니다. 위쪽 버튼은 마우스를 올리면, 탭과 입력칸은 창 맨 아래로 가면 올라옵니다.  Ctrl+Shift+C" />
                     </StackPanel>
                     <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding CompactMode}"
                                   VerticalAlignment="Center" Margin="10,0,0,0" />

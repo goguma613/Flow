@@ -85,6 +85,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>창을 직접 작게 줄였을 때. 머리말을 접어 목록에 자리를 내준다.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ChromeVisible))]
+    [NotifyPropertyChangedFor(nameof(BottomVisible))]
+    [NotifyPropertyChangedFor(nameof(ShowBottomHint))]
     [NotifyPropertyChangedFor(nameof(TabRow))]
     [NotifyPropertyChangedFor(nameof(ListRowSpan))]
     [NotifyPropertyChangedFor(nameof(ShowRoutineLabel))]
@@ -97,6 +99,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ChromeVisible))]
     private bool _compactRevealed;
+
+    /// <summary>컴팩트일 때 아래쪽 묶음(탭·입력칸)이 올라와 있는 상태.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BottomVisible))]
+    [NotifyPropertyChangedFor(nameof(ShowBottomHint))]
+    private bool _compactBottomRevealed;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
     private bool _updateReady;
@@ -246,10 +254,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// 탭·버튼·입력칸을 지금 보여줄지. 보통 모드에서는 늘 보이고,
-    /// 컴팩트에서는 마우스가 올라와 있을 때만 보인다.
+    /// 머리말 버튼을 지금 보여줄지. 보통 모드에서는 늘 보이고,
+    /// 컴팩트에서는 마우스가 창 위에 있을 때만 보인다.
+    /// 버튼은 머리말에 비워 둔 자리에 뜨므로 목록을 가리지 않는다.
     /// </summary>
     public bool ChromeVisible => !IsCompact || CompactRevealed;
+
+    /// <summary>
+    /// 탭과 입력칸을 지금 보여줄지.
+    /// 이 둘은 목록을 덮으므로 컴팩트에서는 아래쪽 끝에 다가갔을 때만 올라온다.
+    /// 목록 위에서 떠 버리면 누르려던 항목을 가려 체크를 막는다.
+    /// </summary>
+    public bool BottomVisible => !IsCompact || CompactBottomRevealed;
+
+    /// <summary>아래쪽에 뭔가 숨어 있다는 것을 알려 주는 손잡이.</summary>
+    public bool ShowBottomHint => IsCompact && !CompactBottomRevealed;
 
     /// <summary>탭이 놓이는 줄. 컴팩트에서는 아래쪽 묶음으로 내려간다.</summary>
     public int TabRow => IsCompact ? 4 : 1;
