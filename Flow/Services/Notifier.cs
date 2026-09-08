@@ -52,6 +52,10 @@ public static class Notifier
 
     private static Action? _onActivated;
     private static bool _hooked;
+    private static int _serial;
+
+    /// <summary>알림마다 다른 이름. 64자 제한이 있어 짧게 만든다.</summary>
+    private static string NextTag() => $"r{DateTime.Now.Ticks:x}{_serial++:x}";
 
     /// <summary>
     /// 알림을 한 번 띄운다. 실패하면 false — 부른 쪽은 그때 처리 완료로 적지 않는다.
@@ -71,7 +75,12 @@ public static class Notifier
 
             builder.Show(toast =>
             {
-                // 같은 무리로 묶어 두면 알림 센터에서 한 덩어리로 정리된다.
+                // Windows 는 (Tag, Group) 쌍을 알림의 신원으로 본다.
+                // Group 만 주고 Tag 를 비워 두면 매번 같은 신원이 되어, 두 번째부터는
+                // 새 알림이 아니라 '기존 것의 갱신'으로 처리된다.
+                // 갱신은 배너를 띄우지 않고 알림 센터 항목만 조용히 바꾼다.
+                // 알림마다 다른 Tag 를 줘야 매번 배너가 뜬다.
+                toast.Tag = NextTag();
                 toast.Group = "flow-reminder";
             });
 
