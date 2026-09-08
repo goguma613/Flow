@@ -116,8 +116,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isRestoreOpen;
     [ObservableProperty] private bool _hasBackups;
     [ObservableProperty] private bool _showCompleted;
+
+    /// <summary>오늘 화면 아래에서 예정 목록을 펼쳐 놓았는지.</summary>
+    [ObservableProperty] private bool _showUpcomingOnToday;
     [ObservableProperty] private string _completedHeader = "";
     [ObservableProperty] private bool _hasCompleted;
+    [ObservableProperty] private string _upcomingHeader = "";
     [ObservableProperty] private bool _todayIsEmpty;
     [ObservableProperty] private string _streakSummary = "";
     [ObservableProperty]
@@ -771,6 +775,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private void ToggleUpcomingOnToday() => ShowUpcomingOnToday = !ShowUpcomingOnToday;
+
+    [RelayCommand]
     private void ToggleSettings()
     {
         IsSettingsOpen = !IsSettingsOpen;
@@ -896,6 +903,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         CompletedHeader = $"완료됨 {CompletedTasks.Count}개";
         HasTodayTasks = TodayTasks.Count > 0;
         HasUpcoming = UpcomingTasks.Count > 0;
+
+        DateOnly? soonest = null;
+        foreach (var row in UpcomingTasks)
+        {
+            var due = row.Model.Due;
+            if (due.HasValue && (soonest is null || due.Value < soonest.Value)) soonest = due.Value;
+        }
+
+        UpcomingHeader = soonest is { } next
+            ? $"예정 {UpcomingTasks.Count}개 · 가장 빠른 것 {next:M월 d일}"
+            : $"예정 {UpcomingTasks.Count}개";
         UpcomingIsEmpty = UpcomingTasks.Count == 0;
         TodayIsEmpty = TodayRoutines.Count == 0 && TodayTasks.Count == 0 && CompletedTasks.Count == 0;
     }

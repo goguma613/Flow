@@ -16,6 +16,45 @@
         Topmost="{Binding AlwaysOnTop}"
         FontFamily="Inter, Malgun Gothic, Segoe UI">
 
+  <Window.Resources>
+    <!-- 예정 줄은 예정 탭과 오늘 화면 아래, 두 곳에서 같은 모습으로 쓰인다. -->
+    <DataTemplate x:Key="UpcomingTaskTemplate" DataType="vm:TaskRow">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Button.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
+                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                      </Button.ContextMenu>
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Border Classes="ring"
+                                Classes.high="{Binding IsHigh}"
+                                Classes.medium="{Binding IsMedium}"
+                                Classes.low="{Binding IsLow}">
+                          <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                          <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
+                          <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
+                                   AttachedToVisualTree="OnRenameAttached"
+                                   KeyDown="OnRenameKeyDown"
+                                   LostFocus="OnRenameLostFocus" />
+                        </Panel>
+                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding HasDue}">
+                          <TextBlock Text="{Binding DueText}" FontSize="11"
+                                     Foreground="{StaticResource TextSecondaryBrush}" />
+                        </Border>
+                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
+                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
+                        </Button>
+                      </Grid>
+                    </Button>
+    </DataTemplate>
+  </Window.Resources>
+
   <Window.Transitions>
     <Transitions>
       <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
@@ -201,6 +240,23 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
 
+              <!-- 예정은 눌러야만 보이면 놓치기 쉽다. 오늘 화면에서도 개수와
+                   가장 빠른 날짜가 늘 보이고, 눌러서 그 자리에서 펼칠 수 있다. -->
+              <Button Classes="link" Classes.open="{Binding ShowUpcomingOnToday}"
+                      Command="{Binding ToggleUpcomingOnTodayCommand}"
+                      Margin="-6,10,-6,0"
+                      IsVisible="{Binding HasUpcoming}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="11" Height="11" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding UpcomingHeader}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+
+              <ItemsControl ItemsSource="{Binding UpcomingTasks}"
+                            ItemTemplate="{StaticResource UpcomingTaskTemplate}"
+                            IsVisible="{Binding ShowUpcomingOnToday}" />
+
               <Button Classes="link" Classes.open="{Binding ShowCompleted}"
                       Command="{Binding ToggleCompletedCommand}"
                       Margin="-6,10,-6,0"
@@ -330,45 +386,8 @@
             <StackPanel IsVisible="{Binding IsUpcomingTab}">
 
               <TextBlock Classes="sectionlabel" Text="다가오는 할 일" IsVisible="{Binding ShowUpcomingLabel}" />
-              <ItemsControl ItemsSource="{Binding UpcomingTasks}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
-                      <Button.ContextMenu>
-                        <ContextMenu>
-                          <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
-                          <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
-                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
-                        </ContextMenu>
-                      </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                        <Border Classes="ring"
-                                Classes.high="{Binding IsHigh}"
-                                Classes.medium="{Binding IsMedium}"
-                                Classes.low="{Binding IsLow}">
-                          <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
-                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <Panel Grid.Column="1" Margin="10,0,8,0">
-                          <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
-                          <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
-                                   AttachedToVisualTree="OnRenameAttached"
-                                   KeyDown="OnRenameKeyDown"
-                                   LostFocus="OnRenameLostFocus" />
-                        </Panel>
-                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding HasDue}">
-                          <TextBlock Text="{Binding DueText}" FontSize="11"
-                                     Foreground="{StaticResource TextSecondaryBrush}" />
-                        </Border>
-                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
-                                Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
-                          <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
-                        </Button>
-                      </Grid>
-                    </Button>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+              <ItemsControl ItemsSource="{Binding UpcomingTasks}"
+                            ItemTemplate="{StaticResource UpcomingTaskTemplate}" />
 
               <TextBlock Classes="empty" IsVisible="{Binding UpcomingIsEmpty}"
                          Text="예정된 할 일이 없습니다&#x0a;&quot;9/15 세금 신고&quot; 처럼 입력해보세요" />
