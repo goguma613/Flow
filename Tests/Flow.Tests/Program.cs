@@ -40,6 +40,9 @@ internal static class Program
         Section("할 일이 놓이는 화면");
         BucketTests();
 
+        Section("알림");
+        ReminderTests();
+
         Section("빠른 추가 파서");
         ParserTests();
 
@@ -510,6 +513,192 @@ internal static class Program
         Check("날짜 없어도 오늘에 그대로 있음", DayEngine.BucketOf(loose, today), TaskBucket.Today);
         Check("날짜 있는 것은 이월됨", dated.CarryOverCount, 3);
     }
+
+    private static void ReminderTests()
+    {
+        var today = new DateOnly(2026, 9, 8);          // 화요일
+        const int Hour = 4;                            // 하루 시작 04시
+
+        // ── 논리적 날짜 ↔ 시각 뒤집기
+        Check("09시는 같은 날",
+            DayEngine.AtLogicalTime(today, new TimeOnly(9, 0), Hour), today.ToDateTime(new TimeOnly(9, 0)));
+        Check("02시는 다음 달력일",
+            DayEngine.AtLogicalTime(today, new TimeOnly(2, 0), Hour),
+            today.AddDays(1).ToDateTime(new TimeOnly(2, 0)));
+        Check("03:59는 다음 날",
+            DayEngine.AtLogicalTime(today, new TimeOnly(3, 59), Hour).Day, 9);
+        Check("04:00은 같은 날",
+            DayEngine.AtLogicalTime(today, new TimeOnly(4, 0), Hour).Day, 8);
+        Check("하루 시작이 0시면 그냥 그 날",
+            DayEngine.AtLogicalTime(today, new TimeOnly(2, 0), 0).Day, 8);
+
+        // 왕복 불변식 — 어떤 시각이든 다시 논리적 날짜로 되돌아와야 한다
+        var roundTripOk = true;
+        for (var h = 0; h < 24; h++)
+        {
+            var moment = DayEngine.AtLogicalTime(today, new TimeOnly(h, 30), Hour);
+            if (DayEngine.LogicalDate(moment, Hour) != today) roundTripOk = false;
+        }
+        Check("24시간 전부 왕복이 맞음", roundTripOk, true);
+
+        // ── 언제 울리는가
+        Check("정시에 1건", Pending(Data(RoutineAt(9, 0)), today, 9, 0).Count, 1);
+        Check("1분 전에는 0건", Pending(Data(RoutineAt(9, 0)), today, 8, 59).Count, 0);
+
+        var handled = Data(RoutineAt(9, 0));
+        handled.Routines[0].RemindHandled = today;
+        Check("이미 처리한 몫은 0건", Pending(handled, today, 9, 30).Count, 0);
+
+        var done = Data(RoutineAt(9, 0));
+        done.Routines[0].DoneToday = true;
+        Check("오늘 해낸 루틴은 0건", Pending(done, today, 9, 30).Count, 0);
+
+        var noRemind = Data(RoutineAt(9, 0));
+        noRemind.Routines[0].Remind = false;
+        Check("알림 끈 루틴은 0건", Pending(noRemind, today, 9, 30).Count, 0);
+
+        var noTime = Data(RoutineAt(9, 0));
+        noTime.Routines[0].Time = null;
+        Check("시각 없는 루틴은 0건", Pending(noTime, today, 9, 30).Count, 0);
+
+        var off = Data(RoutineAt(9, 0));
+        off.Settings.RemindersEnabled = false;
+        Check("전체 스위치를 끄면 0건", Pending(off, today, 9, 30).Count, 0);
+
+        // 요일 루틴은 예정된 날에만
+        var mwf = Data(RoutineAt(9, 0));
+        mwf.Routines[0].Days = [DayOfWeek.Monday, DayOfWeek.Wednesday, DayOfWeek.Friday];
+        Check("월수금 루틴은 화요일에 0건", Pending(mwf, today, 9, 30).Count, 0);
+        Check("월수금 루틴은 수요일에 1건", Pending(mwf, today.AddDays(1), 9, 30).Count, 1);
+
+        // ── 할 일
+        Check("마감 시각에 1건", Pending(Data(TaskAt(today, 15, 0)), today, 15, 0).Count, 1);
+        Check("다른 날 마감은 0건", Pending(Data(TaskAt(today.AddDays(1), 15, 0)), today, 15, 30).Count, 0);
+
+        var doneTask = Data(TaskAt(today, 15, 0));
+        doneTask.Tasks[0].Done = true;
+        Check("끝낸 할 일은 0건", Pending(doneTask, today, 15, 30).Count, 0);
+
+        var noDueTime = Data(TaskAt(today, 15, 0));
+        noDueTime.Tasks[0].DueTime = null;
+        Check("시각 없는 할 일은 0건", Pending(noDueTime, today, 15, 30).Count, 0);
+
+        // 기본값 false 덕분에 예전 항목은 저절로 조용하다 — 마이그레이션이 필요 없는 이유
+        var legacy = Data(TaskAt(today, 15, 0));
+        legacy.Tasks[0].Remind = false;
+        Check("업데이트 전에 만든 항목은 안 울림", Pending(legacy, today, 15, 30).Count, 0);
+
+        // ── 유예 경계. 넘긴 것은 목록에 아예 안 나온다.
+        Check("59분 지각은 알림", Pending(Data(RoutineAt(9, 0)), today, 9, 59).Count, 1);
+        Check("60분 정각은 아직 알림", Pending(Data(RoutineAt(9, 0)), today, 10, 0).Count, 1);
+        Check("61분 지각은 조용히 지나감", Pending(Data(RoutineAt(9, 0)), today, 10, 1).Count, 0);
+        Check("지각 분수를 세어 줌", Pending(Data(RoutineAt(9, 0)), today, 9, 25)[0].LateMinutes, 25);
+
+        var noGrace = Data(RoutineAt(9, 0));
+        noGrace.Settings.MissedGraceMinutes = 0;
+        Check("유예 0이면 정시에만", Pending(noGrace, today, 9, 0).Count, 1);
+        Check("유예 0이면 1분만 늦어도 지나감", Pending(noGrace, today, 9, 1).Count, 0);
+
+        // 매일 루틴이 '어제 몫'으로 매 틱 걸리던 버그를 막아 둔다
+        Check("어제 몫이 덤으로 딸려오지 않음", Pending(Data(RoutineAt(9, 0)), today, 9, 0).Count, 1);
+
+        // ── 04시 경계: 03:50 알림은 04:05 에 '어제 몫'으로 나온다
+        var dawn = Data(RoutineAt(3, 50));
+        var pendingDawn = Pending(dawn, today, 4, 5);
+        Check("새벽 알림이 하루 넘어간 직후에도 잡힘", pendingDawn.Count, 1);
+        Check("그 몫은 어제 날짜로 기록됨", pendingDawn[0].ForDate, today.AddDays(-1));
+
+        ReminderEngine.MarkHandled(dawn, pendingDawn[0]);
+        Check("처리하면 어제로 적힘", dawn.Routines[0].RemindHandled, today.AddDays(-1));
+        Check("처리 뒤에는 0건", Pending(dawn, today, 4, 6).Count, 0);
+
+        // ── 며칠 꺼 뒀다 켰을 때 밀린 알림이 쏟아지지 않는다
+        Check("11시간 뒤에 켜면 아무것도 안 나옴", Pending(Data(RoutineAt(9, 0)), today, 20, 0).Count, 0);
+
+        // ── 미루기
+        var snoozed = Data(RoutineAt(9, 0));
+        var at930 = At(today, 9, 30);
+        Check("미루기 성공", ReminderEngine.Snooze(snoozed, snoozed.Routines[0].Id, true, at930, 10), true);
+        Check("미룬 직후에는 0건", Pending(snoozed, today, 9, 35).Count, 0);
+        Check("원래 시각으로 다시 나오지 않음", snoozed.Routines[0].RemindHandled, today);
+
+        var back = Pending(snoozed, today, 9, 40);
+        Check("10분 뒤에 다시 1건", back.Count, 1);
+        ReminderEngine.MarkHandled(snoozed, back[0]);
+        Check("나온 뒤에는 미루기가 비워짐", snoozed.Routines[0].RemindSnoozedUntil, (DateTime?)null);
+
+        // 자는 사이 미루기가 한참 지났으면 조용히 사라진다
+        var stale = Data(RoutineAt(9, 0));
+        ReminderEngine.Snooze(stale, stale.Routines[0].Id, true, at930, 10);
+        Check("죽은 미루기를 치움", ReminderEngine.ClearStaleSnoozes(stale, At(today, 14, 0)), 1);
+        Check("치운 뒤 0건", Pending(stale, today, 14, 1).Count, 0);
+
+        var fresh = Data(RoutineAt(9, 0));
+        ReminderEngine.Snooze(fresh, fresh.Routines[0].Id, true, at930, 10);
+        Check("살아 있는 미루기는 안 치움", ReminderEngine.ClearStaleSnoozes(fresh, At(today, 9, 45)), 0);
+
+        // 어제 미뤄 두고 치우지 않은 채 하루가 넘어가도 오늘 알림은 울려야 한다
+        var carried = Data(RoutineAt(9, 0));
+        ReminderEngine.Snooze(carried, carried.Routines[0].Id, true, at930, 10);
+        Check("지나간 미루기가 다음 날을 막지 않음",
+            Pending(carried, today.AddDays(1), 9, 0).Count, 1);
+
+        // ── 다음 알림 시각
+        Check("알림이 없으면 null", ReminderEngine.NextAt(Data(), At(today, 9, 0)), (DateTime?)null);
+        Check("오늘 남은 것", ReminderEngine.NextAt(Data(RoutineAt(9, 0)), At(today, 8, 0)),
+            (DateTime?)At(today, 9, 0));
+        Check("오늘 지났으면 내일 것", ReminderEngine.NextAt(Data(RoutineAt(9, 0)), At(today, 10, 0)),
+            (DateTime?)At(today.AddDays(1), 9, 0));
+
+        // ── 같은 틱을 두 번 돌려도 한 번만
+        var twice = Data(RoutineAt(9, 0));
+        var first = Pending(twice, today, 9, 0);
+        foreach (var p in first) ReminderEngine.MarkHandled(twice, p);
+        Check("두 번째 틱에서는 0건", Pending(twice, today, 9, 0).Count, 0);
+    }
+
+    // ── 시험용 도우미
+
+    private static DateTime At(DateOnly date, int hour, int minute)
+        => date.ToDateTime(new TimeOnly(hour, minute));
+
+    private static IReadOnlyList<PendingReminder> Pending(AppData data, DateOnly date, int hour, int minute)
+        => ReminderEngine.Pending(data, At(date, hour, minute));
+
+    private static Routine RoutineAt(int hour, int minute) => new()
+    {
+        Title = "약 먹기",
+        Time = new TimeOnly(hour, minute),
+        Remind = true
+    };
+
+    private static TaskItem TaskAt(DateOnly due, int hour, int minute) => new()
+    {
+        Title = "거래처 미팅",
+        Due = due,
+        DueTime = new TimeOnly(hour, minute),
+        Remind = true
+    };
+
+    private static AppData Data(Routine routine)
+    {
+        var data = Data();
+        data.Routines.Add(routine);
+        return data;
+    }
+
+    private static AppData Data(TaskItem task)
+    {
+        var data = Data();
+        data.Tasks.Add(task);
+        return data;
+    }
+
+    private static AppData Data() => new()
+    {
+        LastLogicalDate = new DateOnly(2026, 9, 8),
+        Settings = { DayStartHour = 4, MissedGraceMinutes = 60, RemindersEnabled = true }
+    };
 
     private static bool TrySerialize(AppData data, out string json)
     {

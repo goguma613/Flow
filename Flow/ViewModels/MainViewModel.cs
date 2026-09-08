@@ -157,7 +157,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _store.RequestSave(_data);
 
         _timer = new DispatcherTimer { Interval = TickInterval };
-        _timer.Tick += (_, _) => CheckRollover();
+        _timer.Tick += (_, _) =>
+        {
+            CheckRollover();
+            FireDueReminders(DateTime.Now);
+        };
         _timer.Start();
 
         _busyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -198,6 +202,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<TaskRow> UpcomingTasks { get; } = [];
     public ObservableCollection<HeatCell> Heatmap { get; } = [];
     public ObservableCollection<BackupRow> Backups { get; } = [];
+
+    /// <summary>
+    /// 울렸는데 아직 처리되지 않은 항목들. 파일에 남기지 않는다 —
+    /// 앱을 껐다 켜면 사라지지만, 그때는 목록에 마감 시각이 그대로 보인다.
+    /// </summary>
+    private readonly HashSet<Guid> _ringing = [];
 
     public AppSettings Settings => _data.Settings;
 
@@ -306,6 +316,57 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void ToggleCompact() => CompactMode = !CompactMode;
+
+    public bool RemindersEnabled
+    {
+        get => _data.Settings.RemindersEnabled;
+        set
+        {
+            if (_data.Settings.RemindersEnabled == value) return;
+            _data.Settings.RemindersEnabled = value;
+            OnPropertyChanged();
+            Persist();
+
+            // 끄면 물든 줄도 같이 걷는다. 끈 기능이 화면에 남아 있으면 안 된다.
+            if (!value)
+            {
+                _ringing.Clear();
+                RefreshRinging();
+            }
+        }
+    }
+
+    public bool ReminderSound
+    {
+        get => _data.Settings.ReminderSound;
+        set
+        {
+            if (_data.Settings.ReminderSound == value) return;
+            _data.Settings.ReminderSound = value;
+            OnPropertyChanged();
+            Persist();
+        }
+    }
+
+    /// <summary>설정 화면에 "다음 알림 09:00"을 적어 기능이 살아 있음을 보인다.</summary>
+    public string NextReminderText
+    {
+        get
+        {
+            if (!_data.Settings.RemindersEnabled) return "꺼짐";
+            if (ReminderEngine.NextAt(_data, DateTime.Now) is not { } next) return "예정된 알림 없음";
+
+            var days = DateOnly.FromDateTime(next).DayNumber - DateOnly.FromDateTime(DateTime.Now).DayNumber;
+            var when = days switch
+            {
+                0 => "오늘",
+                1 => "내일",
+                _ => $"{next.Month}/{next.Day}"
+            };
+
+            return $"다음 {when} {next:HH:mm}";
+        }
+    }
 
     public bool AlwaysOnTop
     {
@@ -420,6 +481,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DayEngine.SyncToday(_data, current);
         _store.RequestSave(_data);
 
+        _ringing.Clear();
+        ReminderEngine.ClearStaleSnoozes(_data, DateTime.Now);
+
         BackUpIfDue();
         RefreshBackupSummary();
         RebuildAll();
@@ -430,6 +494,102 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 ? "새 하루 시작 · 루틴을 초기화했습니다"
                 : $"{result.DaysElapsed}일치를 정산하고 초기화했습니다");
         }
+    }
+
+    /// <summary>
+    /// 알림이 새로 울렸다. 창을 밝힐지, 창이 숨어 있으니 Windows 알림을 띄울지는 창이 정한다.
+    /// 인자는 머리말에 적는 것과 같은 한 줄.
+    /// </summary>
+    public event Action<string>? ReminderFired;
+
+    /// <summary>Windows 알림에 소리를 낼지.</summary>
+    public bool WantsReminderSound => _data.Settings.ReminderSound;
+
+    /// <summary>
+    /// 지금 알려야 할 것을 꺼내 화면에 물들인다.
+    /// 유예를 넘긴 것은 엔진이 아예 내놓지 않으므로 여기서 걸러낼 것이 없다.
+    /// </summary>
+    private void FireDueReminders(DateTime now)
+    {
+        var pending = ReminderEngine.Pending(_data, now);
+        if (pending.Count == 0) return;
+
+        foreach (var item in pending)
+        {
+            ReminderEngine.MarkHandled(_data, item);
+            _ringing.Add(item.OwnerId);
+        }
+
+        _ringingTitle = pending[0].Title;
+
+        Persist();
+        RefreshRinging();
+
+        ReminderFired?.Invoke(pending.Count == 1
+            ? pending[0].Title
+            : $"{pending[0].Title} 외 {pending.Count - 1}건");
+    }
+
+    /// <summary>울리는 항목에 표시를 입힌다. 목록을 다시 만들 때마다 부른다.</summary>
+    private void RefreshRinging()
+    {
+        foreach (var row in TodayRoutines) Mark(row, row.Model.Id);
+        foreach (var row in AllRoutines) Mark(row, row.Model.Id);
+        foreach (var row in TodayTasks) Mark(row, row.Model.Id);
+        foreach (var row in UpcomingTasks) Mark(row, row.Model.Id);
+
+        OnPropertyChanged(nameof(HasRinging));
+        RefreshRingingHeader();
+
+        void Mark(RowBase row, Guid id)
+        {
+            row.IsRinging = _ringing.Contains(id);
+            row.RingText = row.IsRinging ? "지금" : "";
+        }
+    }
+
+    public bool HasRinging => _ringing.Count > 0;
+
+    /// <summary>처리했으니 물을 뺀다. 완료·미루기·끄기 모두 여기로 모인다.</summary>
+    private void StopRinging(Guid id)
+    {
+        if (!_ringing.Remove(id)) return;
+
+        RefreshRinging();
+    }
+
+    /// <summary>잠깐 뒤에 다시 알린다.</summary>
+    public void SnoozeReminder(RowBase row, Guid id, bool isRoutine)
+    {
+        if (!ReminderEngine.Snooze(_data, id, isRoutine, DateTime.Now, _data.Settings.SnoozeMinutes)) return;
+
+        StopRinging(id);
+        Persist();
+        Announce($"{_data.Settings.SnoozeMinutes}분 뒤에 다시 알립니다");
+    }
+
+    /// <summary>이 항목의 알림을 끈다. 시각은 남겨 두어 언제였는지는 계속 보인다.</summary>
+    public void MuteReminder(Guid id, bool isRoutine)
+    {
+        if (isRoutine)
+        {
+            foreach (var routine in _data.Routines)
+            {
+                if (routine.Id == id) routine.Remind = false;
+            }
+        }
+        else
+        {
+            foreach (var task in _data.Tasks)
+            {
+                if (task.Id == id) task.Remind = false;
+            }
+        }
+
+        StopRinging(id);
+        Persist();
+        RebuildAll();
+        Announce("알림을 껐습니다");
     }
 
     // ───────────────────────── 업데이트
@@ -610,6 +770,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(AlwaysOnTop));
         OnPropertyChanged(nameof(CompactMode));
+        OnPropertyChanged(nameof(RemindersEnabled));
+        OnPropertyChanged(nameof(ReminderSound));
+        OnPropertyChanged(nameof(NextReminderText));
         OnPropertyChanged(nameof(CarryOverIncomplete));
         OnPropertyChanged(nameof(RunAtStartup));
         OnPropertyChanged(nameof(AutoUpdate));
@@ -680,6 +843,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (done) DayEngine.CompleteRoutine(row.Model, _today);
         else DayEngine.UncompleteRoutine(row.Model);
 
+        if (done) StopRinging(row.Model.Id);
+
         SyncRoutineRows(row.Model);
         DayEngine.SyncToday(_data, _today);
         Persist();
@@ -699,6 +864,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         row.Model.Done = done;
         row.Model.CompletedDate = done ? _today : null;
+
+        if (done) StopRinging(row.Model.Id);
 
         row.Sync(_today);
         DayEngine.SyncToday(_data, _today);
@@ -754,7 +921,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             {
                 Title = title,
                 Days = parsed.Days,
-                Order = _data.Routines.Count
+                Order = _data.Routines.Count,
+
+                // 시각을 굳이 적었다는 것 자체가 "이 시각이 중요하다"는 뜻이다.
+                Time = parsed.DueTime,
+                Remind = parsed.DueTime.HasValue
             });
             Announce($"루틴 추가 · {(parsed.Days.Count == 0 ? "매일" : string.Join("", parsed.Days.Select(ShortDay)))}");
         }
@@ -771,6 +942,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 Priority = parsed.Priority,
                 Due = due,
                 DueTime = parsed.DueTime,
+                Remind = parsed.DueTime.HasValue,
                 CreatedDate = _today,
                 Order = _data.Tasks.Count
             });
@@ -802,6 +974,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         IsSettingsOpen = !IsSettingsOpen;
         if (!IsSettingsOpen) return;
+
+        OnPropertyChanged(nameof(NextReminderText));
 
         IsHelpOpen = false;
         IsRestoreOpen = false;
@@ -846,6 +1020,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             parts.Add(parsed.Days.Count == 0 ? "매일 반복" : $"매주 {string.Join("", parsed.Days.Select(ShortDay))}");
         else
             parts.Add(FormatDue(parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : (DateOnly?)null), parsed.DueTime));
+
+        // 자동으로 붙되, 붙는다는 것을 적는 순간 눈으로 보게 한다.
+        if (parsed.DueTime.HasValue) parts.Add("알림");
 
         if (parsed.Priority != Priority.None)
             parts.Add(parsed.Priority switch
@@ -919,6 +1096,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
         }
 
+        RefreshRinging();
+
         HasCompleted = CompletedTasks.Count > 0;
         CompletedHeader = $"완료됨 {CompletedTasks.Count}개";
         HasTodayTasks = TodayTasks.Count > 0;
@@ -973,6 +1152,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _statusTimer.Stop();
         _statusTimer.Start();
     }
+
+    /// <summary>
+    /// 알림 머리말. 6초 뒤에 지워지는 보통 안내와 달리 처리할 때까지 남는다.
+    /// 목록을 아래로 굴려 물든 줄이 화면 밖에 있어도 여기서 알 수 있다.
+    /// </summary>
+    private void RefreshRingingHeader()
+    {
+        if (_ringing.Count == 0)
+        {
+            if (_ringingHeader) HasStatus = false;
+            _ringingHeader = false;
+            return;
+        }
+
+        _statusTimer.Stop();
+        _ringingHeader = true;
+        HasStatus = true;
+
+        StatusText = _ringingTitle.Length > 0 && _ringing.Count == 1
+            ? $"지금 · {_ringingTitle}"
+            : $"지금 · 알림 {_ringing.Count}건";
+    }
+
+    private bool _ringingHeader;
+    private string _ringingTitle = "";
 
     private static string ShortDay(DayOfWeek day) => day switch
     {

@@ -14,7 +14,18 @@ public abstract partial class RowBase : ObservableObject
     /// <summary>컴팩트 모드에서는 곁다리(연속일수·삭제 버튼)를 접고 줄 높이를 줄인다.</summary>
     [ObservableProperty] private bool _isCompact;
 
+    /// <summary>
+    /// 알림이 울려서 아직 처리되지 않은 상태. 처리할 때까지 물든 채로 남는다 —
+    /// 신호가 사라지지 않으면 창 가림 감지도, 재알림도 필요 없다.
+    /// </summary>
+    [ObservableProperty] private bool _isRinging;
+
+    /// <summary>물든 줄의 오른쪽에 적는 말. "지금" 또는 "10분 지남".</summary>
+    [ObservableProperty] private string _ringText = "";
+
     partial void OnIsCompactChanged(bool value) => OnCompactChanged();
+
+    partial void OnIsRingingChanged(bool value) => OnCompactChanged();
 
     /// <summary>컴팩트 여부에 따라 값이 달라지는 속성이 있으면 여기서 다시 알린다.</summary>
     protected virtual void OnCompactChanged()
@@ -48,7 +59,13 @@ public sealed partial class RoutineRow : RowBase
         Sync();
     }
 
-    protected override void OnCompactChanged() => OnPropertyChanged(nameof(ShowStreak));
+    protected override void OnCompactChanged()
+    {
+        OnPropertyChanged(nameof(ShowStreak));
+        OnPropertyChanged(nameof(HasReminder));
+        OnPropertyChanged(nameof(ShowTime));
+        OnPropertyChanged(nameof(TimeText));
+    }
 
     public Routine Model { get; }
 
@@ -56,7 +73,25 @@ public sealed partial class RoutineRow : RowBase
     public bool HasStreak => Model.Streak > 1;
 
     /// <summary>연속일수 불꽃은 컴팩트에서 접는다. 제목을 읽는 데 방해가 된다.</summary>
-    public bool ShowStreak => HasStreak && !IsCompact;
+    /// <remarks>울리는 동안에는 그 자리를 알림 표시에 내준다. 둘이 겹치면 시끄럽다.</remarks>
+    public bool ShowStreak => HasStreak && !IsCompact && !IsRinging;
+
+    /// <summary>알림이 걸려 있는지. 우클릭 메뉴의 '알림 끄기'가 이걸 본다.</summary>
+    public bool HasReminder => Model.Remind;
+
+    public string TimeText => Model.Time is { } time ? time.ToString("HH:mm") : "";
+
+    /// <summary>
+    /// 시각은 늘 보인다. 걸어 둔 시각을 확인할 방법이 없으면 알림을 믿기 어렵다.
+    /// 울리는 동안에는 그 자리에 "지금"이 들어가므로 비켜 준다.
+    /// </summary>
+    public bool ShowTime => Model.Time.HasValue && !IsRinging;
+
+    [RelayCommand]
+    private void Snooze() => _owner.SnoozeReminder(this, Model.Id, true);
+
+    [RelayCommand]
+    private void Mute() => _owner.MuteReminder(Model.Id, true);
     public bool IsEveryDay => Model.IsEveryDay;
 
     /// <summary>오늘 해야 하는 루틴인지. 아닌 날에는 체크할 수 없다.</summary>
@@ -171,6 +206,24 @@ public sealed partial class TaskRow : RowBase
     public bool IsOverdue => !Model.Done && Model.Due.HasValue && Model.Due.Value < Today;
     public bool IsDueToday => Model.Due.HasValue && Model.Due.Value == Today;
     public bool HasDue => Model.Due.HasValue;
+
+    /// <summary>울리는 동안에는 마감 뱃지 자리를 알림 표시가 쓴다.</summary>
+    public bool ShowDue => HasDue && !IsRinging;
+
+    /// <summary>알림이 걸려 있는지. 우클릭 메뉴의 '알림 끄기'가 이걸 본다.</summary>
+    public bool HasReminder => Model.Remind;
+
+    protected override void OnCompactChanged()
+    {
+        OnPropertyChanged(nameof(ShowDue));
+        OnPropertyChanged(nameof(HasReminder));
+    }
+
+    [RelayCommand]
+    private void Snooze() => _owner.SnoozeReminder(this, Model.Id, false);
+
+    [RelayCommand]
+    private void Mute() => _owner.MuteReminder(Model.Id, false);
     public bool HasCarryOver => Model.CarryOverCount > 0 && !Model.Done;
     public string CarryOverText => $"밀림 {Model.CarryOverCount}일";
 

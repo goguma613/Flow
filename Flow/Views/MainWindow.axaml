@@ -19,11 +19,16 @@
   <Window.Resources>
     <!-- 예정 줄은 예정 탭과 오늘 화면 아래, 두 곳에서 같은 모습으로 쓰인다. -->
     <DataTemplate x:Key="UpcomingTaskTemplate" DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}"
+                            Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
+                          <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
+                                    IsVisible="{Binding IsRinging}" />
+                          <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
+                                    IsVisible="{Binding HasReminder}" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
@@ -42,7 +47,12 @@
                                    KeyDown="OnRenameKeyDown"
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
-                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding HasDue}">
+                        <TextBlock Grid.Column="2" Text="{Binding RingText}"
+                                   IsVisible="{Binding IsRinging}"
+                                   FontSize="11" FontWeight="Medium"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   VerticalAlignment="Center" />
+                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding ShowDue}">
                           <TextBlock Text="{Binding DueText}" FontSize="11"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
@@ -155,14 +165,19 @@
               <ItemsControl ItemsSource="{Binding TodayRoutines}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:RoutineRow">
-                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}"
+                            Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
+                                    IsVisible="{Binding IsRinging}" />
+                          <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
+                                    IsVisible="{Binding HasReminder}" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -174,7 +189,17 @@
                                    KeyDown="OnRenameKeyDown"
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
+                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding ShowTime}"
+                                Margin="0,0,6,0" Padding="5,2">
+                          <TextBlock Text="{Binding TimeText}" FontSize="10"
+                                     Foreground="{StaticResource TextSecondaryBrush}" />
+                        </Border>
+                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
+                                   IsVisible="{Binding IsRinging}"
+                                   FontSize="11" FontWeight="Medium"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3"
                                     VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
@@ -182,7 +207,7 @@
                           <TextBlock Text="{Binding Streak}" FontSize="11"
                                      Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -199,11 +224,16 @@
               <ItemsControl ItemsSource="{Binding TodayTasks}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}"
+                            Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
+                          <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
+                                    IsVisible="{Binding IsRinging}" />
+                          <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
+                                    IsVisible="{Binding HasReminder}" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
@@ -225,8 +255,13 @@
                         <TextBlock Grid.Column="2" Classes="meta" Text="{Binding CarryOverText}"
                                    Foreground="{StaticResource TextDisabledBrush}"
                                    Margin="0,0,6,0" IsVisible="{Binding HasCarryOver}" />
+                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
+                                   IsVisible="{Binding IsRinging}"
+                                   FontSize="11" FontWeight="Medium"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   VerticalAlignment="Center" />
                         <Border Grid.Column="3" Classes="badge" Classes.overdue="{Binding IsOverdue}"
-                                IsVisible="{Binding HasDue}">
+                                IsVisible="{Binding ShowDue}">
                           <TextBlock Text="{Binding DueText}" FontSize="11"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
@@ -271,7 +306,8 @@
               <ItemsControl ItemsSource="{Binding CompletedTasks}" IsVisible="{Binding ShowCompleted}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:TaskRow">
-                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}"
+                            Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Grid ColumnDefinitions="Auto,*,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
@@ -331,14 +367,19 @@
               <ItemsControl ItemsSource="{Binding AllRoutines}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:RoutineRow">
-                    <Button Classes="row" Classes.compact="{Binding IsCompact}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}"
+                            Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
+                          <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
+                                    IsVisible="{Binding IsRinging}" />
+                          <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
+                                    IsVisible="{Binding HasReminder}" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                         <Panel>
                           <Border Classes="ring" IsVisible="{Binding IsScheduledToday}">
                             <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
@@ -359,7 +400,17 @@
                           <TextBlock Classes="meta" Text="{Binding DaysText}"
                                      Foreground="{StaticResource TextMutedBrush}" />
                         </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
+                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding ShowTime}"
+                                Margin="0,0,6,0" Padding="5,2">
+                          <TextBlock Text="{Binding TimeText}" FontSize="10"
+                                     Foreground="{StaticResource TextSecondaryBrush}" />
+                        </Border>
+                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
+                                   IsVisible="{Binding IsRinging}"
+                                   FontSize="11" FontWeight="Medium"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3"
                                     VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
@@ -367,7 +418,7 @@
                           <TextBlock Text="{Binding Streak}" FontSize="11"
                                      Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -586,6 +637,8 @@
                          Text="날짜를 안 적으면 날짜 없이 그대로 둡니다. 오늘 목록에 놓여 눈에 보이고, 정한 적 없는 마감을 놓쳤다며 밀린 일수가 붙지도 않습니다. 끝낼 때까지 조용히 남아 있습니다." />
               <TextBlock Classes="helpbody"
                          Text="'예정' 탭에서 날짜 없이 적을 때만 내일로 잡습니다. 그러지 않으면 방금 적은 것이 오늘로 가 버려 눈앞에서 사라집니다." />
+              <TextBlock Classes="helpbody"
+                         Text="시각을 적으면 그때 알려줍니다. 적는 동안 미리보기에 '알림'이 붙어 눈으로 확인됩니다. 원치 않으면 시각을 빼거나, 이미 적었다면 그 줄을 오른쪽 클릭해 알림을 끄면 됩니다." />
             </StackPanel>
 
             <StackPanel Spacing="7">
@@ -640,6 +693,22 @@
                          Text="올라와 있는 동안에도 목록은 움직이지 않습니다. 마우스를 위로 올리면 곧 내려가고, 적는 중에는 마우스를 치워도 입력칸이 남아 있습니다." />
               <TextBlock Classes="helpbody"
                          Text="탭은 Ctrl+1 오늘, Ctrl+2 루틴, Ctrl+3 예정으로도 넘길 수 있습니다. 삭제는 컴팩트에서도 항목을 오른쪽 클릭하면 나옵니다." />
+            </StackPanel>
+
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="5 · 알림" />
+              <TextBlock Classes="helpbody"
+                         Text="시각이 되면 그 줄이 물들고 오른쪽에 '지금'이 뜹니다. 머리말에도 한 줄 남습니다. 소리도, 팝업도, 포커스를 뺏는 일도 없습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="처리할 때까지 물든 채로 남아 있습니다. 그래서 자리를 비웠거나 게임 중이었어도 놓치지 않습니다 — 돌아오면 그대로 있습니다. 줄을 클릭해 완료하면 물이 빠집니다." />
+              <TextBlock Classes="helpbody"
+                         Text="줄을 오른쪽 클릭하면 '10분 뒤에 다시'와 '알림 끄기'가 나옵니다. 끄더라도 시각은 남아 언제였는지는 계속 보입니다." />
+              <TextBlock Classes="helpbody"
+                         Text="루틴에도 시각을 걸 수 있습니다. '매일 오전 9시 약 먹기' 처럼 적으면 됩니다. 요일을 정한 루틴은 그 요일에만 울립니다." />
+              <TextBlock Classes="helpbody"
+                         Text="창을 트레이에 숨겨 둔 동안에만 Windows 알림으로 알립니다. 화면에 창이 보이면 목록이 이미 말하고 있으니 두 번 알리지 않습니다. 게임·발표 중이거나 집중 지원이 켜져 있으면 방해하지 않습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="한참 지난 알림은 울리지 않습니다(기본 1시간). 며칠 꺼 뒀다 켜도 밀린 알림이 쏟아지지 않습니다." />
             </StackPanel>
 
           </StackPanel>
@@ -767,6 +836,27 @@
                   </Grid>
                   <TextBlock Classes="settinghint"
                              Text="이 시각에 루틴 체크가 풀리고 날짜가 넘어갑니다. 04시로 두면 새벽 작업이 전날로 집계됩니다." />
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="3">
+                      <TextBlock Classes="settinglabel" Text="시각 알림" />
+                      <TextBlock Classes="settinghint" Text="{Binding NextReminderText}" />
+                    </StackPanel>
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding RemindersEnabled}"
+                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                  </Grid>
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="3">
+                      <TextBlock Classes="settinglabel" Text="창이 안 보일 때 소리" />
+                      <TextBlock Classes="settinghint"
+                                 Text="창이 보이는 동안에는 소리 없이 목록에서만 알립니다." />
+                    </StackPanel>
+                    <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding ReminderSound}"
+                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                  </Grid>
 
                   <Border Classes="groupline" />
 

@@ -2,14 +2,17 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Windows 토스트를 쓰려면 SDK 프로젝션이 필요해 버전을 붙인다.
+         하한을 17763 으로 낮춰 두지 않으면 19041 미만 PC 에서 실행이 거부된다. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>Flow</AssemblyName>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <RootNamespace>Flow</RootNamespace>
     <InvariantGlobalization>false</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -37,6 +40,12 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- 창이 트레이에 숨어 있을 때만 쓰는 Windows 알림.
+         CommunityToolkit.WinUI.Notifications 는 폐기됐고 이쪽이 살아 있는 판이다. -->
+    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+    <!-- 위 패키지가 끌고 오는 System.Drawing.Common 4.7.0 에 알려진 취약점(GHSA-rxg9-xrhp-64gj)이
+         있어 고쳐진 판으로 올려 둔다. 우리는 이 라이브러리를 직접 쓰지 않는다. -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
   </ItemGroup>
 
 </Project>

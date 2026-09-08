@@ -693,6 +693,19 @@
     <Setter Property="Background" Value="#3A3A42" />
   </Style>
 
+  <!-- ===== 울리는 줄 =====
+       처리할 때까지 물든 채로 남는다. 반짝이거나 깜빡이지 않는다 — 그건 잔소리다.
+       업데이트 띠와 같은 색을 쓴다. 이 앱에서 "눈여겨볼 것"의 색이다. -->
+  <Style Selector="Button.row.ringing">
+    <Setter Property="Background" Value="#1B3D33" />
+  </Style>
+  <Style Selector="Button.row.ringing:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="#24503F" />
+  </Style>
+  <Style Selector="Button.row.ringing TextBlock.title">
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+
   <!-- ===== 컴팩트에서의 줄 =====
        기본 규칙들보다 반드시 뒤에 있어야 한다. Avalonia 는 나중에 적힌 쪽이 이긴다. -->
   <Style Selector="Button.row.compact">

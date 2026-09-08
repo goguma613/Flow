@@ -9,6 +9,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.Reactive;
 using Avalonia.VisualTree;
+using Flow.Services;
 using Flow.ViewModels;
 
 namespace Flow.Views;
@@ -35,7 +36,11 @@ public partial class MainWindow : Window
     /// </summary>
     private static readonly TimeSpan BottomHideDelay = TimeSpan.FromMilliseconds(220);
 
+    /// <summary>알림이 울렸을 때 창이 밝아져 있는 시간. 딱 한 번만, 반복하지 않는다.</summary>
+    private static readonly TimeSpan PulseHold = TimeSpan.FromSeconds(1.4);
+
     private readonly DispatcherTimer _placementSaveTimer;
+    private readonly DispatcherTimer _pulseTimer;
     private readonly DispatcherTimer _revealTimer;
     private readonly DispatcherTimer _bottomHideTimer;
     private Control? _headerArea;
@@ -104,6 +109,13 @@ public partial class MainWindow : Window
             UpdateReveal();
         };
 
+        _pulseTimer = new DispatcherTimer { Interval = PulseHold };
+        _pulseTimer.Tick += (_, _) =>
+        {
+            _pulseTimer.Stop();
+            if (!_pointerInside) ApplyIdleOpacity();
+        };
+
         _bottomHideTimer = new DispatcherTimer { Interval = BottomHideDelay };
         _bottomHideTimer.Tick += (_, _) =>
         {
@@ -146,10 +158,39 @@ public partial class MainWindow : Window
 
         // 새 실행 파일로 갈아탄 뒤에는 이 프로세스가 물러나야 한다.
         vm.RestartRequested += () => Dispatcher.UIThread.Post(ShutdownForUpdate);
+        vm.ReminderFired += OnReminderFired;
+
+        // 알림을 눌렀을 때 돌아올 자리를 먼저 걸어 둔다. 첫 알림보다 앞서야 한다.
+        Notifier.HookActivation(() => Dispatcher.UIThread.Post(SummonToFront));
         vm.CompactModeChanged += OnCompactModeChanged;
 
         UpdateCompactMode();
     }
+
+    /// <summary>
+    /// 알림이 울렸다. 창이 보이면 한 번 밝히는 것이 전부다 —
+    /// 앞으로 끌어오지도, 포커스를 뺏지도, 트레이에서 나오지도 않는다.
+    ///
+    /// 창이 숨어 있을 때만 Windows 알림을 쓴다. 그때는 물든 줄을 아무도 못 보기 때문이다.
+    /// 못 띄워도 줄은 물든 채 남아 있어서, 창을 다시 열면 거기 있다.
+    /// </summary>
+    private void OnReminderFired(string title)
+    {
+        if (IsWindowShowing())
+        {
+            Opacity = 1.0;
+            _pulseTimer.Stop();
+            _pulseTimer.Start();
+            return;
+        }
+
+        if (!Notifier.CanInterrupt()) return;
+
+        Notifier.Show(title, "Flow · 지금 할 일", ViewModel?.WantsReminderSound ?? true);
+    }
+
+    /// <summary>지금 화면에서 볼 수 있는 상태인지. 트레이로 숨겼거나 최소화면 아니다.</summary>
+    private bool IsWindowShowing() => IsVisible && WindowState != WindowState.Minimized;
 
     private void ShutdownForUpdate()
     {

@@ -30,6 +30,10 @@ public partial class App : Application
 
             _hotKey = new GlobalHotKey(() => _window?.SummonToFront());
 
+            // 두 번째 실행이나 토스트 클릭으로 부르면 이미 떠 있는 창이 앞으로 나온다.
+            SingleInstance.OnSummon(() =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => _window?.SummonToFront()));
+
             desktop.ShutdownRequested += (_, _) =>
             {
                 _hotKey?.Dispose();

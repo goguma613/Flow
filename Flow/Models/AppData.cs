@@ -28,6 +28,32 @@ public sealed class Routine
     public int Order { get; set; }
     public bool Archived { get; set; }
 
+    /// <summary>
+    /// 알릴 시각(선택). "매일 오전 9시 약 먹기"의 09:00.
+    /// 파서는 예전부터 이 시각을 읽어내고 있었지만 담을 곳이 없어 버리고 있었다.
+    /// </summary>
+    public TimeOnly? Time { get; set; }
+
+    /// <summary>
+    /// 그 시각에 알릴지. Time 과 따로 두는 이유는 "알림만 끄고 시각은 남기기"가 되어야 하기 때문이다.
+    /// 기본값이 false 라서, 업데이트 전에 만들어진 항목은 저절로 조용하다 — 마이그레이션이 필요 없다.
+    /// </summary>
+    public bool Remind { get; set; }
+
+    /// <summary>
+    /// 몫을 다한 논리적 날짜. '울렸다'가 아니라 '처리가 끝났다'는 뜻이다.
+    /// 유예를 넘겨 건너뛴 것도 여기 적어 다음 틱에서 또 걸리지 않게 한다.
+    /// 하루에 한 칸만 덮어쓰므로 기록이 자라지 않는다.
+    /// </summary>
+    public DateOnly? RemindHandled { get; set; }
+
+    /// <summary>
+    /// 미뤄 둔 시각. 앱이 죽어도 살아남아야 해서 파일에 남긴다 —
+    /// "10분 뒤"가 앱과 함께 사라지면 그 약을 안 먹게 된다.
+    /// 벽시계가 아니라 '그 순간'이 기준이라 절대 시각으로 둔다.
+    /// </summary>
+    public DateTime? RemindSnoozedUntil { get; set; }
+
     /// <summary>오늘 체크하기 직전의 스트릭 값. 같은 날 체크 해제를 정확히 되돌리기 위해 보관한다.</summary>
     public int StreakSnapshot { get; set; }
 
@@ -55,6 +81,18 @@ public sealed class TaskItem
     /// <summary>미완료로 다음 날로 넘어간 횟수.</summary>
     public int CarryOverCount { get; set; }
 
+    /// <summary>
+    /// DueTime 에 알릴지. 시각을 여기 다시 적지 않는 이유는 두 벌이 어긋날 수 있기 때문이다.
+    /// 기본값 false 라서 업데이트 전에 만들어진 항목은 저절로 조용하다.
+    /// </summary>
+    public bool Remind { get; set; }
+
+    /// <summary>몫을 다한 논리적 날짜. Routine.RemindHandled 와 같은 뜻.</summary>
+    public DateOnly? RemindHandled { get; set; }
+
+    /// <summary>미뤄 둔 시각. Routine.RemindSnoozedUntil 과 같은 뜻.</summary>
+    public DateTime? RemindSnoozedUntil { get; set; }
+
     public DateOnly CreatedDate { get; set; }
     public DateOnly? CompletedDate { get; set; }
     public int Order { get; set; }
@@ -81,6 +119,24 @@ public sealed class AppSettings
 
     /// <summary>머리말·탭·입력칸을 마우스가 올라올 때만 보여주는 모드.</summary>
     public bool CompactMode { get; set; }
+
+    /// <summary>알림 전체 스위치. 끄면 엔진이 아무것도 내놓지 않고 기록도 남기지 않는다.</summary>
+    public bool RemindersEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 창이 안 보일 때 Windows 알림에 소리를 낼지.
+    /// 창이 보일 때는 눈으로 알 수 있으니 소리를 내지 않는다.
+    /// </summary>
+    public bool ReminderSound { get; set; } = true;
+
+    /// <summary>
+    /// 예정 시각을 지나서도 알릴 수 있는 한계(분).
+    /// 자거나 꺼 둔 사이 지나간 것을 아침에 몰아서 띄우지 않으려는 장치다. 0이면 정시에만.
+    /// </summary>
+    public int MissedGraceMinutes { get; set; } = 60;
+
+    /// <summary>'나중에'를 눌렀을 때 미룰 시간(분).</summary>
+    public int SnoozeMinutes { get; set; } = 10;
 
     /// <summary>마우스가 벗어났을 때의 창 불투명도(0.3-1.0).</summary>
     public double IdleOpacity { get; set; } = 0.92;
@@ -116,7 +172,12 @@ public sealed class AppSettings
 
 public sealed class AppData
 {
-    public int Version { get; set; } = 1;
+    /// <summary>
+    /// 2 = 알림 추가. 읽는 쪽은 이 값을 조건으로 쓰지 않는다 — 없는 필드는 기본값으로 채워지면 그만이다.
+    /// 주의: 기존 enum(Priority, Days)에 값을 추가하면 구버전 앱이 파일 전체를 못 읽고
+    /// 씨앗 데이터로 시작해 사용자 기록을 덮어쓴다. 새 갈래가 필요하면 enum 대신 필드를 늘린다.
+    /// </summary>
+    public int Version { get; set; } = 2;
 
     /// <summary>마지막으로 정산이 끝난 논리적 날짜. 롤오버 판단의 기준점.</summary>
     public DateOnly LastLogicalDate { get; set; }

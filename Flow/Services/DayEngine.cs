@@ -60,6 +60,17 @@ public static class DayEngine
         => DateOnly.FromDateTime(now.AddHours(-dayStartHour));
 
     /// <summary>다음으로 날짜가 바뀌는 정확한 시각.</summary>
+    /// <summary>
+    /// 논리적 날짜 안에서 어떤 시각이 가리키는 실제 순간. LogicalDate 를 뒤집은 것이다.
+    /// 하루 시작(기본 04시)보다 이른 시각은 다음 달력일에 온다 —
+    /// 논리적으로 9월 8일인 02:00 은 달력으로는 9월 9일 새벽 2시다.
+    /// </summary>
+    public static DateTime AtLogicalTime(DateOnly logicalDate, TimeOnly time, int dayStartHour)
+    {
+        var wall = logicalDate.ToDateTime(time);
+        return time.Hour < dayStartHour ? wall.AddDays(1) : wall;
+    }
+
     public static DateTime NextRolloverAt(DateTime now, int dayStartHour)
     {
         var candidate = now.Date.AddHours(dayStartHour);
