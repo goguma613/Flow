@@ -82,7 +82,7 @@
       <!-- 줄 0 머리말 · 1 탭(보통) · 2 목록 · 3 업데이트 · 4 탭(컴팩트) · 5 입력.
            컴팩트에서는 목록이 2~5줄을 통째로 덮는다. 그래야 탭과 입력칸이
            떴다 사라져도 목록이 밀리지 않는다. -->
-      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
 
         <!-- ════════ 헤더 ════════ -->
         <StackPanel Name="HeaderArea" Grid.Row="0"
@@ -154,6 +154,7 @@
                       Classes="list"
                       Classes.compact="{Binding IsCompact}"
                       Classes.revealed="{Binding CompactBottomRevealed}"
+                      Classes.hasupdate="{Binding HasUpdateNotice}"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
           <Panel>
@@ -451,8 +452,8 @@
         <!-- ════════ 아래 묶음의 받침 ════════
              탭과 입력칸은 서로 다른 줄에 있어서, 판을 따로 깔지 않으면
              그 사이와 아래 틈으로 목록 글자가 비쳐 보인다. -->
-        <Border Grid.Row="4" Grid.RowSpan="2"
-                IsVisible="{Binding CompactBottomRevealed}"
+        <Border Grid.Row="4" Grid.RowSpan="3"
+                IsVisible="{Binding BottomSheetVisible}"
                 Background="{StaticResource PanelBrush}"
                 CornerRadius="14,14,0,0"
                 BorderThickness="0,1,0,0"
@@ -475,7 +476,7 @@
 
         <!-- ════════ 업데이트 소식 ════════
              컴팩트에서도 접지 않는다. 놓치면 안 되는 이야기다. -->
-        <StackPanel Grid.Row="3" Classes="updatearea" Spacing="6"
+        <StackPanel Grid.Row="{Binding UpdateRow}" Classes="updatearea" Spacing="6"
                     IsVisible="{Binding HasUpdateNotice}">
           <Border Classes="updateinfo" IsVisible="{Binding IsUpdateBusy}">
             <StackPanel Spacing="6">

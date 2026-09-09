@@ -91,7 +91,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(BottomVisible))]
     [NotifyPropertyChangedFor(nameof(ShowBottomHint))]
     [NotifyPropertyChangedFor(nameof(TabRow))]
+    [NotifyPropertyChangedFor(nameof(UpdateRow))]
     [NotifyPropertyChangedFor(nameof(ListRowSpan))]
+    [NotifyPropertyChangedFor(nameof(BottomSheetVisible))]
     [NotifyPropertyChangedFor(nameof(ShowRoutineLabel))]
     [NotifyPropertyChangedFor(nameof(ShowTaskLabel))]
     [NotifyPropertyChangedFor(nameof(ShowAllRoutineLabel))]
@@ -107,9 +109,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(BottomVisible))]
     [NotifyPropertyChangedFor(nameof(ShowBottomHint))]
+    [NotifyPropertyChangedFor(nameof(BottomSheetVisible))]
     private bool _compactBottomRevealed;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
+    [NotifyPropertyChangedFor(nameof(BottomSheetVisible))]
     private bool _updateReady;
     [ObservableProperty] private string _updateText = "";
     [ObservableProperty] private bool _isCheckingUpdate;
@@ -118,6 +122,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>확인·내려받기가 진행 중일 때만 켜진다. 위쪽에 진행 줄을 띄운다.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
+    [NotifyPropertyChangedFor(nameof(BottomSheetVisible))]
     private bool _isUpdateBusy;
     [ObservableProperty] private bool _isUpdateDownloading;
     [ObservableProperty] private string _updateBusyText = "";
@@ -294,13 +299,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public int TabRow => IsCompact ? 4 : 1;
 
     /// <summary>
+    /// 업데이트 소식이 놓이는 줄.
+    ///
+    /// 컴팩트에서는 탭·입력칸보다 아래, 맨 끝 줄로 내린다.
+    /// 그 위에 두면 묶음이 펼쳐질 때 목록 줄이 줄어들면서 이 띠가 위로 밀려 올라간다.
+    /// 그러면 띠를 누르러 올라간 마우스가 유지 구역을 벗어나 묶음이 접히고,
+    /// 띠는 다시 내려오고, 마우스는 다시 구역에 들어가며 깜빡임이 반복된다.
+    /// 맨 끝 줄은 위 줄들이 자라도 자리가 그대로라 이 고리가 끊긴다.
+    /// </summary>
+    public int UpdateRow => IsCompact ? 6 : 3;
+
+    /// <summary>
     /// 컴팩트에서는 목록이 아래쪽 줄들까지 덮는다.
     /// 그래야 탭과 입력칸이 나타나고 사라져도 목록의 크기가 그대로다.
     /// </summary>
-    public int ListRowSpan => IsCompact ? 4 : 1;
+    public int ListRowSpan => IsCompact ? 5 : 1;
 
     /// <summary>업데이트 소식이 있을 때만 그 자리를 차지한다.</summary>
     public bool HasUpdateNotice => IsUpdateBusy || UpdateReady;
+
+    /// <summary>
+    /// 아래 묶음의 받침. 업데이트 띠만 떠 있을 때도 깔아야 그 뒤로 목록 글자가 안 비친다.
+    /// </summary>
+    public bool BottomSheetVisible => IsCompact && (CompactBottomRevealed || HasUpdateNotice);
 
     public bool ShowRoutineLabel => HasTodayRoutines && !IsCompact;
     public bool ShowTaskLabel => HasTodayTasks && !IsCompact;

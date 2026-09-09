@@ -584,6 +584,14 @@
   <Style Selector="ScrollViewer.list.compact.revealed">
     <Setter Property="Padding" Value="0,0,0,112" />
   </Style>
+  <!-- 업데이트 띠도 아래를 가린다. 그만큼 더 비워야 마지막 줄에 닿는다.
+       Avalonia 는 나중에 적힌 규칙이 이기므로 둘 다 걸릴 때는 아래 것이 쓰인다. -->
+  <Style Selector="ScrollViewer.list.compact.hasupdate">
+    <Setter Property="Padding" Value="0,0,0,86" />
+  </Style>
+  <Style Selector="ScrollViewer.list.compact.revealed.hasupdate">
+    <Setter Property="Padding" Value="0,0,0,172" />
+  </Style>
 
   <Style Selector="Border.divider">
     <Setter Property="Height" Value="1" />
