@@ -19,7 +19,13 @@ internal sealed partial class AppJsonContext : JsonSerializerContext;
 /// </summary>
 public sealed class DataStore : IDisposable
 {
-    private const int SaveDebounceMs = 700;
+    /// <summary>
+    /// 마지막 변경 뒤 이만큼 조용하면 저장한다.
+    /// 연달아 체크하거나 여러 줄을 고칠 때 저장이 한 번으로 묶인다 —
+    /// 데이터 폴더가 클라우드에 있으면 저장할 때마다 업로드가 돌기 때문이다.
+    /// 창을 닫거나 숨길 때는 이와 무관하게 즉시 저장한다.
+    /// </summary>
+    private const int SaveDebounceMs = 1000;
 
     private readonly Lock _gate = new();
 
