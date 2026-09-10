@@ -14,6 +14,9 @@
     <Compile Include="../../Flow/Services/DataStore.cs" />
     <Compile Include="../../Flow/Services/BackupService.cs" />
     <Compile Include="../../Flow/Models/AppData.cs" />
+    <Compile Include="../../Flow/Models/DeviceState.cs" />
+    <Compile Include="../../Flow/Services/DeviceStore.cs" />
+    <Compile Include="../../Flow/Services/DataLocation.cs" />
     <Compile Include="../../Flow/Services/DayEngine.cs" />
     <Compile Include="../../Flow/Services/ReminderEngine.cs" />
     <Compile Include="../../Flow/Services/QuickAddParser.cs" />

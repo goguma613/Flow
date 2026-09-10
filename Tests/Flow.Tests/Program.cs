@@ -46,6 +46,12 @@ internal static class Program
         Section("빠른 추가 파서");
         ParserTests();
 
+        Section("기기별 상태 분리");
+        DeviceStateTests();
+
+        Section("저장 위치 옮기기");
+        DataLocationTests();
+
         Section("저장 · 직렬화");
         SerializationTests();
 
@@ -392,11 +398,11 @@ internal static class Program
 
     private static void SerializationTests()
     {
-        // 기본 설정에는 저장된 창 위치가 없다. 여기에 NaN 같은 값이 들어가면
-        // 직렬화 전체가 터지면서 저장이 통째로 실패한다.
+        // 예전에는 창 위치가 여기 실렸고, NaN 이 들어가 저장이 통째로 실패한 적이 있다.
+        // 지금은 창 위치가 기기별 파일로 빠졌지만, 직렬화가 조용히 터지지 않는지는 계속 지킨다.
         var fresh = new AppData();
         Check("기본 데이터 직렬화 성공", TrySerialize(fresh, out var freshJson), true);
-        Check("창 위치는 null로 기록", freshJson.Contains("\"WindowLeft\": null"), true);
+        Check("빈 데이터도 내용이 있다", freshJson.Contains("Settings"), true);
 
         var full = new AppData
         {
@@ -436,7 +442,7 @@ internal static class Program
         Check("마감 시각 왕복", back.Tasks[0].DueTime, new TimeOnly(15, 30));
         Check("우선순위 왕복", back.Tasks[0].Priority, Priority.High);
         Check("히스토리 왕복", back.History[0].RoutinesDone, 2);
-        Check("창 위치 왕복", back.Settings.WindowLeft, 1548d);
+        Check("창 위치는 왕복하지 않는다 (기기별)", back.Settings.WindowLeft, (double?)null);
         Check("우선순위는 문자열로 기록", json.Contains("\"High\""), true);
     }
 
@@ -731,6 +737,135 @@ internal static class Program
         LastLogicalDate = new DateOnly(2026, 9, 8),
         Settings = { DayStartHour = 4, MissedGraceMinutes = 60, RemindersEnabled = true }
     };
+
+    private static void DeviceStateTests()
+    {
+        // 이 시험은 FLOW_DATA_DIR 로 지정된 임시 폴더에서만 돈다.
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 기기별 상태 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var today = new DateOnly(2026, 9, 10);
+
+        // ── 이 PC 것들은 data.json 에 실리면 안 된다.
+        //    실리면 클라우드를 타고 다른 PC로 건너가 창이 화면 밖으로 나가고 알림이 안 울린다.
+        var data = new AppData { LastLogicalDate = today };
+        data.Settings.WindowLeft = 1234;
+        data.Settings.WindowTop = 567;
+        data.Settings.WindowWidth = 480;
+        data.Settings.WindowHeight = 800;
+        data.Settings.WindowSizedByUser = true;
+        data.Settings.CompactMode = true;
+        data.Settings.RunAtStartup = true;
+        data.Settings.LastUpdateCheck = new DateTime(2026, 9, 9, 12, 0, 0);
+        data.Settings.LastBackupDate = today;
+
+        var routine = new Routine
+        {
+            Title = "약 먹기",
+            Time = new TimeOnly(9, 0),
+            Remind = true,
+            RemindHandled = today,
+            RemindSnoozedUntil = new DateTime(2026, 9, 10, 9, 10, 0)
+        };
+        data.Routines.Add(routine);
+
+        var task = new TaskItem { Title = "회의", Due = today, DueTime = new TimeOnly(15, 0), Remind = true, RemindHandled = today };
+        data.Tasks.Add(task);
+
+        Check("직렬화 성공", TrySerialize(data, out var json), true);
+
+        foreach (var field in new[] { "WindowLeft", "WindowTop", "WindowWidth", "WindowHeight",
+                                      "WindowSizedByUser", "CompactMode", "RunAtStartup",
+                                      "LastUpdateCheck", "LastBackupDate",
+                                      "RemindHandled", "RemindSnoozedUntil" })
+        {
+            Check($"{field} 는 data.json 에 없다", json.Contains(field), false);
+        }
+
+        // 함께 다녀야 하는 것들은 그대로 실려야 한다
+        foreach (var field in new[] { "DayStartHour", "RemindersEnabled", "ReminderSound",
+                                      "MissedGraceMinutes", "SnoozeMinutes", "AlwaysOnTop",
+                                      "IdleOpacity", "Remind", "Time" })
+        {
+            Check($"{field} 는 data.json 에 있다", json.Contains(field), true);
+        }
+
+        // ── 기기별 파일로 오갔다 돌아오는지
+        DeviceStore.Capture(data);
+
+        var reloaded = new AppData { LastLogicalDate = today };
+        reloaded.Routines.Add(new Routine { Id = routine.Id, Title = "약 먹기" });
+        reloaded.Tasks.Add(new TaskItem { Id = task.Id, Title = "회의" });
+        DeviceStore.Apply(reloaded);
+
+        Check("창 위치가 돌아옴", reloaded.Settings.WindowLeft, (double?)1234);
+        Check("창 높이가 돌아옴", reloaded.Settings.WindowHeight, 800.0);
+        Check("컴팩트 모드가 돌아옴", reloaded.Settings.CompactMode, true);
+        Check("자동 시작이 돌아옴", reloaded.Settings.RunAtStartup, true);
+        Check("업데이트 확인 시각이 돌아옴", reloaded.Settings.LastUpdateCheck, data.Settings.LastUpdateCheck);
+        Check("루틴 알림 표시가 돌아옴", reloaded.Routines[0].RemindHandled, today);
+        Check("루틴 미루기가 돌아옴", reloaded.Routines[0].RemindSnoozedUntil, routine.RemindSnoozedUntil);
+        Check("할 일 알림 표시가 돌아옴", reloaded.Tasks[0].RemindHandled, today);
+
+        // ── 다른 PC에서 온 파일에는 이 표시가 없으므로 거기서는 새로 울려야 한다
+        var fromOtherPc = JsonSerializer.Deserialize(json, AppJsonContext.Default.AppData);
+        Check("건너온 데이터에는 알림 표시가 없다", fromOtherPc!.Routines[0].RemindHandled, (DateOnly?)null);
+        Check("건너온 데이터에는 미루기가 없다", fromOtherPc.Routines[0].RemindSnoozedUntil, (DateTime?)null);
+
+        // ── 주인이 사라지면 그 알림 상태도 함께 빠진다
+        var trimmed = new AppData { LastLogicalDate = today };
+        trimmed.Routines.Add(new Routine { Id = routine.Id, Title = "약 먹기", RemindHandled = today });
+        DeviceStore.Capture(trimmed);
+
+        var after = DeviceStore.Load();
+        Check("사라진 할 일의 상태는 빠짐", after!.Reminders.Count, 1);
+        Check("남은 것은 루틴", after.Reminders[0].Id, routine.Id);
+    }
+
+    private static void DataLocationTests()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 저장 위치 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var root = System.IO.Path.Combine(DataStore.Directory, "loctest");
+        if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true);
+        System.IO.Directory.CreateDirectory(root);
+
+        // ── 빈 폴더를 고르면 지금 것을 복사해 넣는다.
+        //    원본은 남겨 둔다 — 옮기다 잘못돼도 돌아갈 자리가 있어야 한다.
+        var empty = System.IO.Path.Combine(root, "empty");
+        var hadSource = System.IO.File.Exists(DataStore.FilePath);
+
+        Check("빈 폴더에는 복사해 넣는다",
+            DataLocation.Prepare(empty),
+            hadSource ? MoveResult.CopiedHere : MoveResult.StartedEmpty);
+
+        if (hadSource)
+        {
+            Check("새 자리에 파일이 생김", System.IO.File.Exists(System.IO.Path.Combine(empty, "data.json")), true);
+            Check("원본은 그대로 남는다", System.IO.File.Exists(DataStore.FilePath), true);
+        }
+
+        // ── 이미 데이터가 있는 폴더(다른 PC가 먼저 올려 둔 경우)는 건드리지 않는다.
+        //    여기서 덮어쓰면 그 PC의 최신 내용이 사라진다. 이 시험이 그것을 막는다.
+        var occupied = System.IO.Path.Combine(root, "occupied");
+        System.IO.Directory.CreateDirectory(occupied);
+
+        var theirs = System.IO.Path.Combine(occupied, "data.json");
+        const string mark = "{\"Version\":2,\"Tasks\":[],\"Routines\":[],\"History\":[],\"__mark\":\"other-pc\"}";
+        System.IO.File.WriteAllText(theirs, mark);
+
+        Check("이미 있으면 그것을 쓴다", DataLocation.Prepare(occupied), MoveResult.AdoptedExisting);
+        Check("남의 파일을 덮어쓰지 않는다", System.IO.File.ReadAllText(theirs), mark);
+
+        System.IO.Directory.Delete(root, true);
+    }
 
     private static bool TrySerialize(AppData data, out string json)
     {

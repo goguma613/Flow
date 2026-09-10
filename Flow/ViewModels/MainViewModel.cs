@@ -124,6 +124,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
     [NotifyPropertyChangedFor(nameof(BottomSheetVisible))]
     private bool _isUpdateBusy;
+
+    /// <summary>
+    /// 저장 폴더가 아직 안 나타난 상태. 클라우드 폴더는 그 프로그램이 떠야 존재한다.
+    /// 이때는 아무것도 저장하지 않는다 — 쓰는 순간 진짜 데이터를 덮어쓰기 때문이다.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateNotice))]
+    [NotifyPropertyChangedFor(nameof(BottomSheetVisible))]
+    private bool _waitingForFolder;
     [ObservableProperty] private bool _isUpdateDownloading;
     [ObservableProperty] private string _updateBusyText = "";
     [ObservableProperty] private string _updatePercentText = "";
@@ -168,10 +177,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 21:22 알림이 21:22:28에 울리는 식인데, 사람은 그걸 늦다고 느낀다.
         // 알림 시각은 늘 분 단위이므로 분 경계 바로 뒤로 맞춘다 —
         // 늦는 느낌이 사라지고, 깨는 횟수는 분당 2번에서 1번으로 오히려 줄어든다.
+        WaitingForFolder = _store.WaitingForFolder;
+
+        // 부팅 직후라면 클라우드가 곧 붙는다. 분 단위 틱으로는 너무 늦어 따로 자주 본다.
+        _recoverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _recoverTimer.Tick += (_, _) => TryRecoverDataFolder();
+        if (WaitingForFolder) _recoverTimer.Start();
+
         _timer = new DispatcherTimer();
         _timer.Tick += (_, _) =>
         {
             ScheduleNextTick();
+            SyncFromDisk();
             CheckRollover();
             FireDueReminders(DateTime.Now);
         };
@@ -224,6 +241,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private readonly HashSet<Guid> _ringing = [];
 
+    /// <summary>저장 폴더가 돌아왔는지 짧게 되풀이해 보는 타이머. 기다리는 동안에만 돈다.</summary>
+    private readonly DispatcherTimer _recoverTimer;
+
     public AppSettings Settings => _data.Settings;
 
     /// <summary>새 버전을 받아 적용했을 때. 창에서 앱을 다시 시작시킨다.</summary>
@@ -243,7 +263,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    public string DataPath => DataStore.FilePath;
+    public string DataPath => DataStore.Directory;
+
+    /// <summary>기본 자리가 아니라 사용자가 직접 고른 폴더를 쓰고 있는지.</summary>
+    public bool UsesCustomFolder => DataLocation.Chosen is not null;
 
     public bool AutoBackup
     {
@@ -315,8 +338,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public int ListRowSpan => IsCompact ? 5 : 1;
 
-    /// <summary>업데이트 소식이 있을 때만 그 자리를 차지한다.</summary>
-    public bool HasUpdateNotice => IsUpdateBusy || UpdateReady;
+    /// <summary>아래쪽 알림 띠가 자리를 차지해야 하는지. 업데이트 소식이거나 폴더를 기다리는 중.</summary>
+    public bool HasUpdateNotice => IsUpdateBusy || UpdateReady || WaitingForFolder;
 
     /// <summary>
     /// 아래 묶음의 받침. 업데이트 띠만 떠 있을 때도 깔아야 그 뒤로 목록 글자가 안 비친다.
@@ -506,6 +529,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _timer.Interval = TimeSpan.FromMinutes(1) - intoMinute + TickGuard;
     }
 
+    /// <summary>창이 다시 활성화되었다. 다른 PC에서 돌아온 참일 수 있으니 바로 맞춰 본다.</summary>
+    public void OnActivated()
+    {
+        SyncFromDisk();
+        CheckRollover();
+    }
+
     /// <summary>매 분, 그리고 창이 활성화될 때마다 날짜가 넘어갔는지 확인한다.</summary>
     public void CheckRollover()
     {
@@ -534,6 +564,68 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 ? "새 하루 시작 · 루틴을 초기화했습니다"
                 : $"{result.DaysElapsed}일치를 정산하고 초기화했습니다");
         }
+    }
+
+    /// <summary>
+    /// 기다리던 저장 폴더가 돌아왔는지 본다. 돌아왔으면 그 데이터로 갈아끼우고 이어서 쓴다.
+    /// </summary>
+    private void TryRecoverDataFolder()
+    {
+        if (_store.TryRecover() is not { } recovered)
+        {
+            if (!_store.WaitingForFolder) StopWaiting();
+            return;
+        }
+
+        _data = recovered;
+        _today = DayEngine.LogicalDate(DateTime.Now, _data.Settings.DayStartHour);
+        DayEngine.Rollover(_data, _today);
+        DayEngine.SyncToday(_data, _today);
+        ReminderEngine.ClearStaleSnoozes(_data, DateTime.Now);
+
+        StopWaiting();
+        _store.RequestSave(_data);
+
+        RaiseSettingsChanged();
+        RebuildAll();
+        RefreshBackupSummary();
+        Announce("저장 폴더를 찾았습니다");
+    }
+
+    /// <summary>
+    /// 다른 PC가 저장 폴더의 내용을 바꿨는지 보고, 바꿨으면 그것으로 갈아끼운다.
+    ///
+    /// 갈아끼우기 직전에 지금 메모리에 있는 것을 백업으로 남긴다. 그래야 겹쳐 쓴 경우에도
+    /// '백업에서 되돌리기'로 살릴 수 있다.
+    ///
+    /// 읽은 뒤 되쓰지 않는 것이 중요하다. 되쓰면 저쪽이 그것을 또 남의 변경으로 보고
+    /// 둘이 끝없이 주고받는다.
+    /// </summary>
+    private void SyncFromDisk()
+    {
+        if (!_store.ChangedOutside()) return;
+
+        BackupService.CreateFromJson(DataStore.Serialize(_data), "before-sync");
+
+        if (_store.ReadOutside() is not { } incoming) return;
+
+        _data = incoming;
+        _today = DayEngine.LogicalDate(DateTime.Now, _data.Settings.DayStartHour);
+        DayEngine.Rollover(_data, _today);
+        DayEngine.SyncToday(_data, _today);
+
+        _ringing.Clear();
+
+        RaiseSettingsChanged();
+        RebuildAll();
+        RefreshBackupSummary();
+        Announce("다른 기기의 변경을 가져왔습니다");
+    }
+
+    private void StopWaiting()
+    {
+        WaitingForFolder = false;
+        _recoverTimer.Stop();
     }
 
     /// <summary>
@@ -1187,7 +1279,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var (date, rate) in rates) Heatmap.Add(new HeatCell(date, rate, date == _today));
     }
 
-    private void Announce(string message)
+    public void Announce(string message)
     {
         StatusText = message;
         HasStatus = true;

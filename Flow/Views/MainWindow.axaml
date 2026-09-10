@@ -478,6 +478,18 @@
              컴팩트에서도 접지 않는다. 놓치면 안 되는 이야기다. -->
         <StackPanel Grid.Row="{Binding UpdateRow}" Classes="updatearea" Spacing="6"
                     IsVisible="{Binding HasUpdateNotice}">
+          <Border Classes="updateinfo" IsVisible="{Binding WaitingForFolder}"
+                  BorderBrush="{StaticResource StreakBrush}">
+            <StackPanel Spacing="3">
+              <TextBlock Text="저장 폴더를 아직 못 찾았습니다"
+                         FontSize="12" FontWeight="Medium"
+                         Foreground="{StaticResource StreakBrush}" />
+              <TextBlock Text="클라우드가 켜지면 이어서 씁니다. 그때까지 아무것도 저장하지 않습니다."
+                         FontSize="11" TextWrapping="Wrap"
+                         Foreground="{StaticResource TextSecondaryBrush}" />
+            </StackPanel>
+          </Border>
+
           <Border Classes="updateinfo" IsVisible="{Binding IsUpdateBusy}">
             <StackPanel Spacing="6">
               <Grid ColumnDefinitions="*,Auto">
@@ -714,6 +726,20 @@
                          Text="한참 지난 알림은 울리지 않습니다(기본 1시간). 며칠 꺼 뒀다 켜도 밀린 알림이 쏟아지지 않습니다." />
             </StackPanel>
 
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="6 · 여러 PC에서 쓰기" />
+              <TextBlock Classes="helpbody"
+                         Text="설정 › 데이터 저장 위치 › 폴더 바꾸기 에서 구글 드라이브나 OneDrive 폴더를 고르면, 그 폴더를 함께 보는 다른 PC와 같은 내용을 쓰게 됩니다. 고르고 나면 앱이 한 번 다시 켜집니다." />
+              <TextBlock Classes="helpbody"
+                         Text="두 번째 PC에서는 같은 폴더를 고르기만 하면 됩니다. 그 폴더에 이미 내용이 있으면 그것을 그대로 이어받습니다. 이쪽 내용으로 덮어쓰지 않습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="창 위치와 크기, 컴팩트 모드, 부팅 시 자동 시작은 따라가지 않습니다. 모니터가 다르면 창이 화면 밖으로 나가기 때문입니다. 알림이 울렸다는 표시도 PC마다 따로 세므로 각 PC에서 다 울립니다." />
+              <TextBlock Classes="helpbody"
+                         Text="다른 PC의 변경은 1분 안에, 창을 다시 볼 때는 바로 반영됩니다. 반영하기 직전의 내용은 자동으로 백업되니 '백업에서 되돌리기'로 살릴 수 있습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="클라우드가 아직 안 켜져 저장 폴더가 안 보이면, 아무것도 저장하지 않고 기다립니다. 그 사이에 적은 내용은 폴더가 붙기 전까지 저장되지 않으니 주의하세요." />
+            </StackPanel>
+
           </StackPanel>
         </ScrollViewer>
 
@@ -809,11 +835,20 @@
           </Button>
         </Grid>
 
-        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,16,0,0">
+        <StackPanel DockPanel.Dock="Bottom" Spacing="5" Margin="0,16,0,0">
+        <Grid ColumnDefinitions="*,Auto">
           <TextBlock Classes="settinghint" Text="데이터 저장 위치" VerticalAlignment="Center" />
-          <Button Grid.Column="1" Classes="chip" Content="폴더 열기"
-                  Command="{Binding OpenDataFolderCommand}" Padding="11,6" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Name="ChangeFolderButton" Classes="chip" Content="폴더 바꾸기" Padding="11,6" />
+            <Button Classes="chip" Content="열기"
+                    Command="{Binding OpenDataFolderCommand}" Padding="11,6" />
+          </StackPanel>
         </Grid>
+        <TextBlock Classes="settinghint" Text="{Binding DataPath}"
+                   IsVisible="{Binding UsesCustomFolder}"
+                   FontSize="10" TextWrapping="Wrap"
+                   Foreground="{StaticResource TextDisabledBrush}" />
+        </StackPanel>
 
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="16">

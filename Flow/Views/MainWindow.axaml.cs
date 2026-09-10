@@ -9,6 +9,8 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.Reactive;
 using Avalonia.VisualTree;
+using System.Threading.Tasks;
+using Avalonia.Platform.Storage;
 using Flow.Services;
 using Flow.ViewModels;
 
@@ -77,6 +79,9 @@ public partial class MainWindow : Window
         var close = this.FindControl<Button>("CloseButton");
         if (close is not null) close.Click += (_, _) => RequestExit();
 
+        var changeFolder = this.FindControl<Button>("ChangeFolderButton");
+        if (changeFolder is not null) changeFolder.Click += async (_, _) => await ChangeDataFolder();
+
         var resetSize = this.FindControl<Button>("ResetSizeButton");
         if (resetSize is not null) resetSize.Click += (_, _) => ResetToAutoSize();
 
@@ -141,7 +146,7 @@ public partial class MainWindow : Window
             ApplyIdleOpacity();
             UpdateReveal();
         };
-        Activated += (_, _) => ViewModel?.CheckRollover();
+        Activated += (_, _) => ViewModel?.OnActivated();
         Deactivated += (_, _) => ApplyIdleOpacity();
         // 단축키는 입력칸에 커서가 있어도 먹어야 한다. TextBox 가 삼키기 전에 먼저 잡는다.
         AddHandler(KeyDownEvent, OnShortcutKeyDown, RoutingStrategies.Tunnel);
@@ -191,6 +196,80 @@ public partial class MainWindow : Window
 
     /// <summary>지금 화면에서 볼 수 있는 상태인지. 트레이로 숨겼거나 최소화면 아니다.</summary>
     private bool IsWindowShowing() => IsVisible && WindowState != WindowState.Minimized;
+
+    /// <summary>
+    /// 저장 폴더를 바꾼다. 구글 드라이브처럼 동기화되는 폴더를 가리키면
+    /// 그 폴더를 함께 보는 다른 PC와 같은 내용을 쓰게 된다.
+    ///
+    /// 바꾼 뒤에는 앱을 다시 켠다. 저장 위치는 앱이 뜰 때 한 번 정해지는 값이라,
+    /// 돌아가는 중에 갈아끼우면 어중간한 상태가 생긴다.
+    /// </summary>
+    private async Task ChangeDataFolder()
+    {
+        if (ViewModel is not { } vm) return;
+
+        var picked = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "데이터를 둘 폴더를 고르세요",
+            AllowMultiple = false
+        });
+
+        if (picked.Count == 0) return;
+
+        var target = picked[0].TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(target)) return;
+
+        if (string.Equals(target.TrimEnd('\\'), DataStore.Directory.TrimEnd('\\'),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            vm.Announce("이미 그 폴더를 쓰고 있습니다");
+            return;
+        }
+
+        // 옮기기 전에 지금 것을 확실히 디스크에 내려놓는다.
+        vm.FlushNow();
+
+        var result = DataLocation.Prepare(target);
+        if (result == MoveResult.Failed)
+        {
+            vm.Announce("그 폴더에는 쓸 수 없습니다");
+            return;
+        }
+
+        if (!DataLocation.Remember(target))
+        {
+            vm.Announce("저장 위치를 기억하지 못했습니다");
+            return;
+        }
+
+        RestartToApplyLocation();
+    }
+
+    /// <summary>
+    /// 새 저장 위치로 다시 켠다.
+    /// 자물쇠를 먼저 놓아야 새로 뜨는 쪽이 자기가 주인이 될 수 있다.
+    /// </summary>
+    private void RestartToApplyLocation()
+    {
+        ViewModel?.FlushNow();
+        SaveWindowPlacement();
+
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe)) return;
+
+        SingleInstance.Release();
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // 못 켰으면 그냥 종료된다. 다시 실행하면 새 위치로 뜬다.
+        }
+
+        ShutdownForUpdate();
+    }
 
     private void ShutdownForUpdate()
     {

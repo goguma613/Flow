@@ -51,6 +51,29 @@ public static class BackupService
         }
     }
 
+    /// <summary>
+    /// 지금 메모리에 있는 내용을 백업으로 남긴다.
+    /// 다른 PC의 내용으로 갈아끼우기 직전처럼, 파일에는 없고 메모리에만 있는 것을 지킬 때 쓴다.
+    /// </summary>
+    public static string? CreateFromJson(string json, string tag)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(Directory);
+
+            if (NextFreePath("-" + tag) is not { } target) return null;
+
+            File.WriteAllText(target, json);
+            Prune();
+
+            return target;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>최근 것부터 정렬한 백업 목록. 각 파일을 열어 무엇이 들어 있는지도 읽는다.</summary>
     public static IReadOnlyList<BackupEntry> List()
     {

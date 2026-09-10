@@ -44,15 +44,19 @@ public sealed class Routine
     /// 몫을 다한 논리적 날짜. '울렸다'가 아니라 '처리가 끝났다'는 뜻이다.
     /// 유예를 넘겨 건너뛴 것도 여기 적어 다음 틱에서 또 걸리지 않게 한다.
     /// 하루에 한 칸만 덮어쓰므로 기록이 자라지 않는다.
+    ///
+    /// 이 표시는 data.json 에 쓰지 않는다. 따라다니면 한 PC에서 울린 것을
+    /// 다른 PC가 물려받아 안 울린다. 기기별로 세야 각자에서 다 울린다.
     /// </summary>
-    public DateOnly? RemindHandled { get; set; }
+    [JsonIgnore] public DateOnly? RemindHandled { get; set; }
 
     /// <summary>
     /// 미뤄 둔 시각. 앱이 죽어도 살아남아야 해서 파일에 남긴다 —
     /// "10분 뒤"가 앱과 함께 사라지면 그 약을 안 먹게 된다.
     /// 벽시계가 아니라 '그 순간'이 기준이라 절대 시각으로 둔다.
+    /// 이것도 RemindHandled 와 같은 이유로 기기별이다.
     /// </summary>
-    public DateTime? RemindSnoozedUntil { get; set; }
+    [JsonIgnore] public DateTime? RemindSnoozedUntil { get; set; }
 
     /// <summary>오늘 체크하기 직전의 스트릭 값. 같은 날 체크 해제를 정확히 되돌리기 위해 보관한다.</summary>
     public int StreakSnapshot { get; set; }
@@ -88,10 +92,10 @@ public sealed class TaskItem
     public bool Remind { get; set; }
 
     /// <summary>몫을 다한 논리적 날짜. Routine.RemindHandled 와 같은 뜻.</summary>
-    public DateOnly? RemindHandled { get; set; }
+    [JsonIgnore] public DateOnly? RemindHandled { get; set; }
 
     /// <summary>미뤄 둔 시각. Routine.RemindSnoozedUntil 과 같은 뜻.</summary>
-    public DateTime? RemindSnoozedUntil { get; set; }
+    [JsonIgnore] public DateTime? RemindSnoozedUntil { get; set; }
 
     public DateOnly CreatedDate { get; set; }
     public DateOnly? CompletedDate { get; set; }
@@ -117,8 +121,14 @@ public sealed class AppSettings
 
     public bool AlwaysOnTop { get; set; } = true;
 
-    /// <summary>머리말·탭·입력칸을 마우스가 올라올 때만 보여주는 모드.</summary>
-    public bool CompactMode { get; set; }
+    // ── 아래 값들은 이 PC 것이라 data.json 에 쓰지 않는다.
+    //    데이터 폴더를 클라우드에 두면 이 파일이 PC 사이를 오가는데,
+    //    창 위치가 따라가면 다른 모니터에서 화면 밖으로 나가고,
+    //    자동 시작은 그 PC 레지스트리에 거는 것이라 옮길 수 없다.
+    //    실제 보관은 DeviceStore 가 %APPDATA% 에 맡는다.
+
+    /// <summary>머리말·탭·입력칸을 마우스가 올라올 때만 보여주는 모드. 큰 모니터와 노트북에서 다르다.</summary>
+    [JsonIgnore] public bool CompactMode { get; set; }
 
     /// <summary>알림 전체 스위치. 끄면 엔진이 아무것도 내놓지 않고 기록도 남기지 않는다.</summary>
     public bool RemindersEnabled { get; set; } = true;
@@ -141,7 +151,7 @@ public sealed class AppSettings
     /// <summary>마우스가 벗어났을 때의 창 불투명도(0.3-1.0).</summary>
     public double IdleOpacity { get; set; } = 0.92;
 
-    public bool RunAtStartup { get; set; }
+    [JsonIgnore] public bool RunAtStartup { get; set; }
     public bool AcrylicEnabled { get; set; } = true;
 
     /// <summary>완료된 할 일을 며칠 뒤에 정리할지.</summary>
@@ -154,20 +164,20 @@ public sealed class AppSettings
     public bool AutoBackup { get; set; } = true;
 
     /// <summary>마지막으로 자동 백업한 날. 하루 한 번만 만들기 위해 본다.</summary>
-    public DateOnly? LastBackupDate { get; set; }
+    [JsonIgnore] public DateOnly? LastBackupDate { get; set; }
 
     /// <summary>마지막으로 업데이트를 확인한 시각.</summary>
-    public DateTime? LastUpdateCheck { get; set; }
+    [JsonIgnore] public DateTime? LastUpdateCheck { get; set; }
 
     /// <summary>저장된 창 위치. null이면 화면 오른쪽 위에 배치한다. (NaN은 JSON으로 쓸 수 없어 nullable을 쓴다)</summary>
-    public double? WindowLeft { get; set; }
-    public double? WindowTop { get; set; }
+    [JsonIgnore] public double? WindowLeft { get; set; }
+    [JsonIgnore] public double? WindowTop { get; set; }
 
     /// <summary>사용자가 직접 크기를 조절했는지. 그 전까지는 내용에 맞춰 높이가 자동으로 정해진다.</summary>
-    public bool WindowSizedByUser { get; set; }
+    [JsonIgnore] public bool WindowSizedByUser { get; set; }
 
-    public double WindowWidth { get; set; } = 340;
-    public double WindowHeight { get; set; } = 620;
+    [JsonIgnore] public double WindowWidth { get; set; } = 340;
+    [JsonIgnore] public double WindowHeight { get; set; } = 620;
 }
 
 public sealed class AppData
