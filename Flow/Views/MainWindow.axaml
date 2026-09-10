@@ -855,8 +855,17 @@
 
             <!-- ─ 하루 ─ -->
             <StackPanel>
-              <TextBlock Classes="groupheader" Text="하루" />
-              <Border Classes="group">
+              <Button Classes="link" Classes.open="{Binding IsDayGroupOpen}"
+                      Command="{Binding ToggleSettingsGroupCommand}" CommandParameter="0"
+                      Margin="-6,0,-6,4" HorizontalContentAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="하루" FontSize="11"
+                             Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Border Classes="group" IsVisible="{Binding IsDayGroupOpen}">
                 <StackPanel Spacing="10">
 
                   <Grid ColumnDefinitions="*,Auto">
@@ -910,8 +919,17 @@
 
             <!-- ─ 창 ─ -->
             <StackPanel>
-              <TextBlock Classes="groupheader" Text="창" />
-              <Border Classes="group">
+              <Button Classes="link" Classes.open="{Binding IsWindowGroupOpen}"
+                      Command="{Binding ToggleSettingsGroupCommand}" CommandParameter="1"
+                      Margin="-6,0,-6,4" HorizontalContentAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="창" FontSize="11"
+                             Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Border Classes="group" IsVisible="{Binding IsWindowGroupOpen}">
                 <StackPanel Spacing="10">
 
                   <Grid ColumnDefinitions="*,Auto">
@@ -961,8 +979,17 @@
 
             <!-- ─ 앱 ─ -->
             <StackPanel>
-              <TextBlock Classes="groupheader" Text="앱" />
-              <Border Classes="group">
+              <Button Classes="link" Classes.open="{Binding IsAppGroupOpen}"
+                      Command="{Binding ToggleSettingsGroupCommand}" CommandParameter="2"
+                      Margin="-6,0,-6,4" HorizontalContentAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="앱" FontSize="11"
+                             Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Border Classes="group" IsVisible="{Binding IsAppGroupOpen}">
                 <StackPanel Spacing="10">
 
                   <Grid ColumnDefinitions="*,Auto">
@@ -993,8 +1020,17 @@
 
             <!-- ─ 백업 ─ -->
             <StackPanel>
-              <TextBlock Classes="groupheader" Text="백업" />
-              <Border Classes="group">
+              <Button Classes="link" Classes.open="{Binding IsBackupGroupOpen}"
+                      Command="{Binding ToggleSettingsGroupCommand}" CommandParameter="3"
+                      Margin="-6,0,-6,4" HorizontalContentAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="백업" FontSize="11"
+                             Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Border Classes="group" IsVisible="{Binding IsBackupGroupOpen}">
                 <StackPanel Spacing="10">
 
                   <Grid ColumnDefinitions="*,Auto">
@@ -1024,8 +1060,17 @@
 
             <!-- ─ 도움말 ─ -->
             <StackPanel>
-              <TextBlock Classes="groupheader" Text="도움말" />
-              <Border Classes="group">
+              <Button Classes="link" Classes.open="{Binding IsHelpGroupOpen}"
+                      Command="{Binding ToggleSettingsGroupCommand}" CommandParameter="4"
+                      Margin="-6,0,-6,4" HorizontalContentAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="chev" Data="{StaticResource ChevronIcon}"
+                        Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" />
+                  <TextBlock Text="도움말" FontSize="11"
+                             Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Border Classes="group" IsVisible="{Binding IsHelpGroupOpen}">
                 <StackPanel Spacing="10">
 
                   <Button Classes="chip" Content="사용법 다시 보기"

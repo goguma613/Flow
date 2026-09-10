@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia;
@@ -164,7 +164,7 @@ public partial class MainWindow : Window
         // 새 실행 파일로 갈아탄 뒤에는 이 프로세스가 물러나야 한다.
         vm.RestartRequested += () => Dispatcher.UIThread.Post(ShutdownForUpdate);
         vm.ReminderFired += OnReminderFired;
-
+        vm.FolderMissing += OnFolderMissing;
         // 알림을 눌렀을 때 돌아올 자리를 먼저 걸어 둔다. 첫 알림보다 앞서야 한다.
         Notifier.HookActivation(() => Dispatcher.UIThread.Post(SummonToFront));
         vm.CompactModeChanged += OnCompactModeChanged;
@@ -271,8 +271,20 @@ public partial class MainWindow : Window
         ShutdownForUpdate();
     }
 
-    private void ShutdownForUpdate()
+    /// <summary>
+    /// 저장 폴더가 한참째 안 온다. 창이 보이면 이미 띠로 말하고 있으니 그것으로 충분하고,
+    /// 트레이에 숨어 있을 때만 Windows 알림으로 알린다. 이때가 놓치면 위험한 경우다.
+    /// </summary>
+    private void OnFolderMissing(string folder)
     {
+        if (IsWindowShowing()) return;
+        if (!Notifier.CanInterrupt()) return;
+
+        Notifier.Show("저장 폴더를 찾지 못했습니다",
+            "클라우드가 켜질 때까지 아무것도 저장하지 않습니다", ViewModel?.WantsReminderSound ?? true);
+    }
+
+    private void ShutdownForUpdate()    {
         if (Application.Current?.ApplicationLifetime is
             Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {

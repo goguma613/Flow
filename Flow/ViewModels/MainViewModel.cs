@@ -44,6 +44,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private static readonly TimeSpan TickGuard = TimeSpan.FromMilliseconds(150);
 
+    /// <summary>이만큼 기다려도 저장 폴더가 안 오면 알린다. 부팅 직후의 몇 초 지연은 넘긴다.</summary>
+    private static readonly TimeSpan FolderWarnAfter = TimeSpan.FromSeconds(25);
+
     private const int HeatmapDays = 28;
 
     /// <summary>켜 둔 채로 며칠 지나는 경우를 위한 재확인 주기. 시작할 때는 이와 무관하게 한 번 본다.</summary>
@@ -82,6 +85,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _quickAddHint = "";
     [ObservableProperty] private string _quickAddPlaceholder = "빠른 추가 — 내일 3시 회의 !1";
     [ObservableProperty] private int _selectedTab;
+    /// <summary>
+    /// 설정에서 펼쳐 둔 묶음. -1이면 전부 접힘.
+    ///
+    /// 한 번에 하나만 펴 둔다. 다섯 묶음을 모두 펴면 세로로 길어져
+    /// 1080 높이 화면에서도 한참을 굴려야 한다.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDayGroupOpen))]
+    [NotifyPropertyChangedFor(nameof(IsWindowGroupOpen))]
+    [NotifyPropertyChangedFor(nameof(IsAppGroupOpen))]
+    [NotifyPropertyChangedFor(nameof(IsBackupGroupOpen))]
+    [NotifyPropertyChangedFor(nameof(IsHelpGroupOpen))]
+    private int _openSettingsGroup = -1;
+
     [ObservableProperty] private bool _isSettingsOpen;
     [ObservableProperty] private bool _isHelpOpen;
 
@@ -178,10 +195,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 알림 시각은 늘 분 단위이므로 분 경계 바로 뒤로 맞춘다 —
         // 늦는 느낌이 사라지고, 깨는 횟수는 분당 2번에서 1번으로 오히려 줄어든다.
         WaitingForFolder = _store.WaitingForFolder;
+        if (WaitingForFolder) _waitingSince = DateTime.Now;
 
         // 부팅 직후라면 클라우드가 곧 붙는다. 분 단위 틱으로는 너무 늦어 따로 자주 본다.
         _recoverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _recoverTimer.Tick += (_, _) => TryRecoverDataFolder();
+        _recoverTimer.Tick += (_, _) =>
+        {
+            TryRecoverDataFolder();
+            WarnIfFolderStaysMissing();
+        };
         if (WaitingForFolder) _recoverTimer.Start();
 
         _timer = new DispatcherTimer();
@@ -243,6 +265,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>저장 폴더가 돌아왔는지 짧게 되풀이해 보는 타이머. 기다리는 동안에만 돈다.</summary>
     private readonly DispatcherTimer _recoverTimer;
+
+    /// <summary>기다리기 시작한 시각. 잠깐 늦는 것과 정말 안 오는 것을 가르는 데 쓴다.</summary>
+    private DateTime? _waitingSince;
+
+    /// <summary>이번에 기다리는 동안 이미 한 번 알렸는지. 부팅할 때마다 잔소리하지 않는다.</summary>
+    private bool _warnedAboutFolder;
 
     public AppSettings Settings => _data.Settings;
 
@@ -625,8 +653,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void StopWaiting()
     {
         WaitingForFolder = false;
+        _waitingSince = null;
+        _warnedAboutFolder = false;
         _recoverTimer.Stop();
     }
+
+    /// <summary>
+    /// 저장 폴더가 계속 안 오면 한 번 알린다.
+    ///
+    /// 곧바로 알리지 않는 이유: 부팅 직후에는 클라우드가 몇 초 늦게 뜨는 일이 흔하다.
+    /// 그때마다 경고하면 잔소리가 되고, 진짜 문제일 때 무시하게 된다.
+    /// 잠깐 기다려 보고도 안 오면 그때 알린다.
+    /// </summary>
+    private void WarnIfFolderStaysMissing()
+    {
+        if (!WaitingForFolder || _warnedAboutFolder) return;
+        if (_waitingSince is not { } since) return;
+        if ((DateTime.Now - since) < FolderWarnAfter) return;
+
+        _warnedAboutFolder = true;
+        FolderMissing?.Invoke(DataStore.Directory);
+    }
+
+    /// <summary>저장 폴더가 한참째 안 온다. 어떻게 알릴지는 창이 정한다.</summary>
+    public event Action<string>? FolderMissing;
 
     /// <summary>
     /// 알림이 새로 울렸다. 창을 밝힐지, 창이 숨어 있으니 Windows 알림을 띄울지는 창이 정한다.
@@ -1101,11 +1151,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ToggleUpcomingOnToday() => ShowUpcomingOnToday = !ShowUpcomingOnToday;
 
+    public bool IsDayGroupOpen => OpenSettingsGroup == 0;
+    public bool IsWindowGroupOpen => OpenSettingsGroup == 1;
+    public bool IsAppGroupOpen => OpenSettingsGroup == 2;
+    public bool IsBackupGroupOpen => OpenSettingsGroup == 3;
+    public bool IsHelpGroupOpen => OpenSettingsGroup == 4;
+
+    /// <summary>묶음 머리를 누르면 펴고, 이미 펴져 있으면 접는다.</summary>
+    [RelayCommand]
+    private void ToggleSettingsGroup(string index)
+    {
+        if (!int.TryParse(index, out var wanted)) return;
+
+        OpenSettingsGroup = OpenSettingsGroup == wanted ? -1 : wanted;
+    }
+
     [RelayCommand]
     private void ToggleSettings()
     {
         IsSettingsOpen = !IsSettingsOpen;
-        if (!IsSettingsOpen) return;
+
+        if (!IsSettingsOpen)
+        {
+            OpenSettingsGroup = -1;
+            return;
+        }
 
         OnPropertyChanged(nameof(NextReminderText));
 
