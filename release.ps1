@@ -74,8 +74,10 @@ foreach ($junk in @('libHarfBuzzSharp.pdb', 'libSkiaSharp.pdb')) {
 if (-not (Test-Path $exe)) { throw "Flow.exe 가 만들어지지 않았습니다." }
 
 # 배포용 안내문을 함께 둔다 (원본은 저장소 루트에 있다)
-$guide = Join-Path $root '사용법.txt'
-if (Test-Path $guide) { Copy-Item $guide (Join-Path $dist '사용법.txt') -Force }
+foreach ($name in @('사용법.txt', '여러 PC에서 쓰기.txt')) {
+    $guide = Join-Path $root $name
+    if (Test-Path $guide) { Copy-Item $guide (Join-Path $dist $name) -Force }
+}
 $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 Write-Host "  Flow.exe $mb MB"
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -388,7 +388,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (_data.Settings.CompactMode == value) return;
             _data.Settings.CompactMode = value;
             OnPropertyChanged();
-            Persist();
+            PersistDevice();
             CompactModeChanged?.Invoke();
         }
     }
@@ -483,7 +483,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _data.Settings.RunAtStartup = value;
             StartupService.SetEnabled(value);
             OnPropertyChanged();
-            Persist();
+            PersistDevice();
         }
     }
 
@@ -704,7 +704,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         _ringingTitle = pending[0].Title;
 
-        Persist();
+        // 바뀐 것은 '울렸음' 표시뿐이다. 그것은 이 PC 것이라 클라우드로 보낼 필요가 없다.
+        PersistDevice();
         RefreshRinging();
 
         ReminderFired?.Invoke(pending.Count == 1
@@ -746,7 +747,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (!ReminderEngine.Snooze(_data, id, isRoutine, DateTime.Now, _data.Settings.SnoozeMinutes)) return;
 
         StopRinging(id);
-        Persist();
+        PersistDevice();
         Announce($"{_data.Settings.SnoozeMinutes}분 뒤에 다시 알립니다");
     }
 
@@ -826,6 +827,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await HoldBusyDisplayAsync().ConfigureAwait(true);
 
         _data.Settings.LastUpdateCheck = DateTime.Now;
+        PersistDevice();
         Persist();
 
         IsCheckingUpdate = false;
@@ -889,7 +891,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (BackupService.Create() is null) return;
 
         _data.Settings.LastBackupDate = _today;
-        Persist();
+        PersistDevice();
     }
 
     private void RefreshBackupSummary()
@@ -980,7 +982,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         _data.Settings.LastBackupDate = _today;
-        Persist();
+        PersistDevice();
         RefreshBackupSummary();
         Announce("백업했습니다");
     }
@@ -1012,6 +1014,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     public void Persist() => _store.RequestSave(_data);
+
+    /// <summary>
+    /// 이 PC 것만 바뀌었을 때 쓰는 저장. data.json 은 건드리지 않는다.
+    ///
+    /// 창 위치나 '알림 울렸음' 표시는 동기화 폴더로 가지 않는 값인데,
+    /// 그걸 바꿀 때마다 data.json 까지 쓰면 클라우드가 매번 파일을 올린다.
+    /// 창을 조금 옮기기만 해도 업로드가 도는 셈이라 값이 나가지 않는다.
+    /// </summary>
+    public void PersistDevice() => DeviceStore.Capture(_data);
 
     public void FlushNow() => _store.Flush();
 

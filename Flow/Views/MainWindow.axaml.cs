@@ -461,8 +461,7 @@ public partial class MainWindow : Window
             vm.IsCompact = false;
             vm.Settings.WindowSizedByUser = false;
             vm.Settings.WindowWidth = DefaultWidth;
-            vm.Persist();
-            vm.FlushNow();
+            vm.PersistDevice();
         }
     }
 
@@ -535,7 +534,8 @@ public partial class MainWindow : Window
             vm.Settings.WindowHeight = Height;
         }
 
-        vm.Persist();
+        // 창 위치는 이 PC 것이다. data.json 을 쓰면 클라우드가 매번 파일을 올린다.
+        vm.PersistDevice();
     }
 
     // ───────────────────────── 이름 바꾸기
