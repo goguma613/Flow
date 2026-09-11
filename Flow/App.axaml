@@ -15,7 +15,8 @@
                 Clicked="OnTrayClicked">
         <TrayIcon.Menu>
           <NativeMenu>
-            <NativeMenuItem Header="열기  (Ctrl+Alt+Space)" Click="OnTrayOpen" />
+            <!-- 조합은 코드에서 붙인다. 여기 박아 두면 사용자가 바꾼 뒤에도 옛 조합이 남는다. -->
+            <NativeMenuItem Header="열기" Click="OnTrayOpen" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="종료" Click="OnTrayExit" />
           </NativeMenu>

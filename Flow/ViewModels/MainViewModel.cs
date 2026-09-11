@@ -487,6 +487,123 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ── 어디서나 창 부르기 ──────────────────────────────────────────────
+
+    /// <summary>조합이 바뀌면 실제 등록을 다시 걸도록 App 이 여기에 꽂는다.</summary>
+    public Action<HotKeyCombo?>? HotKeyChanged { get; set; }
+
+    /// <summary>지금 걸어 둔 조합. 안 쓰기로 했으면 null.</summary>
+    public HotKeyCombo? HotKey => HotKeyCombo.Parse(_data.Settings.HotKey);
+
+    public string HotKeyText => HotKey?.Text ?? "안 씀";
+
+    /// <summary>− 버튼 설명. 숨긴 창을 어떻게 되부르는지가 여기 말고는 적힌 데가 없다.</summary>
+    public string MinimizeHint => HotKey is { } key
+        ? $"트레이로 숨기기  ({key.Text} 로 다시 열기)"
+        : "트레이로 숨기기  (트레이 아이콘으로 다시 열기)";
+
+    /// <summary>버튼 글자. 잡는 동안에는 누르라고 말한다.</summary>
+    public string HotKeyButtonText => IsCapturingHotKey ? "키를 누르세요" : "바꾸기";
+
+    /// <summary>잡는 중인지. 이 동안 창이 받는 키는 전부 여기로 온다.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HotKeyButtonText))]
+    private bool _isCapturingHotKey;
+
+    /// <summary>왜 안 걸렸는지, 또는 어떻게 잡는지. 빈 문자열이면 아무 말도 없다.</summary>
+    [ObservableProperty] private string _hotKeyStatus = "";
+
+    /// <summary>
+    /// 새 조합을 잡기 시작한다. 잡는 동안에는 <b>지금 조합을 떼어 둔다</b> —
+    /// 걸려 있는 채로는 바로 그 조합을 눌러 봐도 창만 튀어나오고 키가 우리에게 오지 않는다.
+    /// </summary>
+    [RelayCommand]
+    private void CaptureHotKey()
+    {
+        if (IsCapturingHotKey)
+        {
+            CancelHotKeyCapture();
+            return;
+        }
+
+        IsCapturingHotKey = true;
+        HotKeyStatus = "Ctrl · Alt · Win 과 함께 누르세요. Esc 는 취소.";
+        HotKeyChanged?.Invoke(null);
+    }
+
+    /// <summary>잡기를 그만둔다. 떼어 뒀던 조합을 도로 건다.</summary>
+    public void CancelHotKeyCapture()
+    {
+        if (!IsCapturingHotKey) return;
+
+        IsCapturingHotKey = false;
+        HotKeyStatus = "";
+        HotKeyChanged?.Invoke(HotKey);
+    }
+
+    /// <summary>뷰가 잡은 키. 쓸 수 없는 조합이면 까닭만 말하고 계속 기다린다.</summary>
+    public void FinishHotKeyCapture(bool ctrl, bool alt, bool shift, bool win, string? keyName)
+    {
+        if (!IsCapturingHotKey) return;
+
+        var combo = HotKeyCombo.From(ctrl, alt, shift, win, keyName, out var reason);
+        if (combo is null)
+        {
+            HotKeyStatus = reason;
+            return;
+        }
+
+        IsCapturingHotKey = false;
+        ApplyHotKey(combo);
+    }
+
+    /// <summary>단축키를 안 쓴다. 다른 프로그램과 부딪힐 때 가장 확실한 수단이다.</summary>
+    [RelayCommand]
+    private void ClearHotKey()
+    {
+        IsCapturingHotKey = false;
+        ApplyHotKey(null);
+    }
+
+    [RelayCommand]
+    private void ResetHotKey()
+    {
+        IsCapturingHotKey = false;
+        ApplyHotKey(HotKeyCombo.Default);
+    }
+
+    private void ApplyHotKey(HotKeyCombo? combo)
+    {
+        _data.Settings.HotKey = combo?.Saved ?? "";
+
+        OnPropertyChanged(nameof(HotKey));
+        OnPropertyChanged(nameof(HotKeyText));
+        OnPropertyChanged(nameof(MinimizeHint));
+
+        HotKeyStatus = combo is null ? "이제 트레이 아이콘으로만 불러올 수 있습니다." : "";
+
+        PersistDevice();
+        HotKeyChanged?.Invoke(combo);
+    }
+
+    /// <summary>
+    /// 등록이 어떻게 됐는지 App 이 알려 준다.
+    /// 실패는 거의 언제나 다른 프로그램이 그 조합을 먼저 쥐고 있다는 뜻이다.
+    /// 말해 주지 않으면 사용자는 눌러도 아무 일이 없는 이유를 영영 모른다.
+    /// </summary>
+    public void ReportHotKeyRegistered(HotKeyCombo? combo, bool ok)
+    {
+        if (IsCapturingHotKey) return;
+        if (ok) return;
+
+        HotKeyStatus = $"{combo?.Text} 은(는) 다른 프로그램이 쓰고 있습니다. 다른 조합으로 잡아 보세요.";
+
+        // 머리말에도 한 번 띄운다. 설정을 열어 볼 생각을 못 하면
+        // "눌러도 안 뜨네" 하고 앱이 고장 난 줄로만 안다.
+        // 조합 이름까지 넣으면 머리말 폭을 넘어 잘리므로, 자세한 것은 설정에만 적는다.
+        Announce("단축키가 겹칩니다 · 설정에서 바꾸세요");
+    }
+
     public double IdleOpacity
     {
         get => _data.Settings.IdleOpacity;
@@ -959,6 +1076,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(NextReminderText));
         OnPropertyChanged(nameof(CarryOverIncomplete));
         OnPropertyChanged(nameof(RunAtStartup));
+        OnPropertyChanged(nameof(HotKey));
+        OnPropertyChanged(nameof(HotKeyText));
+        OnPropertyChanged(nameof(MinimizeHint));
         OnPropertyChanged(nameof(AutoUpdate));
         OnPropertyChanged(nameof(AutoBackup));
         OnPropertyChanged(nameof(IdleOpacity));
@@ -1174,6 +1294,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (!int.TryParse(index, out var wanted)) return;
 
+        CancelHotKeyCapture();
         OpenSettingsGroup = OpenSettingsGroup == wanted ? -1 : wanted;
     }
 
@@ -1181,6 +1302,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ToggleSettings()
     {
         IsSettingsOpen = !IsSettingsOpen;
+        CancelHotKeyCapture();
 
         if (!IsSettingsOpen)
         {

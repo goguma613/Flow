@@ -152,6 +152,10 @@ public sealed class AppSettings
     public double IdleOpacity { get; set; } = 0.92;
 
     [JsonIgnore] public bool RunAtStartup { get; set; }
+
+    /// <summary>어디서나 창을 부르는 조합. 빈 값이면 안 쓴다. 남는 곳은 DeviceStore.</summary>
+    [JsonIgnore] public string HotKey { get; set; } = "Ctrl+Alt+Space";
+
     public bool AcrylicEnabled { get; set; } = true;
 
     /// <summary>완료된 할 일을 며칠 뒤에 정리할지.</summary>

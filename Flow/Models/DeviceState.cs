@@ -40,6 +40,13 @@ public sealed class DeviceState
 
     public bool RunAtStartup { get; set; }
 
+    /// <summary>
+    /// 어디서나 창을 부르는 조합. 빈 값이면 안 쓴다.
+    /// 이것도 기기별인 이유: 그 조합을 다른 프로그램이 쥐고 있는지는 PC마다 다르다.
+    /// 회사 PC에서 비워 뒀다고 집 PC 것까지 사라지면 곤란하다.
+    /// </summary>
+    public string HotKey { get; set; } = "Ctrl+Alt+Space";
+
     public DateOnly? LastBackupDate { get; set; }
     public DateTime? LastUpdateCheck { get; set; }
 

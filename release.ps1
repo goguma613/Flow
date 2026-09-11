@@ -56,10 +56,15 @@ Write-Host "  버전 표기 완료"
 
 # ── 2. 빌드
 Write-Host "▸ 빌드 중…" -ForegroundColor Cyan
-# 이 저장소 안에서 돌고 있는 것만 닫는다.
-# 사용자가 쓰고 있는 실제사용파일\Flow.exe 를 죽이면 저장 안 된 입력이 날아간다.
+# 빌드 결과물만 닫는다. 파일을 덮어쓰려면 그것들이 떠 있으면 안 된다.
+# $root 전체를 잡으면 안 된다 - 사용자가 쓰고 있는 실제사용파일\Flow.exe 도
+# 이 폴더 아래에 있어서 함께 죽고, 저장 안 된 입력이 날아간다.
+$buildDirs = @((Join-Path $root 'Flow\bin'), $dist)
 Get-Process Flow -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
+    Where-Object {
+        $path = $_.Path
+        $path -and ($buildDirs | Where-Object { $path.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })
+    } |
     Stop-Process -Force
 Start-Sleep -Seconds 1
 

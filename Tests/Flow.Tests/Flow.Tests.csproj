@@ -20,6 +20,7 @@
     <Compile Include="../../Flow/Services/DayEngine.cs" />
     <Compile Include="../../Flow/Services/ReminderEngine.cs" />
     <Compile Include="../../Flow/Services/QuickAddParser.cs" />
+    <Compile Include="../../Flow/Services/HotKeyCombo.cs" />
   </ItemGroup>
 
 </Project>

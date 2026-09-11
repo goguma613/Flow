@@ -46,6 +46,9 @@ internal static class Program
         Section("빠른 추가 파서");
         ParserTests();
 
+        Section("단축키 조합");
+        HotKeyTests();
+
         Section("기기별 상태 분리");
         DeviceStateTests();
 
@@ -759,6 +762,7 @@ internal static class Program
         data.Settings.WindowSizedByUser = true;
         data.Settings.CompactMode = true;
         data.Settings.RunAtStartup = true;
+        data.Settings.HotKey = "Ctrl+Shift+F9";
         data.Settings.LastUpdateCheck = new DateTime(2026, 9, 9, 12, 0, 0);
         data.Settings.LastBackupDate = today;
 
@@ -779,7 +783,7 @@ internal static class Program
 
         foreach (var field in new[] { "WindowLeft", "WindowTop", "WindowWidth", "WindowHeight",
                                       "WindowSizedByUser", "CompactMode", "RunAtStartup",
-                                      "LastUpdateCheck", "LastBackupDate",
+                                      "HotKey", "LastUpdateCheck", "LastBackupDate",
                                       "RemindHandled", "RemindSnoozedUntil" })
         {
             Check($"{field} 는 data.json 에 없다", json.Contains(field), false);
@@ -805,6 +809,7 @@ internal static class Program
         Check("창 높이가 돌아옴", reloaded.Settings.WindowHeight, 800.0);
         Check("컴팩트 모드가 돌아옴", reloaded.Settings.CompactMode, true);
         Check("자동 시작이 돌아옴", reloaded.Settings.RunAtStartup, true);
+        Check("단축키 조합이 돌아옴", reloaded.Settings.HotKey, "Ctrl+Shift+F9");
         Check("업데이트 확인 시각이 돌아옴", reloaded.Settings.LastUpdateCheck, data.Settings.LastUpdateCheck);
         Check("루틴 알림 표시가 돌아옴", reloaded.Routines[0].RemindHandled, today);
         Check("루틴 미루기가 돌아옴", reloaded.Routines[0].RemindSnoozedUntil, routine.RemindSnoozedUntil);
@@ -823,6 +828,67 @@ internal static class Program
         var after = DeviceStore.Load();
         Check("사라진 할 일의 상태는 빠짐", after!.Reminders.Count, 1);
         Check("남은 것은 루틴", after.Reminders[0].Id, routine.Id);
+
+        // ── 단축키를 껐으면 껐다는 사실이 살아남아야 한다.
+        //    기본값이 "Ctrl+Alt+Space" 라, 빈 값을 못 지키면 껐는데도 다음에 켤 때 되살아난다.
+        var off = new AppData { LastLogicalDate = today };
+        off.Settings.HotKey = "";
+        DeviceStore.Capture(off);
+
+        var offAgain = new AppData { LastLogicalDate = today };
+        DeviceStore.Apply(offAgain);
+        Check("꺼 둔 단축키는 되살아나지 않음", offAgain.Settings.HotKey, "");
+    }
+
+    /// <summary>
+    /// 전역 단축키 조합의 읽기·쓰기. 실제 등록(RegisterHotKey)은 Windows 일이라 여기서는 못 보고,
+    /// 조합을 어떻게 알아듣고 어떻게 되돌려 적는지만 본다.
+    /// </summary>
+    private static void HotKeyTests()
+    {
+        Check("기본값은 Ctrl+Alt+Space", HotKeyCombo.Default.Saved, "Ctrl+Alt+Space");
+        Check("기본값 화면 표기", HotKeyCombo.Default.Text, "Ctrl + Alt + Space");
+        Check("기본값 가상 키", HotKeyCombo.Default.VirtualKey, 0x20u);
+
+        var parsed = HotKeyCombo.Parse("Ctrl+Alt+Space");
+        Check("되읽기 성공", parsed is not null, true);
+        Check("되읽은 조합키", parsed!.Modifiers, HotKeyCombo.ModControl | HotKeyCombo.ModAlt);
+        Check("되읽은 키", parsed.VirtualKey, 0x20u);
+
+        Check("대소문자를 가리지 않음", HotKeyCombo.Parse("ctrl+ALT+space")?.Saved, "Ctrl+Alt+Space");
+        Check("빈 값은 안 씀", HotKeyCombo.Parse(""), null);
+        Check("null 은 안 씀", HotKeyCombo.Parse(null), null);
+        Check("알아볼 수 없으면 안 씀", HotKeyCombo.Parse("Ctrl+Alt+없는키"), null);
+
+        // ── 창이 넘겨주는 Avalonia 키 이름을 알아듣고, 사람이 읽는 이름으로 바꿔 적는다
+        Check("D1 은 숫자 1", HotKeyCombo.From(true, true, false, false, "D1", out _)?.Saved, "Ctrl+Alt+1");
+        Check("Return 은 Enter", HotKeyCombo.From(true, false, false, false, "Return", out _)?.Saved, "Ctrl+Enter");
+        Check("OemTilde 는 물결표", HotKeyCombo.From(false, true, false, false, "OemTilde", out _)?.Saved, "Alt+`");
+        Check("Left 는 화살표", HotKeyCombo.From(true, true, false, false, "Left", out _)?.Saved, "Ctrl+Alt+←");
+        Check("F5 가 그대로", HotKeyCombo.From(true, false, false, false, "F5", out _)?.VirtualKey, 0x74u);
+        Check("Win 조합", HotKeyCombo.From(false, false, false, true, "K", out _)?.Text, "Win + K");
+
+        // ── 적어 둔 글자를 다시 읽으면 같은 조합이어야 한다. 여기가 어긋나면 재시작 때 단축키가 사라진다.
+        foreach (var saved in new[] { "Ctrl+Alt+Space", "Ctrl+Shift+F9", "Alt+`", "Win+K", "Ctrl+Alt+←", "Ctrl+Alt+숫자판 5" })
+        {
+            Check($"{saved} 왕복", HotKeyCombo.Parse(saved)?.Saved, saved);
+        }
+
+        // ── Ctrl·Alt·Win 없이 잡으면 그 글자를 어느 창에서도 못 치게 된다
+        Check("조합키 없이는 안 됨", HotKeyCombo.From(false, false, false, false, "K", out _), null);
+        Check("Shift 만으로도 안 됨", HotKeyCombo.From(false, false, true, false, "K", out _), null);
+
+        HotKeyCombo.From(false, false, true, false, "K", out var reason);
+        Check("까닭을 말해 준다", reason.Length > 0, true);
+
+        // ── 조합키만 눌린 순간은 흘려보내야 한다
+        Check("Ctrl 은 조합키", HotKeyCombo.IsModifierName("LeftCtrl"), true);
+        Check("LWin 은 조합키", HotKeyCombo.IsModifierName("LWin"), true);
+        Check("A 는 조합키가 아님", HotKeyCombo.IsModifierName("A"), false);
+        Check("조합키만으로는 안 됨", HotKeyCombo.From(true, false, false, false, "LeftCtrl", out _), null);
+
+        // ── Esc 는 잡기를 취소하는 키라 조합으로 쓸 수 없어야 한다
+        Check("Esc 는 잡히지 않음", HotKeyCombo.From(true, true, false, false, "Escape", out _), null);
     }
 
     private static void DataLocationTests()

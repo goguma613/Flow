@@ -49,6 +49,7 @@ public static class DeviceStore
         data.Settings.WindowHeight = state.WindowHeight;
         data.Settings.CompactMode = state.CompactMode;
         data.Settings.RunAtStartup = state.RunAtStartup;
+        data.Settings.HotKey = state.HotKey ?? "";
         data.Settings.LastBackupDate = state.LastBackupDate;
         data.Settings.LastUpdateCheck = state.LastUpdateCheck;
 
@@ -89,6 +90,7 @@ public static class DeviceStore
             WindowHeight = data.Settings.WindowHeight,
             CompactMode = data.Settings.CompactMode,
             RunAtStartup = data.Settings.RunAtStartup,
+            HotKey = data.Settings.HotKey,
             LastBackupDate = data.Settings.LastBackupDate,
             LastUpdateCheck = data.Settings.LastUpdateCheck,
             DataFolderInitialized = _dataFolderInitialized

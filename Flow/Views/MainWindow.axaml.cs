@@ -310,6 +310,10 @@ public partial class MainWindow : Window
 
     public void HideToTray()
     {
+        // 단축키를 잡던 도중이면 그만둔다. 잡는 동안에는 기존 조합을 떼어 놓기 때문에,
+        // 그대로 숨으면 창을 다시 부를 조합이 없어져 트레이 아이콘밖에 길이 없다.
+        ViewModel?.CancelHotKeyCapture();
+
         SaveWindowPlacement();
         ViewModel?.FlushNow();
         Hide();
@@ -607,6 +611,13 @@ public partial class MainWindow : Window
     private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
     {
         if (ViewModel is not { } vm) return;
+
+        if (vm.IsCapturingHotKey)
+        {
+            CaptureHotKeyStroke(vm, e);
+            return;
+        }
+
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
 
         if (e.Key == Key.C && e.KeyModifiers.HasFlag(KeyModifiers.Shift))
@@ -629,6 +640,34 @@ public partial class MainWindow : Window
 
         vm.SelectTabCommand.Execute(tab);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// 새 단축키를 잡는 동안의 키 입력. 이 동안에는 창이 받는 키를 전부 삼킨다 —
+    /// Ctrl+1 로 탭이 넘어가 버리면 그 조합을 잡을 수가 없다.
+    ///
+    /// 조합키만 눌린 순간(Ctrl 을 누르고 아직 글자를 안 눌렀을 때)은 그냥 흘려보낸다.
+    /// 안 그러면 Ctrl 을 누르자마자 "Ctrl 만으로는 안 됩니다"가 떠서 눈이 어지럽다.
+    /// </summary>
+    private void CaptureHotKeyStroke(MainViewModel vm, KeyEventArgs e)
+    {
+        e.Handled = true;
+
+        if (e.Key == Key.Escape)
+        {
+            vm.CancelHotKeyCapture();
+            return;
+        }
+
+        var name = e.Key.ToString();
+        if (HotKeyCombo.IsModifierName(name)) return;
+
+        vm.FinishHotKeyCapture(
+            e.KeyModifiers.HasFlag(KeyModifiers.Control),
+            e.KeyModifiers.HasFlag(KeyModifiers.Alt),
+            e.KeyModifiers.HasFlag(KeyModifiers.Shift),
+            e.KeyModifiers.HasFlag(KeyModifiers.Meta),
+            name);
     }
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)

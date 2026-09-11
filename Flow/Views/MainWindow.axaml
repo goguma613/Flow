@@ -130,7 +130,7 @@
                   <Ellipse Width="3" Height="3" Fill="{StaticResource TextMutedBrush}" />
                 </StackPanel>
               </Button>
-              <Button Name="MinimizeButton" Classes="icon" ToolTip.Tip="트레이로 숨기기  (Ctrl+Alt+Space로 다시 열기)">
+              <Button Name="MinimizeButton" Classes="icon" ToolTip.Tip="{Binding MinimizeHint}">
                 <Path Data="{StaticResource MinimizeIcon}" Width="16" Height="16" Stretch="None" />
               </Button>
               <Button Name="CloseButton" Classes="icon danger" ToolTip.Tip="종료">
@@ -677,13 +677,15 @@
                     <TextBlock Grid.Column="1" Classes="helpout" Text="크기 조절" />
                   </Grid>
                   <Grid ColumnDefinitions="Auto,*">
-                    <TextBlock Classes="helpin" Text="Ctrl + Alt + Space" MinWidth="112" />
+                    <TextBlock Classes="helpin" Text="{Binding HotKeyText}" MinWidth="112" />
                     <TextBlock Grid.Column="1" Classes="helpout" Text="어디서나 불러오기" />
                   </Grid>
                 </StackPanel>
               </Border>
               <TextBlock Classes="helpbody"
                          Text="맨 위 − 는 트레이로 숨기기, X 는 완전 종료입니다." />
+              <TextBlock Classes="helpbody"
+                         Text="불러오는 조합은 설정 · 앱에서 바꿀 수 있습니다. 다른 프로그램이 이미 쓰고 있는 조합이면 그 자리에서 알려 줍니다." />
             </StackPanel>
 
             <StackPanel Spacing="7">
@@ -1000,6 +1002,26 @@
                   <Border Classes="groupline" />
 
                   <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="어디서나 부르기" VerticalAlignment="Center" />
+                    <Border Grid.Column="1" Classes="badge">
+                      <TextBlock Text="{Binding HotKeyText}" FontSize="11"
+                                 Foreground="{StaticResource TextSecondaryBrush}" />
+                    </Border>
+                  </Grid>
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <Button Classes="chip" Content="{Binding HotKeyButtonText}"
+                            Command="{Binding CaptureHotKeyCommand}" Padding="11,6" />
+                    <Button Classes="chip" Content="기본값"
+                            Command="{Binding ResetHotKeyCommand}" Padding="11,6" />
+                    <Button Classes="chip" Content="끄기"
+                            Command="{Binding ClearHotKeyCommand}" Padding="11,6" />
+                  </StackPanel>
+                  <TextBlock Classes="settinghint" Text="{Binding HotKeyStatus}"
+                             IsVisible="{Binding HotKeyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Classes="settinglabel" Text="자동 업데이트" />
                     <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
                   </Grid>
@@ -1082,7 +1104,7 @@
                   <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Classes="settinghint" Text="어디서나 불러오기" VerticalAlignment="Center" />
                     <Border Grid.Column="1" Classes="badge">
-                      <TextBlock Text="Ctrl + Alt + Space" FontSize="11"
+                      <TextBlock Text="{Binding HotKeyText}" FontSize="11"
                                  Foreground="{StaticResource TextSecondaryBrush}" />
                     </Border>
                   </Grid>
