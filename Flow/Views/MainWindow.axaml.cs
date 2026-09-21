@@ -544,6 +544,9 @@ public partial class MainWindow : Window
 
     // ───────────────────────── 이름 바꾸기
 
+    /// <summary>이보다 짧으면 '갈아치우려는 것'으로 보고 전체를 선택해 준다.</summary>
+    private const int ShortTitleLength = 24;
+
     private void OnRenameAttached(object? sender, VisualTreeAttachmentEventArgs e)
     {
         if (sender is not TextBox box) return;
@@ -557,7 +560,13 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() =>
             {
                 box.Focus();
-                box.SelectAll();
+
+                // 짧은 이름은 통째로 갈아치우려는 것이니 전체 선택이 편하다.
+                // 길게 적어 둔 것은 한 글자만 잘못 눌러도 전부 날아가므로 고르지 않고 끝에 커서만 둔다.
+                // (줄바꿈이 되니 가운데를 고치려면 그 자리를 바로 누르면 된다)
+                var length = box.Text?.Length ?? 0;
+                if (length <= ShortTitleLength) box.SelectAll();
+                else box.CaretIndex = length;
             }, DispatcherPriority.Background);
         }));
     }

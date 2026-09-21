@@ -9,7 +9,20 @@ namespace Flow.ViewModels;
 
 public abstract partial class RowBase : ObservableObject
 {
-    [ObservableProperty] private bool _isEditing;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EditSpan))]
+    private bool _isEditing;
+
+    /// <summary>
+    /// 고치는 동안 제목 칸이 줄 전체를 쓰게 한다.
+    ///
+    /// 오른쪽 뱃지(마감일·연속일수·삭제 버튼)가 줄 폭의 3분의 1을 가져가는데,
+    /// 고치는 동안에는 그것들을 볼 일이 없다. 칸을 늘려 그 위를 덮으면
+    /// 좁은 창에서도 한 줄에 글자가 두 배쯤 들어간다.
+    ///
+    /// 칸 수보다 큰 값을 줘도 Grid 가 남은 칸까지만 잡는다.
+    /// </summary>
+    public int EditSpan => IsEditing ? 9 : 1;
 
     /// <summary>컴팩트 모드에서는 곁다리(연속일수·삭제 버튼)를 접고 줄 높이를 줄인다.</summary>
     [ObservableProperty] private bool _isCompact;

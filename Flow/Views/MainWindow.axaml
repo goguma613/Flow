@@ -40,7 +40,7 @@
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                        <Panel Grid.Column="1" Grid.ColumnSpan="{Binding EditSpan}" ZIndex="1" Margin="10,0,8,0">
                           <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
                           <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
                                    AttachedToVisualTree="OnRenameAttached"
@@ -183,7 +183,7 @@
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                        <Panel Grid.Column="1" Grid.ColumnSpan="{Binding EditSpan}" ZIndex="1" Margin="10,0,8,0">
                           <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
                           <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
                                    AttachedToVisualTree="OnRenameAttached"
@@ -246,7 +246,7 @@
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <Panel Grid.Column="1" Margin="10,0,8,0">
+                        <Panel Grid.Column="1" Grid.ColumnSpan="{Binding EditSpan}" ZIndex="1" Margin="10,0,8,0">
                           <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
                           <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
                                    AttachedToVisualTree="OnRenameAttached"
@@ -390,7 +390,7 @@
                                      IsVisible="{Binding !IsScheduledToday}"
                                      ToolTip.Tip="오늘은 예정된 날이 아닙니다" />
                         </Panel>
-                        <StackPanel Grid.Column="1" Spacing="1" Margin="10,0,8,0">
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="{Binding EditSpan}" ZIndex="1" Spacing="1" Margin="10,0,8,0">
                           <Panel>
                             <TextBlock Classes="title" Text="{Binding Title}" IsVisible="{Binding !IsEditing}" />
                             <TextBox Classes="rename" Text="{Binding Title}" IsVisible="{Binding IsEditing}"
@@ -682,6 +682,8 @@
                   </Grid>
                 </StackPanel>
               </Border>
+              <TextBlock Classes="helpbody"
+                         Text="이름을 고칠 때는 입력칸이 줄 전체로 늘어나고 내용에 맞춰 줄을 바꿉니다. 길게 적어 둔 것도 다 보면서 고칠 수 있고, 가운데를 손보려면 그 자리를 바로 누르면 됩니다. Enter 로 확정, Esc 로 되돌립니다." />
               <TextBlock Classes="helpbody"
                          Text="맨 위 − 는 트레이로 숨기기, X 는 완전 종료입니다." />
               <TextBlock Classes="helpbody"

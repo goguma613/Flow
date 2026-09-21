@@ -1,4 +1,4 @@
-<Styles xmlns="https://github.com/avaloniaui"
+﻿<Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <Styles.Resources>
@@ -283,7 +283,14 @@
     <Setter Property="FontSize" Value="14" />
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
     <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <!-- 긴 내용을 고칠 때 한 줄짜리 상자면 글자 열몇 개만 보이고 나머지는 옆으로 흘러간다.
+         읽으면서 고칠 수 있도록 보이는 대로 줄을 바꾼다. Enter 는 그대로 '확정'이다. -->
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="AcceptsReturn" Value="False" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <!-- 아주 긴 것은 여기서 멈추고 상자 안에서 굴린다. 창을 통째로 덮어 버리면 그것대로 곤란하다.
+         620 높이 창에서 목록의 절반쯤이다. 200자 안팎이면 한눈에 다 들어온다. -->
+    <Setter Property="MaxHeight" Value="220" />
   </Style>
   <Style Selector="TextBox.rename /template/ Border#PART_BorderElement">
     <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
