@@ -62,6 +62,9 @@ const state = {
   pending: local.get('pending', []),   // 아직 PC가 반영 안 한 일 = inbox 내용
   dirty: local.get('dirty', false),    // inbox 에 아직 못 올린 것이 있는지
   rev: 0,                              // 일을 쌓을 때마다 1씩. 보내는 사이 새로 누른 게 있는지 가린다
+  sent: new Set(local.get('sent', [])),// 드라이브에 올라간 것이 확인된 일
+  authStuck: false,                    // 구글 창이 결과를 안 돌려줬다
+  errorDetail: '',
   ids: local.get('ids', null),         // 드라이브 안의 폴더·파일 번호
   token: null,
   tokenExpires: 0,
@@ -164,15 +167,25 @@ async function requestToken() {
   tokenClient ??= google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPE, callback: () => {} });
 
   return new Promise(resolve => {
+    // 설치한 앱으로 띄우면 구글 창이 끝나도 결과가 안 돌아오는 경우가 있다. 무작정 기다리지 않는다.
+    const giveUp = setTimeout(() => {
+      state.authStuck = true;
+      toast('구글 연결 창이 돌아오지 않았습니다');
+      render();
+      resolve(false);
+    }, 60_000);
+
     tokenClient.callback = response => {
+      clearTimeout(giveUp);
       if (response.error || !response.access_token) return resolve(false);
       state.token = response.access_token;
       state.tokenExpires = Date.now() + Number(response.expires_in || 3600) * 1000;
+      state.authStuck = false;
       local.set('token', { value: state.token, expires: state.tokenExpires });
       local.set('connected', true);
       resolve(true);
     };
-    tokenClient.error_callback = () => resolve(false);
+    tokenClient.error_callback = () => { clearTimeout(giveUp); resolve(false); };
     tokenClient.requestAccessToken({ prompt: local.get('connected', false) ? '' : 'consent' });
   });
 }
@@ -312,6 +325,10 @@ async function syncInbox() {
     });
   }
 
+  // 여기까지 왔으면 이 일들은 드라이브에 있다. '아직 폰에만 있음'과 'PC가 받기를 기다림'을 가르는 표시.
+  state.sent = new Set(merged.map(op => op.Id));
+  local.set('sent', [...state.sent]);
+
   if (state.rev === rev) {
     state.dirty = false;
     local.set('dirty', false);
@@ -365,6 +382,7 @@ async function refresh() {
       state.phase = state.view?.Today ? 'today' : 'waiting-pc';
     } catch (error) {
       state.error = error instanceof AuthError ? 'auth' : 'net';
+      state.errorDetail = error instanceof AuthError ? '' : String(error?.message || error);
     } finally {
       state.busy = false;
       refreshing = null;
@@ -391,6 +409,7 @@ async function flush() {
     state.error = null;
   } catch (error) {
     state.error = error instanceof AuthError ? 'auth' : 'net';
+    state.errorDetail = error instanceof AuthError ? '' : String(error?.message || error);
   }
   render();
 }
@@ -498,21 +517,55 @@ function renderWaiting() {
     </div>`;
 }
 
+/**
+ * 지금 상태 한 줄. 일이 어디까지 갔는지를 가려서 말한다:
+ *   폰에만 있음(아직 못 보냄) → 드라이브에 감(PC가 받기를 기다림) → PC가 받음(사라짐)
+ * 예전에는 앞의 둘을 다 "PC 반영 대기"라고만 해서, 못 보내고 있는 걸 알 수가 없었다.
+ */
 function statusLine() {
-  if (state.error === 'auth' || (!hasToken() && local.get('connected', false) && !DEMO)) {
-    return `<div class="status"><span class="dot"></span>새로고침을 누르면 최신으로 맞춥니다</div>`;
-  }
-  if (state.error === 'net') {
-    return `<div class="status error"><span class="dot"></span>드라이브에 닿지 못했습니다 · 새로고침을 눌러 주세요</div>`;
-  }
-
-  const waiting = state.pending.filter(op => !(state.view?.AppliedOps ?? []).includes(op.Id)).length;
+  const applied = new Set(state.view?.AppliedOps ?? []);
+  const open = state.pending.filter(op => !applied.has(op.Id));
+  const unsent = open.filter(op => !state.sent.has(op.Id)).length;
+  const waiting = open.length - unsent;
   const generated = state.view?.GeneratedAt ? `PC ${agoText(state.view.GeneratedAt)} 기준` : '';
 
+  if (unsent > 0) {
+    if (state.busy) return `<div class="status pending"><span class="dot"></span>보내는 중… ${unsent}개</div>`;
+    if (state.authStuck) {
+      return `<button class="status error" data-act="refresh"><span class="dot"></span>폰에만 있음 ${unsent}개 · 구글 연결이 안 돌아왔습니다. 크롬에서 열어 주세요</button>`;
+    }
+    if (!hasToken() || state.error === 'auth') {
+      return `<button class="status error" data-act="refresh"><span class="dot"></span>폰에만 있음 ${unsent}개 · 눌러서 보내기</button>`;
+    }
+    if (state.error === 'net') {
+      return `<button class="status error" data-act="refresh"><span class="dot"></span>폰에만 있음 ${unsent}개 · 보내지 못함(${esc(state.errorDetail)}) · 눌러서 다시</button>`;
+    }
+    return `<div class="status pending"><span class="dot"></span>보낼 차례 ${unsent}개</div>`;
+  }
+
+  if (state.error === 'net') {
+    return `<button class="status error" data-act="refresh"><span class="dot"></span>드라이브에 닿지 못했습니다(${esc(state.errorDetail)}) · 눌러서 다시</button>`;
+  }
+  if (!hasToken() && local.get('connected', false) && !DEMO) {
+    return `<button class="status" data-act="refresh"><span class="dot"></span>${generated ? generated + ' · ' : ''}눌러서 최신으로</button>`;
+  }
   if (waiting > 0) {
-    return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개${generated ? ' · ' + generated : ''}</div>`;
+    return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개 · PC가 켜져 있으면 1분 안에</div>`;
   }
   return `<div class="status live"><span class="dot"></span>${generated || '최신'}</div>`;
+}
+
+/** 맨 아래 작은 글씨. 문제가 생겼을 때 캡처 한 장으로 사정을 알 수 있게 한다. */
+function diagnostics() {
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
+  const parts = [
+    'v3',
+    standalone ? '앱' : '브라우저',
+    DEMO ? '보기용' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
+    `대기 ${state.pending.length}`
+  ];
+  return `<div class="diag">${parts.join(' · ')}</div>`;
 }
 
 function rowHtml(item) {
@@ -602,6 +655,7 @@ function renderToday() {
         <button class="fold${state.showDone ? ' open' : ''}" data-act="fold">${ICON.chevron}완료됨 ${done.length}개</button>
         ${state.showDone ? done.map(rowHtml).join('') : ''}` : ''}
       ${!total ? '<div class="empty">오늘은 비어 있습니다.<br>아래에 적으면 PC가 받아 넣습니다.</div>' : ''}
+      ${diagnostics()}
     </main>
 
     <div class="composer">
