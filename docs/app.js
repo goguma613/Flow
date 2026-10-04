@@ -61,6 +61,7 @@ const state = {
   view: local.get('view', null),       // 마지막으로 받은 PC 화면
   pending: local.get('pending', []),   // 아직 PC가 반영 안 한 일 = inbox 내용
   dirty: local.get('dirty', false),    // inbox 에 아직 못 올린 것이 있는지
+  rev: 0,                              // 일을 쌓을 때마다 1씩. 보내는 사이 새로 누른 게 있는지 가린다
   ids: local.get('ids', null),         // 드라이브 안의 폴더·파일 번호
   token: null,
   tokenExpires: 0,
@@ -255,14 +256,68 @@ async function readView() {
   try { return JSON.parse(text); } catch { return null; }   // PC가 쓰는 도중이면 다음에 다시
 }
 
-async function writeInbox() {
-  await drive(`/upload/drive/v3/files/${state.ids.inbox}?uploadType=media`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ Version: 1, Ops: state.pending })
-  });
-  state.dirty = false;
-  local.set('dirty', false);
+async function readInbox() {
+  const text = await (await drive(`/drive/v3/files/${state.ids.inbox}?alt=media`)).text();
+  try {
+    const json = JSON.parse(text);
+    return Array.isArray(json?.Ops) ? json.Ops : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 여러 곳에서 모은 일을 번호로 합친다. 사람이 일을 '취소해서 지우는' 경우는 없으므로
+ * 합집합이 언제나 맞다. PC가 이미 받아 간 것만 뺀다.
+ */
+function mergeOps(lists, applied) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const op of list ?? []) {
+      if (op?.Id && !applied.has(op.Id) && !byId.has(op.Id)) byId.set(op.Id, op);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.At.localeCompare(b.At) || a.Id.localeCompare(b.Id));
+}
+
+function sameIds(a, b) {
+  if (a.length !== b.length) return false;
+  const ids = new Set(a.map(op => op.Id));
+  return b.every(op => ids.has(op.Id));
+}
+
+/**
+ * inbox 를 맞춘다: 드라이브에 있는 것 + 이 폰이 들고 있는 것 − PC가 받아 간 것.
+ *
+ * 덮어쓰지 않고 합치는 이유: 폰에서 Flow가 두 군데 열려 있으면(크롬 탭과 홈 화면 아이콘)
+ * 각자 자기가 아는 것만 써서 서로의 체크를 지웠다. 실제로 체크 하나가 그렇게 사라졌다.
+ *
+ * 보내는 사이에 새로 누른 것이 있으면 '다 보냈음'으로 치지 않고 한 번 더 보낸다.
+ * 예전에는 그 사이 누른 체크가 '보냈음' 표시에 묻혀 영영 안 갔다.
+ */
+async function syncInbox() {
+  const rev = state.rev;
+  const applied = new Set(state.view?.AppliedOps ?? []);
+  const remote = await readInbox();
+
+  const merged = mergeOps([remote, local.get('pending', []), state.pending], applied);
+  state.pending = merged;
+  local.set('pending', merged);
+
+  if (!sameIds(remote, merged)) {
+    await drive(`/upload/drive/v3/files/${state.ids.inbox}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Version: 1, Ops: merged })
+    });
+  }
+
+  if (state.rev === rev) {
+    state.dirty = false;
+    local.set('dirty', false);
+  } else {
+    scheduleFlush();
+  }
 }
 
 /** 폴더나 파일을 사람이 지웠다. 번호를 잊고 처음부터 다시 찾거나 만든다. */
@@ -301,16 +356,9 @@ async function refresh() {
           local.set('fetchedAt', state.fetchedAt);
         }
 
-        // PC가 받아 간 일은 inbox 에서 지운다. inbox 를 쓰는 건 폰뿐이라 지워도 부딪힐 일이 없다.
-        const applied = new Set(state.view?.AppliedOps ?? []);
-        const before = state.pending.length;
-        state.pending = state.pending.filter(op => !applied.has(op.Id));
-        if (state.pending.length !== before) {
-          local.set('pending', state.pending);
-          state.dirty = true;
-        }
-
-        if (state.dirty) await writeInbox();
+        // 새로고침할 때마다 inbox 를 맞춘다. PC가 받아 간 것은 빠지고,
+        // 이 폰에 남아 있는데 드라이브에 없는 것(전에 못 보낸 것)은 이때 다시 간다.
+        await syncInbox();
       });
 
       state.error = null;
@@ -339,7 +387,7 @@ async function flush() {
   if (!hasToken()) { render(); return; }
 
   try {
-    await withLink(writeInbox);
+    await withLink(syncInbox);
     state.error = null;
   } catch (error) {
     state.error = error instanceof AuthError ? 'auth' : 'net';
@@ -358,6 +406,7 @@ function pushOp(kind, target, text) {
     At: localIso(now),
     Day: logicalToday(now)
   });
+  state.rev++;
   state.dirty = true;
   local.set('pending', state.pending);
   local.set('dirty', true);
