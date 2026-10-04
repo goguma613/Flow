@@ -186,9 +186,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _data = _store.Load();
         _today = DayEngine.LogicalDate(DateTime.Now, _data.Settings.DayStartHour);
 
+        // 폰에서 온 일은 롤오버 앞뒤로 한 번씩 넣는다. 월요일 밤 폰으로 한 체크를
+        // 화요일 아침에 받았다면, 롤오버 전이라야 월요일 몫으로 들어가 연속 기록에 잡힌다.
+        _phone = new PhoneLinkStore(DataStore.Directory);
+        if (!_store.WaitingForFolder) _phoneOps = _phone.ReadInbox();
+        var fromPhone = ApplyPhoneOps();
+
         var result = DayEngine.Rollover(_data, _today);
+
+        var fromPhoneToday = ApplyPhoneOps();
+        fromPhone = new PhoneApplyResult(
+            fromPhone.Added + fromPhoneToday.Added,
+            fromPhone.Checked + fromPhoneToday.Checked,
+            fromPhone.Unchecked + fromPhoneToday.Unchecked,
+            fromPhone.Skipped + fromPhoneToday.Skipped);
+
         DayEngine.SyncToday(_data, _today);
         _store.RequestSave(_data);
+
+        // 폰이 볼 화면은 바뀐 직후에 몰아서 쓴다. 연달아 체크하는 동안 매번 올리지 않도록.
+        _phoneViewTimer = new DispatcherTimer { Interval = PhoneViewDelay };
+        _phoneViewTimer.Tick += (_, _) =>
+        {
+            _phoneViewTimer.Stop();
+            PushToPhone();
+        };
 
         // 고정 주기로 돌면 앱을 켠 시점에 따라 분 경계와 어긋난다.
         // 21:22 알림이 21:22:28에 울리는 식인데, 사람은 그걸 늦다고 느낀다.
@@ -212,6 +234,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             ScheduleNextTick();
             SyncFromDisk();
             CheckRollover();
+            SyncWithPhone();
             FireDueReminders(DateTime.Now);
         };
 
@@ -247,6 +270,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (result.Changed) Announce(result.DaysElapsed == 1
             ? "새 하루 시작 · 루틴을 초기화했습니다"
             : $"{result.DaysElapsed}일치를 정산하고 초기화했습니다");
+        else if (fromPhone.Changed > 0) Announce(DescribePhone(fromPhone));
+
+        PushToPhone();
     }
 
     public ObservableCollection<RoutineRow> TodayRoutines { get; } = [];
@@ -1133,7 +1159,78 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Persist() => _store.RequestSave(_data);
+    public void Persist()
+    {
+        _store.RequestSave(_data);
+
+        _phoneViewTimer.Stop();
+        _phoneViewTimer.Start();
+    }
+
+    // ── 폰과 주고받기 ───────────────────────────────────────────────
+
+    /// <summary>바뀐 뒤 이만큼 조용하면 폰 화면 파일을 쓴다. data.json 저장(1초)보다 조금 늦게.</summary>
+    private static readonly TimeSpan PhoneViewDelay = TimeSpan.FromSeconds(2);
+
+    private readonly PhoneLinkStore _phone;
+    private readonly DispatcherTimer _phoneViewTimer;
+
+    /// <summary>
+    /// 마지막으로 읽은 inbox. 파일이 그대로여도 매분 다시 대 본다 —
+    /// 내일 날짜로 온 일(PC가 아직 자정을 안 넘긴 경우)은 롤오버 뒤에야 들어가기 때문이다.
+    /// 이미 반영한 것은 번호로 걸러지므로 몇 번을 대도 한 번만 들어간다.
+    /// </summary>
+    private IReadOnlyList<PhoneOp>? _phoneOps;
+
+    private PhoneApplyResult ApplyPhoneOps()
+    {
+        // 저장 폴더를 기다리는 중이면 지금 데이터는 빈 자리표시다. 여기에 넣으면 진짜 데이터가 아니다.
+        if (_store.WaitingForFolder || _phoneOps is null) return PhoneApplyResult.None;
+
+        return PhoneLinkEngine.Apply(_data, _phoneOps);
+    }
+
+    /// <summary>분마다 한 번. 폰이 남긴 일을 받아 넣고, 폰이 볼 화면을 맞춰 둔다.</summary>
+    private void SyncWithPhone()
+    {
+        if (_store.WaitingForFolder) return;
+
+        if (_phone.ReadInboxIfChanged() is { } ops) _phoneOps = ops;
+
+        var result = ApplyPhoneOps();
+        if (result.NeedsSave)
+        {
+            DayEngine.SyncToday(_data, _today);
+            Persist();
+
+            if (result.Changed > 0)
+            {
+                RebuildAll();
+                RefreshStreakSummary();
+                Announce(DescribePhone(result));
+            }
+        }
+
+        PushToPhone();
+    }
+
+    /// <summary>폰이 볼 오늘 화면을 쓴다. 폰이 연결을 안 했으면, 또는 내용이 그대로면 아무것도 안 한다.</summary>
+    private void PushToPhone()
+    {
+        if (_store.WaitingForFolder) return;
+
+        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now));
+    }
+
+    private static string DescribePhone(PhoneApplyResult result)
+    {
+        var parts = new List<string>();
+        if (result.Added > 0) parts.Add($"추가 {result.Added}");
+        if (result.Checked > 0) parts.Add($"완료 {result.Checked}");
+        if (result.Unchecked > 0) parts.Add($"완료 취소 {result.Unchecked}");
+
+        return "폰에서 가져옴 · " + string.Join(" · ", parts);
+    }
 
     /// <summary>
     /// 이 PC 것만 바뀌었을 때 쓰는 저장. data.json 은 건드리지 않는다.
@@ -1226,20 +1323,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(input)) return;
 
         var parsed = QuickAddParser.Parse(input, _today, IsRoutineTab, TimeOnly.FromDateTime(DateTime.Now));
-        var title = string.IsNullOrWhiteSpace(parsed.Title) ? input : parsed.Title;
+        var title = ItemFactory.TitleOf(parsed, input);
 
         if (parsed.IsRoutine)
         {
-            _data.Routines.Add(new Routine
-            {
-                Title = title,
-                Days = parsed.Days,
-                Order = _data.Routines.Count,
-
-                // 시각을 굳이 적었다는 것 자체가 "이 시각이 중요하다"는 뜻이다.
-                Time = parsed.DueTime,
-                Remind = parsed.DueTime.HasValue
-            });
+            _data.Routines.Add(ItemFactory.CreateRoutine(parsed, title, _data.Routines.Count));
             Announce($"루틴 추가 · {(parsed.Days.Count == 0 ? "매일" : string.Join("", parsed.Days.Select(ShortDay)))}");
         }
         else
@@ -1249,16 +1337,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             // 다만 '예정' 탭에서 적은 것까지 오늘로 보내면 방금 추가한 게 사라져 보인다.
             var due = parsed.Due ?? (IsUpcomingTab ? _today.AddDays(1) : (DateOnly?)null);
 
-            _data.Tasks.Add(new TaskItem
-            {
-                Title = title,
-                Priority = parsed.Priority,
-                Due = due,
-                DueTime = parsed.DueTime,
-                Remind = parsed.DueTime.HasValue,
-                CreatedDate = _today,
-                Order = _data.Tasks.Count
-            });
+            _data.Tasks.Add(ItemFactory.CreateTask(parsed, title, due, _today, _data.Tasks.Count));
             Announce($"할 일 추가 · {FormatDue(due, parsed.DueTime)}");
         }
 
@@ -1564,6 +1643,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _timer.Stop();
+        _phoneViewTimer.Stop();
+        PushToPhone();
         _statusTimer.Stop();
         _busyTimer.Stop();
         _updateTimer?.Stop();

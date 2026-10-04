@@ -11,6 +11,8 @@ namespace Flow.Services;
 [JsonSerializable(typeof(AppData))]
 [JsonSerializable(typeof(DeviceState))]
 [JsonSerializable(typeof(DataLocationPointer))]
+[JsonSerializable(typeof(PhoneInbox))]
+[JsonSerializable(typeof(PhoneView))]
 internal sealed partial class AppJsonContext : JsonSerializerContext;
 
 /// <summary>

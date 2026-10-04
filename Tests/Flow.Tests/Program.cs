@@ -11,7 +11,7 @@ namespace Flow.Tests;
 /// 롤오버 엔진과 빠른 추가 파서의 자체 검증.
 /// 시간을 인자로 주입하므로 시스템 시계를 건드리지 않고 며칠치를 시뮬레이션할 수 있다.
 /// </summary>
-internal static class Program
+internal static partial class Program
 {
     private static int _passed;
     private static int _failed;
@@ -51,6 +51,12 @@ internal static class Program
 
         Section("기기별 상태 분리");
         DeviceStateTests();
+
+        Section("폰 연동 · 반영 규칙");
+        PhoneEngineTests();
+
+        Section("폰 연동 · 파일");
+        PhoneStoreTests();
 
         Section("저장 위치 옮기기");
         DataLocationTests();

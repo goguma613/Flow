@@ -97,7 +97,7 @@ git -C $root add -A
 if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "git add 에 실패했습니다." }
 
 if ((git -C $root status --porcelain).Length -gt 0) {
-    $message = "Release v$Version`n`nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+    $message = "Release v$Version`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
     git -C $root commit -m $message
     if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "커밋에 실패했습니다." }
 }

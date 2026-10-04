@@ -200,4 +200,11 @@ public sealed class AppData
     public List<TaskItem> Tasks { get; set; } = new();
     public List<DayRecord> History { get; set; } = new();
     public AppSettings Settings { get; set; } = new();
+
+    /// <summary>
+    /// 폰에서 온 일 중 반영을 끝낸 것. 기기별이 아니라 여기(data.json)에 두는 이유:
+    /// 집 PC가 반영한 것을 회사 PC가 또 반영하면 안 되기 때문이다.
+    /// 새 필드라 옛 버전은 모르고 지나간다 — 읽지 못해 파일을 버리는 일은 없다.
+    /// </summary>
+    public List<AppliedPhoneOp> PhoneOpsApplied { get; set; } = new();
 }
