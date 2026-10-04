@@ -212,6 +212,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             PushToPhone();
         };
 
+        _phonePollTimer = new DispatcherTimer { Interval = PhonePollInterval };
+        _phonePollTimer.Tick += (_, _) => PollPhone();
+        _phonePollTimer.Start();
+
         // 고정 주기로 돌면 앱을 켠 시점에 따라 분 경계와 어긋난다.
         // 21:22 알림이 21:22:28에 울리는 식인데, 사람은 그걸 늦다고 느낀다.
         // 알림 시각은 늘 분 단위이므로 분 경계 바로 뒤로 맞춘다 —
@@ -1172,8 +1176,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>바뀐 뒤 이만큼 조용하면 폰 화면 파일을 쓴다. data.json 저장(1초)보다 조금 늦게.</summary>
     private static readonly TimeSpan PhoneViewDelay = TimeSpan.FromSeconds(2);
 
+    /// <summary>폰이 남긴 일을 보러 가는 간격. 크기·시각만 확인하므로 자주 봐도 부담이 없다.</summary>
+    private static readonly TimeSpan PhonePollInterval = TimeSpan.FromSeconds(10);
+
     private readonly PhoneLinkStore _phone;
     private readonly DispatcherTimer _phoneViewTimer;
+    private readonly DispatcherTimer _phonePollTimer;
 
     /// <summary>
     /// 마지막으로 읽은 inbox. 파일이 그대로여도 매분 다시 대 본다 —
@@ -1197,21 +1205,40 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         if (_phone.ReadInboxIfChanged() is { } ops) _phoneOps = ops;
 
-        var result = ApplyPhoneOps();
-        if (result.NeedsSave)
-        {
-            DayEngine.SyncToday(_data, _today);
-            Persist();
-
-            if (result.Changed > 0)
-            {
-                RebuildAll();
-                RefreshStreakSummary();
-                Announce(DescribePhone(result));
-            }
-        }
-
+        ApplyFromPhone();
         PushToPhone();
+    }
+
+    /// <summary>
+    /// 10초마다. 폰이 inbox 를 바꿨을 때만 일이 생긴다 — 파일의 크기와 시각만 보고,
+    /// 그대로면 읽지도 않는다. 아무것도 쓰지 않으므로 업로드도 늘지 않는다.
+    ///
+    /// 분마다 보는 것만으로는 폰에서 체크하고 PC에 뜨기까지 최대 1분이 걸렸다.
+    /// 드라이브는 2초 만에 내려 주는데 PC가 늦게 보는 셈이었다.
+    /// </summary>
+    private void PollPhone()
+    {
+        if (_store.WaitingForFolder) return;
+        if (_phone.ReadInboxIfChanged() is not { } ops) return;
+
+        _phoneOps = ops;
+        ApplyFromPhone();
+    }
+
+    /// <summary>받아 둔 폰의 일을 넣는다. 바뀐 게 있으면 저장하고(폰 화면도 2초 뒤 따라 씀) 목록을 다시 그린다.</summary>
+    private void ApplyFromPhone()
+    {
+        var result = ApplyPhoneOps();
+        if (!result.NeedsSave) return;
+
+        DayEngine.SyncToday(_data, _today);
+        Persist();
+
+        if (result.Changed == 0) return;
+
+        RebuildAll();
+        RefreshStreakSummary();
+        Announce(DescribePhone(result));
     }
 
     /// <summary>폰이 볼 오늘 화면을 쓴다. 폰이 연결을 안 했으면, 또는 내용이 그대로면 아무것도 안 한다.</summary>
@@ -1643,6 +1670,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _timer.Stop();
+        _phonePollTimer.Stop();
         _phoneViewTimer.Stop();
         PushToPhone();
         _statusTimer.Stop();
