@@ -100,6 +100,12 @@ public sealed class PhoneView
     public List<PhoneViewItem> Tasks { get; set; } = new();
 
     /// <summary>
+    /// 내일 이후 마감인 할 일(PC의 '예정' 탭). 가까운 날짜부터.
+    /// 이 필드를 모르는 옛 폰은 그냥 건너뛴다.
+    /// </summary>
+    public List<PhoneViewItem> Upcoming { get; set; } = new();
+
+    /// <summary>
     /// 반영이 끝난 폰의 일 번호. 폰은 이걸 보고 inbox 에서 지운다.
     /// 여기 없는 일은 아직 PC가 못 받은 것이니, 폰은 화면에 '반영 대기'로 얹어 보여 준다.
     /// </summary>

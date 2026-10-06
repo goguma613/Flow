@@ -203,6 +203,7 @@ internal static partial class Program
             data.Tasks.Add(new TaskItem { Title = "보통", Order = 0 });
             data.Tasks.Add(new TaskItem { Title = "급함", Priority = Priority.High, Order = 1 });
             data.Tasks.Add(new TaskItem { Title = "다음 주", Due = Mon.AddDays(7) });
+            data.Tasks.Add(new TaskItem { Title = "모레", Due = Mon.AddDays(2) });
             data.Tasks.Add(new TaskItem { Title = "오늘 끝냄", Done = true, CompletedDate = Mon });
             data.Tasks.Add(new TaskItem { Title = "지난주 끝냄", Done = true, CompletedDate = Mon.AddDays(-5) });
             var appliedId = Guid.NewGuid();
@@ -213,6 +214,7 @@ internal static partial class Program
             Check("오늘 예정 루틴만", string.Join(",", view.Routines.Select(r => r.Title)), "매일");
             Check("오늘 할 일과 오늘 끝낸 것, 중요한 것 먼저",
                 string.Join(",", view.Tasks.Select(t => t.Title)), "급함,보통,오늘 끝냄");
+            Check("예정은 따로", string.Join(",", view.Upcoming.Select(t => t.Title)), "모레,다음 주");
             Check("반영한 일 번호를 알려 줌", view.AppliedOps.Contains(appliedId), true);
             Check("기준 시각을 알려 줌", view.DayStartHour, 4);
 

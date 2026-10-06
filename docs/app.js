@@ -71,6 +71,7 @@ const state = {
   busy: false,
   error: null,
   showDone: false,
+  showUpcoming: local.get('showUpcoming', false),
   fetchedAt: local.get('fetchedAt', 0)
 };
 
@@ -97,6 +98,13 @@ function logicalToday(now = new Date()) {
 function parseDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d);
+}
+
+/** "2026-10-06" 에서 n일 뒤. 달력으로 세므로 서머타임과 상관없다. */
+function addDays(iso, n) {
+  const d = parseDate(iso);
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
 }
 
 function shortTime(t) {
@@ -164,7 +172,14 @@ async function requestToken() {
   if (!CLIENT_ID) { toast('아직 구글 연결 준비 중입니다'); return false; }
   if (!await waitForGoogle()) { toast('구글 로그인 스크립트를 못 불러왔습니다'); return false; }
 
-  tokenClient ??= google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPE, callback: () => {} });
+  // 지난번 계정을 알려 주면 구글이 계정 고르는 화면을 건너뛰고 창을 바로 닫는다.
+  // 열쇠를 다시 받는 일이 '번쩍 하고 끝'이 된다.
+  tokenClient ??= google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPE,
+    hint: local.get('hint', undefined),
+    callback: () => {}
+  });
 
   return new Promise(resolve => {
     // 설치한 앱으로 띄우면 구글 창이 끝나도 결과가 안 돌아오는 경우가 있다. 무작정 기다리지 않는다.
@@ -183,11 +198,21 @@ async function requestToken() {
       state.authStuck = false;
       local.set('token', { value: state.token, expires: state.tokenExpires });
       local.set('connected', true);
+      rememberAccount();
       resolve(true);
     };
     tokenClient.error_callback = () => { clearTimeout(giveUp); resolve(false); };
     tokenClient.requestAccessToken({ prompt: local.get('connected', false) ? '' : 'consent' });
   });
+}
+
+/** 연결한 계정의 메일 주소를 적어 둔다. 다음에 열쇠를 받을 때 계정 고르기를 건너뛰는 데만 쓴다. */
+async function rememberAccount() {
+  if (local.get('hint', null)) return;
+  try {
+    const json = await (await drive('/drive/v3/about?fields=user(emailAddress)')).json();
+    if (json?.user?.emailAddress) local.set('hint', json.user.emailAddress);
+  } catch { /* 없어도 계정 고르기 화면이 한 번 더 뜰 뿐이다 */ }
 }
 
 // ───────── 드라이브
@@ -444,15 +469,20 @@ function composeView() {
 
   let routines = view.Routines.map(r => ({ ...r, kind: 'routine' }));
   let tasks = view.Tasks.map(t => ({ ...t, kind: 'task' }));
+  let upcoming = (view.Upcoming ?? []).map(t => ({ ...t, kind: 'task' }));
 
   if (stale) {
     // 새 하루다. PC가 켜지면 체크가 풀릴 것들을 미리 풀어 보여 준다.
     routines = routines.map(r => ({ ...r, Done: false }));
     tasks = tasks.filter(t => !t.Done);
+
+    // 예정이던 것 중 날이 온 것은 오늘로 내려온다. PC의 예정 탭이 하는 일과 같다.
+    tasks.push(...upcoming.filter(t => t.Due <= today));
+    upcoming = upcoming.filter(t => t.Due > today);
   }
 
   const applied = new Set(view.AppliedOps ?? []);
-  const byId = new Map([...routines, ...tasks].map(item => [item.Id, item]));
+  const byId = new Map([...routines, ...tasks, ...upcoming].map(item => [item.Id, item]));
 
   for (const op of [...state.pending].sort((a, b) => a.At.localeCompare(b.At))) {
     if (applied.has(op.Id)) continue;
@@ -470,7 +500,11 @@ function composeView() {
     }
   }
 
-  return { today: stale ? today : view.Today, stale, routines, tasks };
+  // 예정에서 체크한 것은 오늘 끝낸 것이 되므로 오늘 쪽 '완료됨'으로 옮긴다.
+  tasks.push(...upcoming.filter(t => t.Done));
+  upcoming = upcoming.filter(t => !t.Done);
+
+  return { today: stale ? today : view.Today, stale, routines, tasks, upcoming };
 }
 
 // ───────── 그리기
@@ -560,7 +594,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v3',
+    'v4',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -607,13 +641,22 @@ function dueBadge(task) {
 
   if (!task.Due || task.Due === today) label = task.Time ? shortTime(task.Time) : '오늘';
   else if (overdue) label = '지남';
+  else if (task.Due === addDays(today, 1)) label = '내일';
   else {
     const d = parseDate(task.Due);
     label = `${d.getMonth() + 1}/${d.getDate()}`;
   }
 
-  if (task.Due && task.Due !== today && task.Time) label += ' ' + shortTime(task.Time);
+  if (task.Due && task.Due !== today && !overdue && task.Time) label += ' ' + shortTime(task.Time);
   return `<span class="badge${overdue ? ' overdue' : ''}">${esc(label)}</span>`;
+}
+
+/** 예정 머리줄에 붙는 가장 가까운 날. "내일" · "10월 9일" */
+function upcomingWhen(task) {
+  const tomorrow = addDays(logicalToday(), 1);
+  if (task.Due === tomorrow) return '내일';
+  const d = parseDate(task.Due);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
 function renderToday() {
@@ -621,6 +664,7 @@ function renderToday() {
   const date = parseDate(composed?.today ?? logicalToday());
 
   const routines = composed?.routines ?? [];
+  const upcoming = composed?.upcoming ?? [];
   const open = (composed?.tasks ?? []).filter(t => !t.Done);
   const done = (composed?.tasks ?? []).filter(t => t.Done);
 
@@ -655,6 +699,10 @@ function renderToday() {
         <button class="fold${state.showDone ? ' open' : ''}" data-act="fold">${ICON.chevron}완료됨 ${done.length}개</button>
         ${state.showDone ? done.map(rowHtml).join('') : ''}` : ''}
       ${!total ? '<div class="empty">오늘은 비어 있습니다.<br>아래에 적으면 PC가 받아 넣습니다.</div>' : ''}
+      ${upcoming.length ? `
+        <div class="divider"></div>
+        <button class="fold upcoming${state.showUpcoming ? ' open' : ''}" data-act="fold-upcoming">${ICON.chevron}예정 ${upcoming.length}개<span class="fold-note">· 가장 빠른 것 ${esc(upcomingWhen(upcoming[0]))}</span></button>
+        ${state.showUpcoming ? upcoming.map(rowHtml).join('') : ''}` : ''}
       ${diagnostics()}
     </main>
 
@@ -717,9 +765,16 @@ app.addEventListener('click', async event => {
       render();
       return;
 
+    case 'fold-upcoming':
+      state.showUpcoming = !state.showUpcoming;
+      local.set('showUpcoming', state.showUpcoming);
+      render();
+      return;
+
     case 'toggle': {
       const composed = composeView();
-      const item = [...(composed?.routines ?? []), ...(composed?.tasks ?? [])].find(i => i.Id === target.dataset.id);
+      const item = [...(composed?.routines ?? []), ...(composed?.tasks ?? []), ...(composed?.upcoming ?? [])]
+        .find(i => i.Id === target.dataset.id);
       if (!item) return;
 
       if (navigator.vibrate) navigator.vibrate(8);
@@ -781,6 +836,9 @@ function loadDemo() {
       { Id: ids[4], Title: '택배 반품 접수', Done: false, Priority: 'Medium', Due: today, CarryOverCount: 2 },
       { Id: ids[5], Title: '치과 예약 전화', Done: false, Priority: 'None' },
       { Id: ids[6], Title: '은행 서류 제출', Done: true, Priority: 'None', Due: today }
+    ],
+    Upcoming: [
+      { Id: ids[8], Title: '월말 정산 자료 준비', Done: false, Priority: 'Medium', Due: addDays(today, 2) }
     ],
     AppliedOps: []
   };

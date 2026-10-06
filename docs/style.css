@@ -195,6 +195,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 .fold svg { width: 10px; height: 10px; transition: transform 0.18s; }
 .fold.open svg { transform: rotate(90deg); }
+.fold-note { font-size: 11px; color: var(--text-muted); opacity: 0.8; }
 
 .empty { margin: 40px 6px; text-align: center; color: var(--text-muted); font-size: 14px; }
 
