@@ -1,0 +1,54 @@
+# 태그(v1.2.3)를 올리면 Windows에서 빌드·시험해 GitHub 릴리스로 Flow.exe 를 낸다.
+# release.ps1 과 같은 일을 PC 없이 한다. 시험이 하나라도 실패하면 아무것도 올리지 않는다.
+#
+#   git tag -a v1.5.2 -m "릴리스 노트"   ← 태그 메시지가 그대로 릴리스 노트가 된다
+#   git push origin v1.5.2
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 시험
+        shell: pwsh
+        env:
+          FLOW_DATA_DIR: ${{ runner.temp }}\flow-test
+        run: dotnet run --project Tests/Flow.Tests -c Release
+
+      - name: 빌드
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $csproj = Get-Content Flow/Flow.csproj -Raw
+          if ($csproj -notmatch "<Version>$([regex]::Escape($version))</Version>") {
+            throw "Flow.csproj 의 Version 이 태그($version)와 다릅니다."
+          }
+          dotnet publish Flow/Flow.csproj -c Release -o dist --nologo -v q
+          if (-not (Test-Path dist/Flow.exe)) { throw "Flow.exe 가 만들어지지 않았습니다." }
+
+      - name: 릴리스
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $notes = (git tag -l --format='%(contents)' $tag | Out-String).Trim()
+          if (-not $notes) { $notes = "Flow $($tag.TrimStart('v'))" }
+          $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+          Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
+          gh release create $tag dist/Flow.exe --title $tag --notes-file $notesFile
