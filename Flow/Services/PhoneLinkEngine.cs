@@ -181,20 +181,31 @@ public static class PhoneLinkEngine
         foreach (var task in ordered)
         {
             var bucket = DayEngine.BucketOf(task, today);
-            if (bucket is not (TaskBucket.Today or TaskBucket.DoneToday)) continue;
+            if (bucket is TaskBucket.Today or TaskBucket.DoneToday) view.Tasks.Add(ToViewItem(task));
+        }
 
-            view.Tasks.Add(new PhoneViewItem
-            {
-                Id = task.Id,
-                Title = task.Title,
-                Done = task.Done,
-                Time = task.DueTime,
-                Priority = task.Priority,
-                Due = task.Due,
-                CarryOverCount = task.CarryOverCount
-            });
+        // 예정은 PC의 '예정' 탭처럼 가까운 날짜부터 늘어놓는다.
+        foreach (var task in data.Tasks
+                     .Where(t => DayEngine.BucketOf(t, today) == TaskBucket.Upcoming)
+                     .OrderBy(t => t.Due)
+                     .ThenBy(t => t.DueTime ?? TimeOnly.MaxValue)
+                     .ThenByDescending(t => (int)t.Priority)
+                     .ThenBy(t => t.Order))
+        {
+            view.Upcoming.Add(ToViewItem(task));
         }
 
         return view;
     }
+
+    private static PhoneViewItem ToViewItem(TaskItem task) => new()
+    {
+        Id = task.Id,
+        Title = task.Title,
+        Done = task.Done,
+        Time = task.DueTime,
+        Priority = task.Priority,
+        Due = task.Due,
+        CarryOverCount = task.CarryOverCount
+    };
 }
