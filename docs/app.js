@@ -72,6 +72,7 @@ const state = {
   error: null,
   showDone: false,
   showUpcoming: local.get('showUpcoming', false),
+  relay: DEMO ? null : local.get('relay', null), // 로그인 없이 쓰기: { url, key }
   editing: null,                       // 고치기 창에 띄운 항목의 Id
   confirmDelete: false,                // 삭제를 한 번 눌렀다
   fetchedAt: local.get('fetchedAt', 0)
@@ -156,8 +157,9 @@ function waitForGoogle(timeoutMs = 6000) {
   });
 }
 
+/** 드라이브와 주고받을 수 있는지. 중계를 쓰면 열쇠가 필요 없으니 언제나 그렇다. */
 function hasToken() {
-  return DEMO || (state.token && Date.now() < state.tokenExpires - 60_000);
+  return DEMO || !!state.relay || (state.token && Date.now() < state.tokenExpires - 60_000);
 }
 
 function restoreToken() {
@@ -275,6 +277,7 @@ async function createFile(name, parent, content) {
  * 이 앱이 만든 것만 보이는 권한이라, 찾으면 그건 언제나 우리가 만든 것이다.
  */
 async function ensureLink() {
+  if (state.relay) return null;        // 중계가 폴더와 파일을 찾는다
   if (state.ids) return state.ids;
 
   const folderQuery = `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
@@ -306,6 +309,42 @@ async function readInbox() {
   }
 }
 
+// ───────── 중계 (로그인 없이 쓰기)
+//
+// 내 구글 계정에 둔 Apps Script(docs/relay.gs)가 '나'로 돌며 드라이브 파일을 대신 읽고 쓴다.
+// 폰은 그 주소와 KEY 만 알면 된다. 구글 로그인 창이 뜰 일이 없다.
+
+const RELAY_ERRORS = {
+  key: '중계 열쇠가 맞지 않습니다',
+  parse: '중계 응답을 못 읽었습니다 — 배포의 액세스 권한이 \'모든 사용자\'인지 확인하세요'
+};
+
+async function relayCall(relay, body) {
+  const response = body
+    ? await fetch(relay.url, {
+        method: 'POST',
+        // text/plain 이어야 브라우저가 사전 확인(CORS preflight) 없이 보낸다. Apps Script 는 그걸 못 받는다.
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ key: relay.key, ...body }),
+        cache: 'no-store'
+      })
+    : await fetch(`${relay.url}?key=${encodeURIComponent(relay.key)}&t=${Date.now()}`, { cache: 'no-store' });
+
+  if (!response.ok) throw new Error('중계 ' + response.status);
+  let json;
+  try { json = await response.json(); } catch { throw new Error(RELAY_ERRORS.parse); }
+  if (!json?.ok) throw new Error(RELAY_ERRORS[json?.error] ?? ('중계: ' + (json?.error || '알 수 없음')));
+  return json;
+}
+
+function applyView(view) {
+  if (!view?.Today) return;
+  state.view = view;
+  state.fetchedAt = Date.now();
+  local.set('view', view);
+  local.set('fetchedAt', state.fetchedAt);
+}
+
 /**
  * 여러 곳에서 모은 일을 번호로 합친다. 사람이 일을 '취소해서 지우는' 경우는 없으므로
  * 합집합이 언제나 맞다. PC가 이미 받아 간 것만 뺀다.
@@ -335,25 +374,32 @@ function sameIds(a, b) {
  * 보내는 사이에 새로 누른 것이 있으면 '다 보냈음'으로 치지 않고 한 번 더 보낸다.
  * 예전에는 그 사이 누른 체크가 '보냈음' 표시에 묻혀 영영 안 갔다.
  */
-async function syncInbox() {
+async function syncInbox(remoteGiven) {
   const rev = state.rev;
   const applied = new Set(state.view?.AppliedOps ?? []);
-  const remote = await readInbox();
+  // 중계는 받은 것을 저쪽에서 합치므로 먼저 읽어 올 필요가 없다. 보내기만 하면 된다.
+  const remote = remoteGiven ?? (state.relay ? null : await readInbox());
 
-  const merged = mergeOps([remote, local.get('pending', []), state.pending], applied);
+  const merged = mergeOps([remote ?? [], local.get('pending', []), state.pending], applied);
   state.pending = merged;
   local.set('pending', merged);
 
-  if (!sameIds(remote, merged)) {
-    await drive(`/upload/drive/v3/files/${state.ids.inbox}?uploadType=media`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ Version: 1, Ops: merged })
-    });
+  let onDrive = merged.map(op => op.Id);
+  if (!remote || !sameIds(remote, merged)) {
+    if (state.relay) {
+      const json = await relayCall(state.relay, { ops: merged });
+      onDrive = (json.inbox ?? []).map(op => op.Id);
+    } else {
+      await drive(`/upload/drive/v3/files/${state.ids.inbox}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Version: 1, Ops: merged })
+      });
+    }
   }
 
   // 여기까지 왔으면 이 일들은 드라이브에 있다. '아직 폰에만 있음'과 'PC가 받기를 기다림'을 가르는 표시.
-  state.sent = new Set(merged.map(op => op.Id));
+  state.sent = new Set(onDrive);
   local.set('sent', [...state.sent]);
 
   if (state.rev === rev) {
@@ -391,19 +437,20 @@ async function refresh() {
     render();
 
     try {
-      await withLink(async () => {
-        const view = await readView();
-        if (view?.Today) {
-          state.view = view;
-          state.fetchedAt = Date.now();
-          local.set('view', view);
-          local.set('fetchedAt', state.fetchedAt);
-        }
+      if (state.relay) {
+        // 한 번에 화면과 inbox 를 같이 받는다.
+        const json = await relayCall(state.relay, null);
+        applyView(json.view);
+        await syncInbox(json.inbox ?? []);
+      } else {
+        await withLink(async () => {
+          applyView(await readView());
 
-        // 새로고침할 때마다 inbox 를 맞춘다. PC가 받아 간 것은 빠지고,
-        // 이 폰에 남아 있는데 드라이브에 없는 것(전에 못 보낸 것)은 이때 다시 간다.
-        await syncInbox();
-      });
+          // 새로고침할 때마다 inbox 를 맞춘다. PC가 받아 간 것은 빠지고,
+          // 이 폰에 남아 있는데 드라이브에 없는 것(전에 못 보낸 것)은 이때 다시 간다.
+          await syncInbox();
+        });
+      }
 
       state.error = null;
       state.phase = state.view?.Today ? 'today' : 'waiting-pc';
@@ -432,7 +479,8 @@ async function flush() {
   if (!hasToken()) { render(); return; }
 
   try {
-    await withLink(syncInbox);
+    if (state.relay) await syncInbox();
+    else await withLink(() => syncInbox());
     state.error = null;
   } catch (error) {
     state.error = error instanceof AuthError ? 'auth' : 'net';
@@ -536,6 +584,8 @@ const ICON = {
 const app = document.getElementById('app');
 
 function render() {
+  // 설정 화면은 적는 칸이 있어 30초마다 다시 그리면 적던 것이 날아간다. 들어갈 때 한 번만 그린다.
+  if (state.phase === 'setup') { if (!app.querySelector('.setup')) renderSetup(); return; }
   if (state.phase === 'signin' || (state.phase === 'boot' && !state.view)) return renderSignin();
   if (state.phase === 'waiting-pc' && !state.view?.Today) return renderWaiting();
   renderToday();
@@ -548,6 +598,7 @@ function renderSignin() {
       <p class="lead">PC의 Flow와 이어서 씁니다.</p>
       <p class="sub">오늘 할 일을 보고, 체크하고, 생각난 것을 적어 두면 PC가 받아 넣습니다.</p>
       <button class="primary" data-act="connect">${ICON.drive}구글 계정으로 연결</button>
+      <button class="secondary" data-act="setup">로그인 없이 쓰기 (중계 설정)</button>
       <p class="sub" style="margin-top:16px">내 드라이브에 <b style="color:var(--text-body)">${esc(FOLDER_NAME)}</b> 폴더 하나만 만들고 그 안의 파일만 씁니다. 드라이브의 다른 파일은 볼 수 없습니다.</p>
     </div>`;
 }
@@ -609,12 +660,15 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v5',
+    'v6',
     standalone ? '앱' : '브라우저',
-    DEMO ? '보기용' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
+    DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
   ];
-  return `<div class="hint">길게 누르면 이름·중요도를 고치거나 지울 수 있습니다</div><div class="diag">${parts.join(' · ')}</div>`;
+  const relayLink = DEMO ? '' : state.relay
+    ? '<button class="link" data-act="relay-off">로그인 없이 쓰는 중 · 끄기</button>'
+    : '<button class="link" data-act="setup">로그인 창이 번거로우면 · 로그인 없이 쓰기</button>';
+  return `<div class="hint">길게 누르면 이름·중요도를 고치거나 지울 수 있습니다</div>${relayLink}<div class="diag">${parts.join(' · ')}</div>`;
 }
 
 /** PC가 보내 온 화면에 이미 있는 항목인지. 없으면 폰에서 적고 아직 PC가 못 받은 것이다. */
@@ -757,6 +811,161 @@ function toast(message) {
   el.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ───────── 로그인 없이 쓰기 설정
+//
+// 한 번만 한다. PC 브라우저에서 하는 게 편하다(스크립트를 붙여넣어야 하니까).
+// 끝나면 '연결 링크'가 나오고, 폰에서 그 링크를 열면 폰도 같은 중계를 쓴다.
+
+const SCRIPT_NEW_URL = 'https://script.google.com/home/projects/create';
+const QR_LIB = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+
+let relayScript = null;
+
+function draftKey() {
+  let key = local.get('relayDraftKey', null);
+  if (!key) {
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    key = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    local.set('relayDraftKey', key);
+  }
+  return key;
+}
+
+function relayLink(relay) {
+  return `${location.origin}${location.pathname}#relay=${encodeURIComponent(relay.url)}&key=${encodeURIComponent(relay.key)}`;
+}
+
+/** 붙여넣은 것: 연결 링크(…#relay=…&key=…) 또는 웹 앱 주소(…/exec). */
+function parseRelayInput(text) {
+  text = (text || '').trim();
+  const hash = text.indexOf('#');
+  if (hash >= 0 && text.includes('relay=')) {
+    const params = new URLSearchParams(text.slice(hash + 1));
+    const url = params.get('relay');
+    const key = params.get('key');
+    if (url && key) return { url, key };
+  }
+  if (/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(text)) return { url: text, key: draftKey() };
+  return null;
+}
+
+/** 폰에서 연결 링크로 열었을 때. 주소창에서 열쇠를 바로 지운다. */
+function takeRelayFromLink() {
+  if (!location.hash.includes('relay=')) return;
+  const relay = parseRelayInput(location.href);
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!relay) return;
+  state.relay = relay;
+  local.set('relay', relay);
+  setTimeout(() => toast('로그인 없이 쓰기로 연결했습니다'), 300);
+}
+
+function renderSetup() {
+  const key = draftKey();
+  app.innerHTML = `
+    <div class="setup">
+      <button class="back" data-act="setup-back">${ICON.chevron}돌아가기</button>
+      <h2>로그인 없이 쓰기</h2>
+      <p class="sub">내 구글 계정 안에 작은 중계 프로그램을 하나 두면, 폰은 로그인 없이 그걸 통해 주고받습니다.
+        처음 한 번만 하면 됩니다. <b>PC에서 하는 게 편합니다</b> — PC 브라우저로 이 주소를 여세요:
+        <code>${esc(location.origin + location.pathname)}</code></p>
+
+      <ol class="steps setup-steps">
+        <li><button class="secondary" data-act="setup-copy">스크립트 복사</button>
+          <details><summary>복사가 안 되면 여기서 직접</summary><textarea id="setup-script" readonly rows="6"></textarea></details></li>
+        <li><a href="${SCRIPT_NEW_URL}" target="_blank" rel="noopener">새 Apps Script 프로젝트 열기</a> →
+          원래 있던 글을 모두 지우고 붙여넣기 → 저장(💾 또는 Ctrl+S)</li>
+        <li>오른쪽 위 <b>배포</b> → <b>새 배포</b> → 톱니바퀴 → <b>웹 앱</b><br>
+          실행: <b>나</b> · 액세스 권한: <b>모든 사용자</b> → <b>배포</b></li>
+        <li><b>액세스 승인</b> → 내 계정 선택 → "확인되지 않은 앱"이 뜨면 <b>고급</b> → <b>(제목 없는 프로젝트)(으)로 이동</b> → <b>허용</b><br>
+          <span class="muted">내가 방금 만든 스크립트라서 뜨는 경고입니다. 이 스크립트는 'Flow 폰' 폴더의 두 파일만 씁니다.</span></li>
+        <li>나온 <b>웹 앱 URL</b>(…/exec 로 끝남)을 아래에 붙여넣고 연결 확인</li>
+      </ol>
+
+      <input id="relay-input" class="setup-input" placeholder="https://script.google.com/macros/s/…/exec 또는 연결 링크" autocomplete="off">
+      <button class="primary" data-act="setup-test">연결 확인</button>
+      <div id="setup-result" class="setup-result"></div>
+      <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
+    </div>`;
+
+  fetch('relay.gs?v=6', { cache: 'no-store' })
+    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+    .then(text => {
+      relayScript = text.replace('__FLOW_KEY__', key);
+      const area = document.getElementById('setup-script');
+      if (area) area.value = relayScript;
+    })
+    .catch(() => toast('스크립트를 못 불러왔습니다. 새로고침해 주세요'));
+}
+
+async function copySetupScript() {
+  if (!relayScript) { toast('스크립트를 불러오는 중입니다. 잠시 뒤 다시'); return; }
+  try {
+    await navigator.clipboard.writeText(relayScript);
+    toast('복사했습니다 · 다음 단계로');
+  } catch {
+    const area = document.getElementById('setup-script');
+    area?.closest('details')?.setAttribute('open', '');
+    area?.select();
+    toast('자동 복사가 막혔습니다. 칸을 길게 눌러 복사하세요');
+  }
+}
+
+async function testRelay() {
+  const result = document.getElementById('setup-result');
+  const relay = parseRelayInput(document.getElementById('relay-input')?.value);
+  if (!relay) {
+    result.innerHTML = '<div class="status error"><span class="dot"></span>…/exec 로 끝나는 웹 앱 URL 또는 연결 링크를 붙여넣어 주세요</div>';
+    return;
+  }
+
+  result.innerHTML = '<div class="status pending"><span class="dot"></span>확인 중… (처음엔 몇 초 걸립니다)</div>';
+  try {
+    const json = await relayCall(relay, null);
+    state.relay = relay;
+    local.set('relay', relay);
+    applyView(json.view);
+    state.error = null;
+
+    const link = relayLink(relay);
+    result.innerHTML = `
+      <div class="status live"><span class="dot"></span>연결됐습니다. 이 기기는 이제 로그인 없이 씁니다.</div>
+      <p class="sub">폰에서도 쓰려면 <b>이 링크를 폰에서 여세요</b> — 카톡 '나와의 채팅'으로 보내거나 아래 QR을 폰 카메라로 찍으면 됩니다.
+        홈 화면에 추가한 Flow 앱을 쓴다면, 앱을 열고 이 설정 화면의 칸에 링크를 붙여넣으세요.</p>
+      <div class="link-box"><code id="relay-link">${esc(link)}</code><button class="secondary" data-act="setup-copy-link">링크 복사</button></div>
+      <div id="relay-qr" class="qr"></div>
+      <p class="sub muted">이 링크에는 열쇠가 들어 있습니다. 남에게 보내지 마세요.</p>`;
+    drawQr(link);
+  } catch (error) {
+    result.innerHTML = `<div class="status error"><span class="dot"></span>연결 못 함 — ${esc(error?.message || error)}</div>
+      <p class="sub muted">스크립트를 붙여넣은 뒤 <b>저장</b>했는지, 배포의 액세스 권한이 <b>모든 사용자</b>인지 확인하세요.
+      이 화면에서 복사한 스크립트여야 합니다(열쇠가 들어 있음).</p>`;
+  }
+}
+
+function drawQr(text) {
+  const draw = () => {
+    const el = document.getElementById('relay-qr');
+    if (!el || !window.qrcode) return;
+    const qr = window.qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    el.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+  };
+  if (window.qrcode) return draw();
+  const script = document.createElement('script');
+  script.src = QR_LIB;
+  script.onload = draw;
+  document.head.appendChild(script);
+}
+
+function leaveSetup() {
+  state.phase = state.view?.Today ? 'today' : (local.get('connected', false) || state.relay ? 'waiting-pc' : 'signin');
+  app.innerHTML = '';
+  render();
+  refresh();
 }
 
 // ───────── 고치기
@@ -929,6 +1138,40 @@ app.addEventListener('click', async event => {
       }
       return;
 
+    case 'setup':
+      state.phase = 'setup';
+      app.innerHTML = '';
+      render();
+      window.scrollTo(0, 0);
+      return;
+
+    case 'setup-back':
+      leaveSetup();
+      return;
+
+    case 'setup-copy':
+      await copySetupScript();
+      return;
+
+    case 'setup-copy-link':
+      try {
+        await navigator.clipboard.writeText(document.getElementById('relay-link').textContent);
+        toast('링크를 복사했습니다');
+      } catch { toast('링크를 길게 눌러 복사하세요'); }
+      return;
+
+    case 'setup-test':
+      await testRelay();
+      return;
+
+    case 'relay-off':
+      if (!confirm('로그인 없이 쓰기를 끕니다. 이 기기는 다시 구글 로그인으로 연결합니다.')) return;
+      state.relay = null;
+      local.remove('relay');
+      state.phase = state.view?.Today ? 'today' : 'signin';
+      render();
+      return;
+
     case 'refresh':
       if (!hasToken() && !await requestToken()) return;
       await refresh();
@@ -1023,8 +1266,9 @@ function loadDemo() {
 if (DEMO) {
   loadDemo();
 } else {
+  takeRelayFromLink();
   restoreToken();
-  state.phase = state.view?.Today ? 'today' : (local.get('connected', false) ? 'waiting-pc' : 'signin');
+  state.phase = state.view?.Today ? 'today' : (local.get('connected', false) || state.relay ? 'waiting-pc' : 'signin');
 }
 
 render();
