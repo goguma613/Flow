@@ -328,9 +328,10 @@ async function relayCall(relay, body) {
         body: JSON.stringify({ key: relay.key, ...body }),
         cache: 'no-store'
       })
-    : await fetch(`${relay.url}?key=${encodeURIComponent(relay.key)}&t=${Date.now()}`, { cache: 'no-store' });
+    : await fetch(`${relay.url}?key=${encodeURIComponent(relay.key)}&t=${Date.now()}`, { cache: 'no-store' })
+        .catch(() => { throw new Error('중계에 닿지 못했습니다 — 액세스 권한이 \'모든 사용자\'인지, 권한 승인을 끝냈는지 확인하세요'); });
 
-  if (!response.ok) throw new Error('중계 ' + response.status);
+  if (!response.ok) throw new Error('중계 ' + response.status + (response.status === 404 ? ' — 주소가 틀렸거나 배포가 지워졌습니다' : ''));
   let json;
   try { json = await response.json(); } catch { throw new Error(RELAY_ERRORS.parse); }
   if (!json?.ok) throw new Error(RELAY_ERRORS[json?.error] ?? ('중계: ' + (json?.error || '알 수 없음')));
@@ -660,7 +661,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v6',
+    'v7',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -847,8 +848,20 @@ function parseRelayInput(text) {
     const key = params.get('key');
     if (url && key) return { url, key };
   }
-  if (/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(text)) return { url: text, key: draftKey() };
+  // 회사 계정이면 …/a/macros/회사주소/s/…/exec 꼴이다. 뒤에 붙은 ?… 나 / 는 떼어 낸다.
+  const match = text.match(/^https:\/\/script\.google\.com\/(?:a\/macros\/[^/\s]+|macros)\/s\/[\w-]+\/exec/);
+  if (match) return { url: match[0], key: draftKey() };
   return null;
+}
+
+/** 붙여넣은 것이 왜 안 되는지 사람 말로. */
+function explainRelayInput(text) {
+  text = (text || '').trim();
+  if (!text) return '웹 앱 URL 을 붙여넣어 주세요';
+  if (/script\.google\.com\/.*\/dev\b/.test(text)) return '…/dev 주소는 테스트용입니다. 배포 → 새 배포 후 나오는 …/exec 주소를 붙여넣어 주세요';
+  if (/script\.google\.com\/(home|d)\//.test(text)) return '이건 편집 화면 주소입니다. 배포 → 새 배포 → 배포를 누른 뒤 나오는 웹 앱 URL(…/exec)을 붙여넣어 주세요';
+  if (!/^https?:\/\//.test(text)) return '배포 ID 가 아니라, 그 아래 \'웹 앱 URL\'(https://script.google.com/…/exec)을 복사해 주세요';
+  return '…/exec 로 끝나는 웹 앱 URL 또는 연결 링크를 붙여넣어 주세요';
 }
 
 /** 폰에서 연결 링크로 열었을 때. 주소창에서 열쇠를 바로 지운다. */
@@ -890,7 +903,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=6', { cache: 'no-store' })
+  fetch('relay.gs?v=7', { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -915,9 +928,10 @@ async function copySetupScript() {
 
 async function testRelay() {
   const result = document.getElementById('setup-result');
-  const relay = parseRelayInput(document.getElementById('relay-input')?.value);
+  const typed = document.getElementById('relay-input')?.value;
+  const relay = parseRelayInput(typed);
   if (!relay) {
-    result.innerHTML = '<div class="status error"><span class="dot"></span>…/exec 로 끝나는 웹 앱 URL 또는 연결 링크를 붙여넣어 주세요</div>';
+    result.innerHTML = `<div class="status error"><span class="dot"></span>${esc(explainRelayInput(typed))}</div>`;
     return;
   }
 
