@@ -6,12 +6,16 @@ using Flow.Models;
 namespace Flow.Services;
 
 /// <summary>폰에서 온 일을 반영한 결과.</summary>
-public readonly record struct PhoneApplyResult(int Added, int Checked, int Unchecked, int Skipped)
+public readonly record struct PhoneApplyResult(int Added, int Checked, int Unchecked, int Skipped, int Edited = 0, int Deleted = 0)
 {
     public static readonly PhoneApplyResult None = new(0, 0, 0, 0);
 
     /// <summary>화면에 보이는 것이 바뀌었는지.</summary>
-    public int Changed => Added + Checked + Unchecked;
+    public int Changed => Added + Checked + Unchecked + Edited + Deleted;
+
+    public static PhoneApplyResult operator +(PhoneApplyResult a, PhoneApplyResult b) => new(
+        a.Added + b.Added, a.Checked + b.Checked, a.Unchecked + b.Unchecked,
+        a.Skipped + b.Skipped, a.Edited + b.Edited, a.Deleted + b.Deleted);
 
     /// <summary>
     /// 저장할 것이 생겼는지. 건너뛴 것도 '처리했음'을 적어 둬야 하므로 저장 대상이다 —
@@ -27,7 +31,8 @@ public readonly record struct PhoneApplyResult(int Added, int Checked, int Unche
 /// 순서를 바꿔 가며 내려 줄 수 있고, PC도 두 대일 수 있다. 그래서
 /// - 반영한 일의 번호를 data.json 에 남겨 두 번 하지 않고,
 /// - 그 기록이 사라져도 결과가 같도록 일 자체를 '뒤집기'가 아니라 '이렇게 맞추기'로 만든다.
-///   (체크 = 끝난 상태로 맞추기, 추가 = 그 번호의 항목이 없을 때만 만들기)
+///   (체크 = 끝난 상태로 맞추기, 추가 = 그 번호의 항목이 없을 때만 만들기,
+///    이름·중요도 = 그 값으로 맞추기, 지우기 = 있으면 지우기)
 /// </summary>
 public static class PhoneLinkEngine
 {
@@ -51,7 +56,7 @@ public static class PhoneLinkEngine
         var openDay = data.LastLogicalDate;
         var applied = new HashSet<Guid>(data.PhoneOpsApplied.Select(a => a.Id));
 
-        int added = 0, checkedCount = 0, uncheckedCount = 0, skipped = 0;
+        int added = 0, checkedCount = 0, uncheckedCount = 0, skipped = 0, edited = 0, deleted = 0;
 
         foreach (var op in ops.Where(o => !applied.Contains(o.Id)).OrderBy(o => o.At).ThenBy(o => o.Id))
         {
@@ -64,6 +69,9 @@ public static class PhoneLinkEngine
                 case PhoneOp.Add: outcome = ApplyAdd(data, op); break;
                 case PhoneOp.Done: outcome = ApplyCheck(data, op, done: true); break;
                 case PhoneOp.Undone: outcome = ApplyCheck(data, op, done: false); break;
+                case PhoneOp.Rename: outcome = ApplyRename(data, op); break;
+                case PhoneOp.SetPriority: outcome = ApplyPriority(data, op); break;
+                case PhoneOp.Delete: outcome = ApplyDelete(data, op); break;
 
                 // 새 버전 폰이 보낸, 이 PC가 모르는 일. 손대지도 적지도 않는다 —
                 // 적어 버리면 폰이 지워서 새 버전 PC조차 영영 못 받는다.
@@ -75,6 +83,8 @@ public static class PhoneLinkEngine
                 case Outcome.Added: added++; break;
                 case Outcome.Checked: checkedCount++; break;
                 case Outcome.Unchecked: uncheckedCount++; break;
+                case Outcome.Edited: edited++; break;
+                case Outcome.Deleted: deleted++; break;
                 default: skipped++; break;
             }
 
@@ -85,10 +95,10 @@ public static class PhoneLinkEngine
         var cutoff = openDay.AddDays(-AppliedRetentionDays);
         data.PhoneOpsApplied.RemoveAll(a => a.Day < cutoff);
 
-        return new PhoneApplyResult(added, checkedCount, uncheckedCount, skipped);
+        return new PhoneApplyResult(added, checkedCount, uncheckedCount, skipped, edited, deleted);
     }
 
-    private enum Outcome { Added, Checked, Unchecked, Skipped }
+    private enum Outcome { Added, Checked, Unchecked, Edited, Deleted, Skipped }
 
     private static Outcome ApplyAdd(AppData data, PhoneOp op)
     {
@@ -145,6 +155,53 @@ public static class PhoneLinkEngine
         }
 
         // PC에서 지운 항목이다. 할 일이 없다.
+        return Outcome.Skipped;
+    }
+
+    /// <summary>이름 바꾸기. PC의 우클릭 '이름 바꾸기'와 같이 적은 그대로 쓴다 — 날짜 같은 말을 다시 읽지 않는다.</summary>
+    private static Outcome ApplyRename(AppData data, PhoneOp op)
+    {
+        var title = op.Text?.Trim();
+        if (op.Target is not { } target || string.IsNullOrEmpty(title)) return Outcome.Skipped;
+
+        if (data.Routines.FirstOrDefault(r => r.Id == target) is { } routine)
+        {
+            if (routine.Title == title) return Outcome.Skipped;
+            routine.Title = title;
+            return Outcome.Edited;
+        }
+
+        if (data.Tasks.FirstOrDefault(t => t.Id == target) is { } task)
+        {
+            if (task.Title == title) return Outcome.Skipped;
+            task.Title = title;
+            return Outcome.Edited;
+        }
+
+        return Outcome.Skipped;
+    }
+
+    /// <summary>중요도 바꾸기. 할 일에만 있다.</summary>
+    private static Outcome ApplyPriority(AppData data, PhoneOp op)
+    {
+        if (op.Target is not { } target) return Outcome.Skipped;
+        if (!Enum.TryParse<Priority>(op.Text, ignoreCase: true, out var priority) || !Enum.IsDefined(priority))
+            return Outcome.Skipped;
+        if (data.Tasks.FirstOrDefault(t => t.Id == target) is not { } task) return Outcome.Skipped;
+        if (task.Priority == priority) return Outcome.Skipped;
+
+        task.Priority = priority;
+        return Outcome.Edited;
+    }
+
+    /// <summary>지우기. 이미 없으면 할 일이 없다 — 두 번 와도 같다.</summary>
+    private static Outcome ApplyDelete(AppData data, PhoneOp op)
+    {
+        if (op.Target is not { } target) return Outcome.Skipped;
+
+        if (data.Routines.RemoveAll(r => r.Id == target) > 0) return Outcome.Deleted;
+        if (data.Tasks.RemoveAll(t => t.Id == target) > 0) return Outcome.Deleted;
+
         return Outcome.Skipped;
     }
 
