@@ -178,7 +178,7 @@ internal static partial class Program
         // ── 모르는 것 · 없는 것
         {
             var data = new AppData { LastLogicalDate = Mon };
-            var future = Op("rename", Mon, 9, text: "새 이름");
+            var future = Op("move", Mon, 9, text: "다른 날로");
             var result = PhoneLinkEngine.Apply(data, [future]);
             Check("모르는 갈래는 건드리지 않음", result.NeedsSave, false);
             Check("모르는 갈래는 적지도 않음 — 새 버전 PC가 받아야 하니까", data.PhoneOpsApplied.Count, 0);
