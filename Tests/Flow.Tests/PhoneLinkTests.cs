@@ -195,6 +195,55 @@ internal static partial class Program
             Check("오래된 반영 기록은 지움", data.PhoneOpsApplied.Count, 1);
         }
 
+        // ── 고치기: 이름 · 중요도 · 지우기
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var task = new TaskItem { Title = "장부 정리" };
+            var routine = new Routine { Title = "물 마시기" };
+            data.Tasks.Add(task);
+            data.Routines.Add(routine);
+
+            var rename = Op(PhoneOp.Rename, Mon, 9, target: task.Id, text: "  내일 장부 정리  ");
+            var renameRoutine = Op(PhoneOp.Rename, Mon, 9, 1, target: routine.Id, text: "물 2L 마시기");
+            var priority = Op(PhoneOp.SetPriority, Mon, 9, 2, target: task.Id, text: "High");
+            var result = PhoneLinkEngine.Apply(data, [rename, renameRoutine, priority]);
+
+            Check("수정 3건", result.Edited, 3);
+            Check("새 이름은 적은 그대로 — 날짜 말을 다시 읽지 않음", task.Title, "내일 장부 정리");
+            Check("마감은 그대로", task.Due, (DateOnly?)null);
+            Check("루틴 이름도 바뀜", routine.Title, "물 2L 마시기");
+            Check("중요도", task.Priority, Priority.High);
+            Check("고친 것도 화면이 바뀐 것", result.Changed, 3);
+
+            var bad = PhoneLinkEngine.Apply(data, [
+                Op(PhoneOp.SetPriority, Mon, 10, target: task.Id, text: "7"),
+                Op(PhoneOp.SetPriority, Mon, 10, 1, target: routine.Id, text: "Low"),
+                Op(PhoneOp.Rename, Mon, 10, 2, target: task.Id, text: "   ")]);
+            Check("엉뚱한 값은 건너뜀", bad.Skipped, 3);
+            Check("중요도는 그대로", task.Priority, Priority.High);
+            Check("빈 이름으로 바뀌지 않음", task.Title, "내일 장부 정리");
+
+            var delete = Op(PhoneOp.Delete, Mon, 11, target: task.Id);
+            var deleteRoutine = Op(PhoneOp.Delete, Mon, 11, 1, target: routine.Id);
+            var gone = PhoneLinkEngine.Apply(data, [delete, deleteRoutine]);
+            Check("삭제 2건", gone.Deleted, 2);
+            Check("할 일 없음", data.Tasks.Count, 0);
+            Check("루틴 없음", data.Routines.Count, 0);
+
+            data.PhoneOpsApplied.Clear();
+            var again = PhoneLinkEngine.Apply(data, [delete]);
+            Check("이미 지운 것은 건너뜀", again.Skipped, 1);
+        }
+
+        // ── 폰에서 적고 PC가 받기 전에 고친 것: 추가 → 이름 바꾸기 순서대로
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var add = Op(PhoneOp.Add, Mon, 9, text: "우유 사기");
+            var rename = Op(PhoneOp.Rename, Mon, 9, 5, target: add.Id, text: "우유랑 빵 사기");
+            PhoneLinkEngine.Apply(data, [rename, add]);
+            Check("나중에 고친 이름으로", data.Tasks.SingleOrDefault()?.Title, "우유랑 빵 사기");
+        }
+
         // ── 폰이 볼 화면
         {
             var data = new AppData { LastLogicalDate = Mon };

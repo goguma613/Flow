@@ -195,11 +195,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var result = DayEngine.Rollover(_data, _today);
 
         var fromPhoneToday = ApplyPhoneOps();
-        fromPhone = new PhoneApplyResult(
-            fromPhone.Added + fromPhoneToday.Added,
-            fromPhone.Checked + fromPhoneToday.Checked,
-            fromPhone.Unchecked + fromPhoneToday.Unchecked,
-            fromPhone.Skipped + fromPhoneToday.Skipped);
+        fromPhone += fromPhoneToday;
 
         DayEngine.SyncToday(_data, _today);
         _store.RequestSave(_data);
@@ -1255,6 +1251,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (result.Added > 0) parts.Add($"추가 {result.Added}");
         if (result.Checked > 0) parts.Add($"완료 {result.Checked}");
         if (result.Unchecked > 0) parts.Add($"완료 취소 {result.Unchecked}");
+        if (result.Edited > 0) parts.Add($"수정 {result.Edited}");
+        if (result.Deleted > 0) parts.Add($"삭제 {result.Deleted}");
 
         return "폰에서 가져옴 · " + string.Join(" · ", parts);
     }

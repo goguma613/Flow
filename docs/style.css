@@ -330,3 +330,77 @@ button.status:active { opacity: 0.7; }
 
 /* 맨 아래 진단 줄. 캡처 한 장으로 사정을 알기 위한 것이라 눈에 띌 필요는 없다. */
 .diag { margin: 28px 6px 0; font-size: 11px; color: var(--text-disabled); text-align: center; }
+
+/* ===== 길게 눌러 고치기 ===== */
+
+/* 길게 누를 때 iOS 가 글자를 고르거나 메뉴를 띄우지 않게 한다. */
+.row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+.hint { margin: 28px 6px 0; text-align: center; font-size: 11px; color: var(--text-disabled); }
+
+#sheet { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+#sheet.open { pointer-events: auto; }
+
+.sheet-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); animation: fade 0.15s ease; }
+
+.sheet {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 18px 16px calc(16px + var(--safe-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  animation: rise 0.18s ease;
+}
+
+.sheet-head { font-size: 13px; color: var(--text-secondary); margin: 0 2px 10px; }
+
+.sheet input {
+  width: 100%;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 16px; /* 16px 보다 작으면 iOS 가 화면을 확대한다 */
+  color: var(--text-primary);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+}
+.sheet input:focus { border-color: var(--accent-dim); }
+
+.sheet-label { font-size: 12px; color: var(--text-muted); margin: 16px 2px 8px; }
+
+.prio { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.prio-btn {
+  padding: 10px 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-secondary);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.prio-btn.on { color: var(--text-primary); background: var(--surface-active); border-color: var(--ring); }
+.prio-btn.high.on { border-color: var(--high); }
+.prio-btn.medium.on { border-color: var(--medium); }
+.prio-btn.low.on { border-color: var(--low); }
+
+.sheet-actions { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.sheet-actions .grow { flex: 1; }
+.sheet-actions button {
+  padding: 10px 16px;
+  font: inherit;
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.sheet-actions .save { background: var(--accent); color: var(--panel); font-weight: 600; }
+.sheet-actions .danger { color: var(--overdue-text); padding-left: 4px; }
+.sheet-actions .danger.armed { background: var(--overdue-bg); border-color: var(--high); padding-left: 16px; }
+
+.sheet-note { margin: 10px 2px 0; font-size: 11px; color: var(--text-muted); min-height: 1em; }
+
+@keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }

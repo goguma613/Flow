@@ -21,6 +21,9 @@ public sealed class PhoneOp
     public const string Add = "add";
     public const string Done = "done";
     public const string Undone = "undone";
+    public const string Rename = "rename";
+    public const string SetPriority = "priority";
+    public const string Delete = "delete";
 
     /// <summary>
     /// 이 일의 고유 번호. PC는 반영한 번호를 기억해 두 번 하지 않는다.
@@ -28,13 +31,19 @@ public sealed class PhoneOp
     /// </summary>
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary><see cref="Add"/> · <see cref="Done"/> · <see cref="Undone"/>. 모르는 값은 건너뛴다.</summary>
+    /// <summary>
+    /// <see cref="Add"/> · <see cref="Done"/> · <see cref="Undone"/> · <see cref="Rename"/> ·
+    /// <see cref="SetPriority"/> · <see cref="Delete"/>. 모르는 값은 건너뛴다.
+    /// </summary>
     public string Kind { get; set; } = "";
 
-    /// <summary>체크·체크 해제할 항목의 Id. 추가에는 쓰지 않는다.</summary>
+    /// <summary>체크·체크 해제·고치기·지우기할 항목의 Id. 추가에는 쓰지 않는다.</summary>
     public Guid? Target { get; set; }
 
-    /// <summary>추가할 한 줄. PC의 빠른 추가와 똑같이 읽는다("내일 3시 회의 !1").</summary>
+    /// <summary>
+    /// 추가할 한 줄(PC의 빠른 추가와 똑같이 읽는다, "내일 3시 회의 !1"),
+    /// 이름 바꾸기라면 새 이름 그대로, 중요도라면 None · Low · Medium · High.
+    /// </summary>
     public string? Text { get; set; }
 
     /// <summary>폰에서 누른 순간(폰의 벽시계). 같은 항목에 대한 일의 순서를 정하고, "9시"를 오전·오후로 읽는 데 쓴다.</summary>

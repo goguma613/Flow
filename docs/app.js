@@ -72,6 +72,8 @@ const state = {
   error: null,
   showDone: false,
   showUpcoming: local.get('showUpcoming', false),
+  editing: null,                       // 고치기 창에 띄운 항목의 Id
+  confirmDelete: false,                // 삭제를 한 번 눌렀다
   fetchedAt: local.get('fetchedAt', 0)
 };
 
@@ -483,6 +485,7 @@ function composeView() {
 
   const applied = new Set(view.AppliedOps ?? []);
   const byId = new Map([...routines, ...tasks, ...upcoming].map(item => [item.Id, item]));
+  const deleted = new Set();
 
   for (const op of [...state.pending].sort((a, b) => a.At.localeCompare(b.At))) {
     if (applied.has(op.Id)) continue;
@@ -491,13 +494,25 @@ function composeView() {
       const item = { Id: op.Id, Title: op.Text, Done: false, kind: 'task', waiting: true, Priority: 'None' };
       tasks.push(item);
       byId.set(op.Id, item);
-    } else if (op.Kind === 'done' || op.Kind === 'undone') {
+    } else {
       const item = byId.get(op.Target);
-      if (item) {
-        item.Done = op.Kind === 'done';
-        item.waiting = true;
-      }
+      if (!item) continue;
+
+      if (op.Kind === 'done' || op.Kind === 'undone') item.Done = op.Kind === 'done';
+      else if (op.Kind === 'rename') item.Title = op.Text;
+      else if (op.Kind === 'priority') item.Priority = op.Text;
+      else if (op.Kind === 'delete') deleted.add(item.Id);
+      else continue;
+
+      item.waiting = true;
     }
+  }
+
+  if (deleted.size) {
+    const keep = item => !deleted.has(item.Id);
+    routines = routines.filter(keep);
+    tasks = tasks.filter(keep);
+    upcoming = upcoming.filter(keep);
   }
 
   // 예정에서 체크한 것은 오늘 끝낸 것이 되므로 오늘 쪽 '완료됨'으로 옮긴다.
@@ -594,12 +609,18 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v4',
+    'v5',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
   ];
-  return `<div class="diag">${parts.join(' · ')}</div>`;
+  return `<div class="hint">길게 누르면 이름·중요도를 고치거나 지울 수 있습니다</div><div class="diag">${parts.join(' · ')}</div>`;
+}
+
+/** PC가 보내 온 화면에 이미 있는 항목인지. 없으면 폰에서 적고 아직 PC가 못 받은 것이다. */
+function inView(id) {
+  const view = state.view;
+  return !!view && [...(view.Routines ?? []), ...(view.Tasks ?? []), ...(view.Upcoming ?? [])].some(i => i.Id === id);
 }
 
 function rowHtml(item) {
@@ -612,7 +633,7 @@ function rowHtml(item) {
     : '';
 
   const meta = [];
-  if (item.waiting && item.kind === 'task' && item.Id && !state.view?.Tasks.some(t => t.Id === item.Id)) {
+  if (item.waiting && item.kind === 'task' && item.Id && !inView(item.Id)) {
     meta.push('<span class="badge wait">PC 반영 대기</span>');
   }
   if (item.kind === 'routine') {
@@ -738,11 +759,164 @@ function toast(message) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+// ───────── 고치기
+//
+// 고치기 창은 #app 바깥에 둔다. #app 은 30초마다 통째로 다시 그려지는데,
+// 그 안에 두면 이름을 고치는 도중에 입력칸이 사라진다.
+
+const PRIORITIES = [
+  { value: 'None', label: '없음' },
+  { value: 'Low', label: '낮음' },
+  { value: 'Medium', label: '보통' },
+  { value: 'High', label: '높음' }
+];
+
+const sheet = document.createElement('div');
+sheet.id = 'sheet';
+document.body.appendChild(sheet);
+
+function findItem(id) {
+  const composed = composeView();
+  return [...(composed?.routines ?? []), ...(composed?.tasks ?? []), ...(composed?.upcoming ?? [])].find(i => i.Id === id);
+}
+
+function openEditor(id) {
+  if (state.editing === id) return;
+  const item = findItem(id);
+  if (!item) return;
+
+  state.editing = id;
+  state.confirmDelete = false;
+  if (navigator.vibrate) navigator.vibrate(15);
+
+  const isTask = item.kind === 'task';
+  sheet.innerHTML = `
+    <div class="sheet-backdrop" data-sheet="close"></div>
+    <form class="sheet" data-sheet="save" autocomplete="off">
+      <div class="sheet-head">${isTask ? '할 일 고치기' : '루틴 고치기'}</div>
+      <input id="edit-title" enterkeyhint="done" value="${esc(item.Title)}">
+      ${isTask ? `
+        <div class="sheet-label">중요도</div>
+        <div class="prio" role="radiogroup">
+          ${PRIORITIES.map(p => `<button type="button" class="prio-btn ${p.value.toLowerCase()}${(item.Priority || 'None') === p.value ? ' on' : ''}" data-sheet="prio" data-value="${p.value}">${p.label}</button>`).join('')}
+        </div>` : ''}
+      <div class="sheet-actions">
+        <button type="button" class="danger" data-sheet="delete">삭제</button>
+        <span class="grow"></span>
+        <button type="button" class="ghost" data-sheet="close">취소</button>
+        <button type="submit" class="save">저장</button>
+      </div>
+      <div class="sheet-note" id="sheet-note">${isTask ? '' : '루틴을 지우면 연속 기록도 함께 사라집니다.'}</div>
+    </form>`;
+  sheet.classList.add('open');
+}
+
+function closeEditor() {
+  state.editing = null;
+  state.confirmDelete = false;
+  sheet.classList.remove('open');
+  sheet.innerHTML = '';
+}
+
+/** 고친 것을 쌓고 보낸다. 사람이 누른 처리 안이라 열쇠가 없으면 이때 받는다. */
+async function sendEdits() {
+  if (!hasToken()) await requestToken();
+  if (hasToken()) scheduleFlush();
+}
+
+sheet.addEventListener('click', async event => {
+  const target = event.target.closest('[data-sheet]');
+  if (!target || target.tagName === 'FORM') return;
+  const id = state.editing;
+
+  switch (target.dataset.sheet) {
+    case 'close':
+      closeEditor();
+      return;
+
+    case 'prio':
+      sheet.querySelectorAll('.prio-btn').forEach(b => b.classList.toggle('on', b === target));
+      return;
+
+    case 'delete': {
+      if (!state.confirmDelete) {
+        state.confirmDelete = true;
+        target.textContent = '한 번 더 누르면 삭제';
+        target.classList.add('armed');
+        return;
+      }
+      closeEditor();
+      pushOp('delete', id);
+      toast('지웠습니다 · PC에서도 지워집니다');
+      await sendEdits();
+      return;
+    }
+  }
+});
+
+sheet.addEventListener('submit', async event => {
+  event.preventDefault();
+  const id = state.editing;
+  const item = findItem(id);
+  if (!item) { closeEditor(); return; }
+
+  const title = document.getElementById('edit-title').value.trim();
+  const priority = sheet.querySelector('.prio-btn.on')?.dataset.value;
+  closeEditor();
+
+  let changed = false;
+  if (title && title !== item.Title) { pushOp('rename', id, title); changed = true; }
+  if (priority && priority !== (item.Priority || 'None')) { pushOp('priority', id, priority); changed = true; }
+  if (!changed) return;
+
+  toast('고쳤습니다 · PC가 받아 넣습니다');
+  await sendEdits();
+});
+
+// 길게 누르기. 손가락이 움직이면(스크롤) 취소하고, 길게 누른 뒤의 클릭은 체크로 치지 않는다.
+const LONG_PRESS_MS = 480;
+let press = null;
+let suppressClick = false;
+
+app.addEventListener('pointerdown', event => {
+  suppressClick = false;
+  const row = event.target.closest('.row[data-id]');
+  if (!row) return;
+  const id = row.dataset.id;
+  press = {
+    x: event.clientX,
+    y: event.clientY,
+    timer: setTimeout(() => { suppressClick = true; press = null; openEditor(id); }, LONG_PRESS_MS)
+  };
+});
+
+function cancelPress() {
+  if (press) clearTimeout(press.timer);
+  press = null;
+}
+
+app.addEventListener('pointermove', event => {
+  if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) cancelPress();
+});
+app.addEventListener('pointerup', cancelPress);
+app.addEventListener('pointercancel', cancelPress);
+
+// 안드로이드는 길게 누르면 contextmenu 도 보낸다. PC 브라우저의 우클릭도 같은 길로 온다.
+app.addEventListener('contextmenu', event => {
+  const row = event.target.closest('.row[data-id]');
+  if (!row) return;
+  event.preventDefault();
+  cancelPress();
+  suppressClick = true;
+  openEditor(row.dataset.id);
+});
+
 // ───────── 누르기
 //
 // 무언가를 누를 때마다 열쇠부터 챙긴다. 구글 로그인 창은 사람이 누른 그 순간에만 열린다.
 
 app.addEventListener('click', async event => {
+  if (suppressClick) { suppressClick = false; event.preventDefault(); return; }
   const target = event.target.closest('[data-act]');
   if (!target || target.tagName === 'FORM') return;
 
@@ -772,9 +946,7 @@ app.addEventListener('click', async event => {
       return;
 
     case 'toggle': {
-      const composed = composeView();
-      const item = [...(composed?.routines ?? []), ...(composed?.tasks ?? []), ...(composed?.upcoming ?? [])]
-        .find(i => i.Id === target.dataset.id);
+      const item = findItem(target.dataset.id);
       if (!item) return;
 
       if (navigator.vibrate) navigator.vibrate(8);
