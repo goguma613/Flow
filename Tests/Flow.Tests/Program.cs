@@ -77,6 +77,9 @@ internal static partial class Program
         Section("메모 · 찾기");
         MemoQueryTests();
 
+        Section("메모 · 편집");
+        MemoEditorTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

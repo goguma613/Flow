@@ -178,4 +178,70 @@ internal static partial class Program
         var same = new[] { S("나", false, 5), S("가", false, 5) };
         Check("같은 시각이면 제목순", Titles(MemoQuery.Filter(same, null, null, _ => "")), "가,나");
     }
+    private static void MemoEditorTests()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 메모 편집 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var root = Path.Combine(DataStore.Directory, "memoeditortest");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 29, 14, 3, 0));
+        var memo = store.Create("절차\n[ ] 하나")!;
+        var editor = new MemoEditorState(store);
+        editor.Open(memo.Doc.Id);
+        editor.ToggleCheck(1);
+        Check("체크는 바로 저장", store.Load(memo.Doc.Id)!.Doc.Body.Contains("[x] 하나"), true);
+
+        editor.IsEditing = true;
+        editor.Edit("절차\n[x] 하나\n둘");
+        var p = store.Load(memo.Doc.Id)!.Path;
+        File.WriteAllText(p, File.ReadAllText(p).Replace("하나", "하나(다른 PC)"));
+        store.Scan(); editor.OnExternalChange();
+        Check("쓰는 중엔 본문을 안 바꿈", editor.Body, "절차\n[x] 하나\n둘");
+        var r = editor.Flush()!;
+        Check("저장 때 충돌", r.Outcome, SaveOutcome.Conflict);
+        Check("띠", editor.Banner, "다른 곳에서 먼저 고쳐서, 내 글은 충돌 사본으로 따로 남겼습니다");
+        Check("원본을 보여 줌", editor.Body.Contains("다른 PC"), true);
+
+        editor.IsEditing = false;
+        File.WriteAllText(p, File.ReadAllText(p).Replace("절차", "절차 v3"));
+        store.Scan(); editor.OnExternalChange();
+        Check("보기만 할 땐 새 내용으로", MemoFormat.TitleOf(editor.Body), "절차 v3");
+
+        editor.IsEditing = true; editor.Edit("절차 v3\n살려 줘");
+        File.Delete(store.Load(memo.Doc.Id)!.Path);
+        Check("지워진 메모에 저장", editor.Flush()!.Outcome, SaveOutcome.Missing);
+        Check("새 메모로 남김", store.Load(editor.CurrentId!.Value)!.Doc.Body.Replace("\r\n", "\n"), "절차 v3\n살려 줘");
+
+        var blocked = new MemoEditorState(new MemoStore(root, () => false, () => DateTime.Now));
+        blocked.Open(editor.CurrentId!.Value); blocked.Edit("x");
+        blocked.Flush();
+        Check("못 쓰면 dirty 유지", (blocked.IsDirty, blocked.Banner), (true, "저장하지 못했습니다 · 다시 시도 중"));
+
+        // 추가: 줄바꿈 맞춤, 깨끗하면 저장 안 함, 보기 중 사라짐, 실패하면 다른 메모로 넘어가지 않음
+        var crlf = store.Create("가\r\n나")!;
+        var plain = new MemoEditorState(store);
+        plain.Open(crlf.Doc.Id);
+        Check("연 본문은 \\n 으로", plain.Body, "가\n나");
+        Check("고친 것 없으면 저장 안 함", plain.Flush(), (SaveResult?)null);
+        File.Delete(crlf.Path);
+        store.Scan(); plain.OnExternalChange();
+        Check("보는 중 지워짐", plain.Banner, "이 메모는 다른 곳에서 지워졌습니다");
+        Check("지워져도 글은 그대로 보임", plain.Body, "가\n나");
+        Check("지워진 메모는 Flush 해도 되살리지 않음", plain.Flush(), (SaveResult?)null);
+
+        blocked.Open(memo.Doc.Id);
+        Check("저장 못 하면 다른 메모로 안 넘어감", (blocked.CurrentId, blocked.Body), (editor.CurrentId, "x"));
+
+        var other = store.Create("다른 메모")!;
+        editor.IsEditing = true; editor.Edit("절차 v3\n살려 줘\n더");
+        editor.Open(other.Doc.Id);
+        Check("메모를 바꿀 때 저장", store.Load(editor.CurrentId!.Value) is { } m && m.Doc.Id == other.Doc.Id, true);
+        Check("앞 메모에 저장됨", store.Memos.Any(x => x.Preview == "살려 줘 더"), true);
+        Check("바꾼 뒤엔 저장할 글 없음", editor.IsDirty, false);
+    }
 }
