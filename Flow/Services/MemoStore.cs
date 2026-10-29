@@ -300,6 +300,89 @@ public sealed class MemoStore
         }
     }
 
+    /// <summary>머리말 daily 만 고친다(판 그대로). 켤 때 reset 을 today 로 적어 켠 날 바로 풀리지 않게 한다. 끌 때 reset 은 둔다.</summary>
+    public bool SetDaily(Guid id, bool daily, DateOnly today)
+    {
+        if (!_canWrite()) return false;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return false;
+            if (doc.HasHeader && doc.Daily == daily && (!daily || doc.Reset == today)) return true;
+            doc = doc with { Id = id, HasHeader = true, Daily = daily, Reset = daily ? today : doc.Reset };
+            WriteDoc(e.Path, doc);
+            Remember(e.Path, doc);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// daily 이고 reset 이 없거나 today 보다 이전인 메모의 체크를 풀고 reset 을 today 로 적는다(풀 것이 없어도 날짜는 적는다).
+    /// skip(id) 가 참이거나 읽지 못한 메모는 이번에 건너뛴다. 휴지통은 보지 않는다. 푼 메모(쓴 파일) 수를 돌려준다.
+    /// </summary>
+    public int ResetDaily(DateOnly today, Func<Guid, bool>? skip = null)
+    {
+        if (!_canWrite()) return 0;
+        try
+        {
+            if (!_scanned && ScanFolder()) _changedSinceReport = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        var due = _entries.Values
+            .Where(en => !en.Hidden && !en.Unreadable && en.Summary.Daily)
+            .Select(en => en.Summary.Id).ToList();
+        foreach (var id in due)
+        {
+            if (skip?.Invoke(id) == true) continue;
+            try
+            {
+                if (Locate(id) is not (var e, var doc)) continue;
+                if (!doc.Daily || (doc.Reset is { } last && last >= today)) continue;
+                doc = doc with
+                {
+                    Id = id, HasHeader = true, Reset = today,
+                    Body = MemoFormat.UncheckAll(doc.Body),
+                };
+                WriteDoc(e.Path, doc);
+                Remember(e.Path, doc);
+                count++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 다음 기회에
+            }
+        }
+        return count;
+    }
+
+    /// <summary>본문 체크를 지금 모두 풀고 저장한다(판이 바뀐다). 풀 것이 없거나 메모가 없거나 쓸 수 없으면 false.</summary>
+    public bool UncheckAll(Guid id)
+    {
+        if (!_canWrite()) return false;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return false;
+            var body = MemoFormat.UncheckAll(doc.Body);
+            if (body == doc.Body) return false;
+            doc = doc with { Id = id, HasHeader = true, Body = body };
+            WriteDoc(e.Path, doc);
+            Remember(e.Path, doc);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     // ───────────────────────── 휴지통
 
     public bool Delete(Guid id)

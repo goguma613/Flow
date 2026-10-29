@@ -472,7 +472,26 @@ internal static partial class Program
         Check("히스토리 왕복", back.History[0].RoutinesDone, 2);
         Check("창 위치는 왕복하지 않는다 (기기별)", back.Settings.WindowLeft, (double?)null);
         Check("우선순위는 문자열로 기록", json.Contains("\"High\""), true);
+
+        // 메모 연결
+        var memoId = Guid.Parse("3f2a9c1e-0000-4000-8000-000000000002");
+        var linked = new AppData();
+        linked.Routines.Add(new Routine { Title = "배포", MemoId = memoId });
+        linked.Tasks.Add(new TaskItem { Title = "정산", MemoId = memoId });
+        linked.Tasks.Add(new TaskItem { Title = "연결 없음" });
+        var linkedBack = Roundtrip(linked);
+        Check("루틴 MemoId 왕복", linkedBack.Routines[0].MemoId, (Guid?)memoId);
+        Check("할 일 MemoId 왕복", linkedBack.Tasks[0].MemoId, (Guid?)memoId);
+        Check("연결 없으면 null 왕복", linkedBack.Tasks[1].MemoId, (Guid?)null);
+        Check("옛 루틴 파일은 MemoId null", Deserialize("{\"Routines\":[{\"Title\":\"a\"}]}").Routines[0].MemoId, (Guid?)null);
+        Check("옛 할 일 파일은 MemoId null", Deserialize("{\"Tasks\":[{\"Title\":\"a\"}]}").Tasks[0].MemoId, (Guid?)null);
     }
+
+    private static AppData Deserialize(string json)
+        => JsonSerializer.Deserialize(json, AppJsonContext.Default.AppData)!;
+
+    private static AppData Roundtrip(AppData data)
+        => Deserialize(JsonSerializer.Serialize(data, AppJsonContext.Default.AppData));
 
     private static void BackupTests()
     {

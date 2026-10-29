@@ -64,6 +64,9 @@ public sealed class Routine
     /// <summary>오늘 체크하기 직전의 마지막 완료일.</summary>
     public DateOnly? LastDoneSnapshot { get; set; }
 
+    /// <summary>연결한 메모. 옛 파일은 null. 메모가 없거나 휴지통이어도 값은 지우지 않는다.</summary>
+    public Guid? MemoId { get; set; }
+
     [JsonIgnore]
     public bool IsEveryDay => Days.Count == 0;
 }
@@ -100,6 +103,9 @@ public sealed class TaskItem
     public DateOnly CreatedDate { get; set; }
     public DateOnly? CompletedDate { get; set; }
     public int Order { get; set; }
+
+    /// <summary>연결한 메모. Routine.MemoId 와 같은 뜻.</summary>
+    public Guid? MemoId { get; set; }
 }
 
 /// <summary>하루치 결산 기록. 스트릭과 주간 히트맵의 원본 데이터.</summary>
