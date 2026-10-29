@@ -145,6 +145,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>저장 못 한 글이 있어 닫기를 거절했다. 띠로 알리고 다시 시도는 계속한다.</summary>
     public void RefuseClose()
     {
+        // 띠가 사용법 판에 가리지 않게 판을 닫는다.
+        IsHelpOpen = false;
         _state.RefuseClose();
         AfterSave(null);
     }
@@ -160,6 +162,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
     public void Open(Guid id)
     {
+        IsHelpOpen = false;
         if (IsTrashView) IsTrashView = false;
 
         if (_state.CurrentId == id && _state.Banner != MemoEditorState.DeletedBanner)
@@ -319,6 +322,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ToggleTrash()
     {
+        IsHelpOpen = false;
         if (!IsTrashView)
         {
             Flush();
@@ -542,12 +546,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         var lines = MemoFormat.Lines(body);
         var titleLine = lines.FirstOrDefault(l => l.Kind != MemoLineKind.Blank);
 
-        ReadTitle = titleLine switch
-        {
-            null => MemoFormat.Untitled,
-            { Kind: MemoLineKind.Heading1 or MemoLineKind.Heading2 } => titleLine.Text.Trim(),
-            _ => MemoFormat.TitleOf(body),
-        };
+        // 제목 줄·창 제목과 같이 줄 머리 기호를 뗀다.
+        ReadTitle = DisplayTitle(body);
 
         ReadLines.Clear();
         var started = false;

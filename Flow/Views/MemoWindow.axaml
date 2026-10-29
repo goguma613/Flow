@@ -395,7 +395,7 @@
                         ToolTip.Tip="삭제 (휴지통으로)">
                   <Path Data="{StaticResource TrashIcon}" Width="14" Height="14" Stretch="Uniform" />
                 </Button>
-                <Button Classes="icon" Content="?" Command="{Binding ToggleHelpCommand}" ToolTip.Tip="사용법" />
+                <Button Classes="icon" Content="?" Focusable="False" Click="OnHelpClick" ToolTip.Tip="사용법" />
               </StackPanel>
 
               <Panel>
@@ -520,7 +520,8 @@
                 <!-- 오른쪽 크기 조절 띠(5px)를 비켜 스크롤바를 둔다 -->
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" Margin="0,0,6,0">
                   <StackPanel Margin="28,6,28,28">
-                    <ItemsControl ItemsSource="{Binding ReadLines}">
+                    <!-- 기호 칸 너비를 모든 줄이 함께 쓴다: 100. 처럼 넓은 번호가 있으면 모든 줄의 글이 같이 밀린다. -->
+                    <ItemsControl ItemsSource="{Binding ReadLines}" Grid.IsSharedSizeScope="True">
                   <ItemsControl.ItemTemplate>
                     <views:MemoLineTemplates>
 
@@ -544,12 +545,12 @@
                                    Foreground="{StaticResource TextPrimaryBrush}" />
                       </DataTemplate>
 
-                      <!-- 번호·점·체크: [들여쓰기][기호 칸 24][글]. 줄 높이는 모두 1 + 22 + 1. -->
+                      <!-- 번호·점·체크: [들여쓰기][기호 칸 24 이상, 모든 줄 같은 너비][글]. 줄 높이는 모두 1 + 22 + 1. -->
                       <DataTemplate x:Key="Numbered" DataType="vm:MemoLineView">
                         <Grid Margin="0,1">
                           <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" MinWidth="24" />
+                            <ColumnDefinition Width="Auto" MinWidth="24" SharedSizeGroup="MemoMarker" />
                             <ColumnDefinition Width="*" />
                           </Grid.ColumnDefinitions>
                           <Border Width="{Binding IndentWidth}" />
@@ -562,7 +563,7 @@
                         <Grid Margin="0,1">
                           <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" MinWidth="24" />
+                            <ColumnDefinition Width="Auto" MinWidth="24" SharedSizeGroup="MemoMarker" />
                             <ColumnDefinition Width="*" />
                           </Grid.ColumnDefinitions>
                           <Border Width="{Binding IndentWidth}" />
@@ -577,7 +578,7 @@
                           <Grid>
                             <Grid.ColumnDefinitions>
                               <ColumnDefinition Width="Auto" />
-                              <ColumnDefinition Width="Auto" MinWidth="24" />
+                              <ColumnDefinition Width="Auto" MinWidth="24" SharedSizeGroup="MemoMarker" />
                               <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Border Width="{Binding IndentWidth}" />
@@ -617,7 +618,7 @@
               <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
                 <TextBlock Text="메모 쓰는 법" FontSize="16" FontWeight="Medium" VerticalAlignment="Center"
                            Foreground="{StaticResource TextPrimaryBrush}" />
-                <Button Grid.Column="1" Classes="icon" Command="{Binding CloseHelpCommand}" ToolTip.Tip="닫기 (Esc)">
+                <Button Grid.Column="1" Classes="icon" Focusable="False" Command="{Binding CloseHelpCommand}" ToolTip.Tip="닫기 (Esc)">
                   <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
                 </Button>
               </Grid>
