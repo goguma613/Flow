@@ -18,6 +18,8 @@ public sealed class MemoEditorState
     public const string MissingBanner = "이 메모는 다른 곳에서 지워졌습니다. 쓰던 글은 새 메모로 남겼습니다";
     public const string DeletedBanner = "이 메모는 다른 곳에서 지워졌습니다";
     public const string FailedBanner = "저장하지 못했습니다 · 다시 시도 중";
+    public const string UnreadableBanner = "이 메모를 지금 읽지 못했습니다 · 잠시 뒤 다시 열어 보세요";
+    public const string CloseRefusedBanner = "저장하지 못한 글이 있어 닫지 않았습니다 · 저장되면 닫을 수 있습니다";
 
     private readonly MemoStore _store;
 
@@ -36,30 +38,41 @@ public sealed class MemoEditorState
     public string? Banner { get; private set; }
 
     /// <summary>
-    /// 먼저 지금 메모를 저장한다. 저장하지 못해 글이 남아 있으면 넘어가지 않는다 —
+    /// 먼저 지금 메모를 저장하고 그 결과를 돌려준다. 저장하지 못해 글이 남아 있으면 넘어가지 않는다 —
     /// 넘어가면 그 글을 잃는다. 띠가 실패를 알리고, 다시 시도가 붙으면 그때 넘어갈 수 있다.
+    /// 그 저장이 충돌·지워짐이었으면 그 띠를 새로 연 메모 위에 남긴다(사본이 생겼다는 것을 놓치지 않게).
+    /// 열린 메모가 없을 때(지운 직후) 남아 있던 충돌·지워짐 띠도 그대로 둔다.
     /// </summary>
-    public void Open(Guid id)
+    public SaveResult? Open(Guid id)
     {
-        Flush();
-        if (IsDirty) return;
+        var carried = CurrentId is null && Banner is (ConflictBanner or MissingBanner) ? Banner : null;
+        var pre = Flush();
+        if (IsDirty) return pre;
+
+        Banner = pre?.Outcome switch
+        {
+            SaveOutcome.Conflict => ConflictBanner,
+            SaveOutcome.Missing => MissingBanner,
+            _ => carried,
+        };
 
         var file = _store.Load(id);
-        Banner = null;
         if (file is null)
         {
             CurrentId = null;
             Body = "";
             Pinned = false;
             _baseRev = null;
-            Banner = DeletedBanner;
-            return;
+            // 잠겼거나 덜 받아진 파일은 목록에 남아 있다. 지워졌다고 하면 안 된다.
+            Banner = _store.Memos.Any(m => m.Id == id) ? UnreadableBanner : DeletedBanner;
+            return pre;
         }
 
         CurrentId = id;
         Body = Normalize(file.Doc.Body);
         Pinned = file.Doc.Pinned;
         _baseRev = file.Rev;
+        return pre;
     }
 
     /// <summary>열린 메모를 내려놓는다(삭제 뒤 고를 것이 없을 때). 먼저 저장하고, 못 하면 그대로 둔다.</summary>
@@ -119,7 +132,8 @@ public sealed class MemoEditorState
                 break;
 
             case SaveOutcome.Failed:
-                Banner = FailedBanner;
+                // 닫기를 막았다는 안내는 저장될 때까지 남긴다(다시 시도가 덮지 않게).
+                if (Banner != CloseRefusedBanner) Banner = FailedBanner;
                 break;
         }
         return result;
@@ -155,11 +169,15 @@ public sealed class MemoEditorState
         return true;
     }
 
-    /// <summary>휴지통으로 보낸다. 쓰던 글을 먼저 저장해 휴지통에 마지막 글이 남게 한다.</summary>
+    /// <summary>
+    /// 휴지통으로 보낸다. 쓰던 글을 먼저 저장해 휴지통에 마지막 글이 남게 한다.
+    /// 그 저장이 충돌이었으면 원본을 지우되 충돌 띠는 남긴다(내 글은 사본에 있다).
+    /// 지워짐(Missing)이었으면 지울 원본이 없으니 지우지 않고 새 메모를 연 채로 둔다.
+    /// </summary>
     public bool Delete()
     {
         if (CurrentId is not { } id) return false;
-        Flush();
+        var pre = Flush();
         if (IsDirty || CurrentId != id) return false;
         if (!_store.Delete(id)) return false;
 
@@ -167,11 +185,17 @@ public sealed class MemoEditorState
         Body = "";
         Pinned = false;
         _baseRev = null;
-        Banner = null;
+        Banner = pre?.Outcome == SaveOutcome.Conflict ? ConflictBanner : null;
         return true;
     }
 
     public void ClearBanner() => Banner = null;
+
+    /// <summary>저장 못 한 글이 있어 창 닫기를 거절했다. 저장될 때까지 그 안내를 보인다.</summary>
+    public void RefuseClose()
+    {
+        if (IsDirty) Banner = CloseRefusedBanner;
+    }
 
     private void Reload()
     {

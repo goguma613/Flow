@@ -99,6 +99,13 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>저장하지 못한 글이 남아 있는지. 창을 닫을 때 본다.</summary>
     public bool HasUnsavedText => _state.IsDirty;
 
+    /// <summary>저장 못 한 글이 있어 닫기를 거절했다. 띠로 알리고 다시 시도는 계속한다.</summary>
+    public void RefuseClose()
+    {
+        _state.RefuseClose();
+        AfterSave(null);
+    }
+
     // ───────────────────────── 열기·저장
 
     public void Open(Guid id)
@@ -112,14 +119,15 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         }
 
         _saveTimer.Stop();
-        _state.Open(id);
+        // 앞 메모를 저장한 결과(충돌 사본·새 메모)가 목록에 바로 보이도록 AfterSave 로 넘긴다.
+        var pre = _state.Open(id);
         if (_state.CurrentId == id || !_state.IsDirty)
         {
             // 다른 메모로 넘어가면 읽기 모드로 시작한다.
             _state.IsEditing = false;
             IsEditing = false;
         }
-        AfterSave(null);
+        AfterSave(pre);
     }
 
     /// <summary>지금 쓰던 글을 바로 저장한다. 메모를 바꿀 때·창을 닫을 때·되돌리기 직전에 부른다.</summary>
@@ -151,7 +159,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
         // 저장 못 한 글이 남았으면 5초마다 다시 해 본다. 메모를 바꾸려다 실패한 경우도 여기로 온다.
         if (!_state.IsDirty) _retryTimer.Stop();
-        else if (_state.Banner == MemoEditorState.FailedBanner && !_retryTimer.IsEnabled) _retryTimer.Start();
+        else if (_state.Banner is MemoEditorState.FailedBanner or MemoEditorState.CloseRefusedBanner
+                 && !_retryTimer.IsEnabled) _retryTimer.Start();
 
         Sync();
     }
@@ -185,6 +194,16 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         Sync();
     }
 
+    /// <summary>
+    /// 쓰기 칸에 지금 들어 있는 글을 받아 둔다. 한글 조합이 끝나며 들어온 마지막 글자가
+    /// 바인딩보다 늦게 와도 잃지 않게, 모드를 바꾸거나 닫기 직전에 창이 부른다.
+    /// </summary>
+    public void TakeWriterText(string? text)
+    {
+        if (!IsEditing || text is null || Normalize(text) == _state.Body) return;
+        _state.Edit(text);
+    }
+
     public void LeaveEditing()
     {
         if (!IsEditing) return;
@@ -215,7 +234,10 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         var at = rows.Select(r => r.Id).ToList().IndexOf(id);
 
         _saveTimer.Stop();
-        if (!_state.Delete())
+        var deleted = _state.Delete();
+        // 지우기 앞 저장이 충돌 사본이나 새 메모를 만들었을 수 있다. 스스로 쓴 파일은 훑기가 알려 주지 않으니 직접 맞춘다.
+        Main.RefreshMemoList();
+        if (!deleted)
         {
             AfterSave(null);
             return;
@@ -223,11 +245,10 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
         _state.IsEditing = false;
         IsEditing = false;
-        Main.RefreshMemoList();
         RefreshTrash();
 
         var next = PickNext(at);
-        if (next is { } nextId) _state.Open(nextId);
+        if (next is { } nextId) _state.Open(nextId);   // 앞에서 저장했으니 여기서는 저장할 것이 없다
         Sync();
     }
 

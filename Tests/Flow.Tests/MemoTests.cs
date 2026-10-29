@@ -244,5 +244,43 @@ internal static partial class Program
         Check("메모를 바꿀 때 저장", store.Load(editor.CurrentId!.Value) is { } m && m.Doc.Id == other.Doc.Id, true);
         Check("앞 메모에 저장됨", store.Memos.Any(x => x.Preview == "살려 줘 더"), true);
         Check("바꾼 뒤엔 저장할 글 없음", editor.IsDirty, false);
+
+        // 메모를 바꾸거나 지우기 앞의 저장이 충돌이면 띠가 남고 사본이 목록에 있다
+        var sw = new MemoEditorState(store);
+        var ga = store.Create("갑 메모\n하나")!;
+        var eul = store.Create("을 메모")!;
+        sw.Open(ga.Doc.Id);
+        sw.IsEditing = true; sw.Edit("갑 메모\n하나\n내 글");
+        File.WriteAllText(ga.Path, File.ReadAllText(ga.Path).Replace("하나", "하나(다른 PC)"));
+        var pre = sw.Open(eul.Doc.Id);
+        Check("바꿀 때 저장이 충돌", pre?.Outcome, (SaveOutcome?)SaveOutcome.Conflict);
+        Check("충돌 띠가 새 메모 위에 남음", (sw.CurrentId, sw.Banner), ((Guid?)eul.Doc.Id, MemoEditorState.ConflictBanner));
+        Check("충돌 사본이 목록에 보임", store.Memos.Any(x => x.Title.StartsWith("갑 메모 (충돌 사본")), true);
+
+        sw.Edit("을 메모\n내 글");
+        File.WriteAllText(eul.Path, File.ReadAllText(eul.Path).Replace("을 메모", "을 메모 v2"));
+        Check("지우기 앞 저장이 충돌이어도 지움", sw.Delete(), true);
+        Check("지운 뒤에도 충돌 띠", (sw.CurrentId, sw.Banner), ((Guid?)null, MemoEditorState.ConflictBanner));
+        Check("을 사본이 목록에 보임", store.Memos.Any(x => x.Title.StartsWith("을 메모 (충돌 사본")), true);
+        sw.Open(ga.Doc.Id);
+        Check("지운 뒤 연 메모에도 띠가 남음", sw.Banner, MemoEditorState.ConflictBanner);
+        sw.Open(other.Doc.Id);
+        Check("그다음 열기에서는 띠가 사라짐", sw.Banner, (string?)null);
+
+        // 잠긴 파일은 지워졌다고 하지 않는다
+        var locked = store.Create("잠긴 메모")!;
+        using (new FileStream(locked.Path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var lk = new MemoEditorState(store);
+            lk.Open(locked.Doc.Id);
+            Check("잠긴 메모를 열면 읽지 못함 띠", lk.Banner, MemoEditorState.UnreadableBanner);
+        }
+
+        // 닫기를 거절한 안내는 다시 시도가 덮지 않는다
+        var cl = new MemoEditorState(new MemoStore(root, () => false, () => DateTime.Now));
+        cl.Open(other.Doc.Id); cl.Edit("못 쓰는 글"); cl.Flush();
+        cl.RefuseClose();
+        cl.Flush();
+        Check("닫기 거절 띠는 남고 글도 남음", (cl.IsDirty, cl.Banner), (true, MemoEditorState.CloseRefusedBanner));
     }
 }

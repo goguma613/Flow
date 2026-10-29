@@ -25,8 +25,8 @@ public partial class MemoWindow : Window
     private readonly TextBox? _writer;
     private bool _placementRestored;
 
-    /// <summary>저장하지 못한 글이 있는데 닫으려 하면 한 번은 막고 띠로 알린다. 두 번째는 닫는다.</summary>
-    private bool _closeWarned;
+    /// <summary>위젯이 끝나며 닫는 중. 이때만은 저장하지 못한 글이 있어도 닫는다(한 번 저장은 해 본다).</summary>
+    private bool _exiting;
 
     // 디자이너용. 실제로는 아래 생성자를 쓴다.
     public MemoWindow() : this(null!) { }
@@ -79,13 +79,17 @@ public partial class MemoWindow : Window
     /// <summary>위젯이 끝날 때. 저장을 시도하고 막지 않고 닫는다.</summary>
     public void CloseForExit()
     {
-        _closeWarned = true;
+        _exiting = true;
         Close();
     }
 
     private void OnMemosChanged() => _vm.OnMemosChanged();
 
-    private void OnFlushRequested() => _vm.PrepareForRestore();
+    private void OnFlushRequested()
+    {
+        _vm.TakeWriterText(_writer?.Text);
+        _vm.PrepareForRestore();
+    }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -110,16 +114,30 @@ public partial class MemoWindow : Window
     {
         if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            _vm.ToggleEdit();
+            if (_vm.IsEditing) LeaveEditingSoon();
+            else _vm.EnterEditing();
             e.Handled = true;
             return;
         }
 
         if (e.Key == Key.Escape && _vm.IsEditing)
         {
-            _vm.LeaveEditing();
+            LeaveEditingSoon();
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// 한글을 조합하던 중이면 그 글자는 이 키 다음에야 쓰기 칸에 들어온다.
+    /// 바로 읽기 모드로 바꾸면 그 글자를 잃으므로, 조합이 끝난 뒤로 미루고 쓰기 칸의 글을 직접 받아 둔다.
+    /// </summary>
+    private void LeaveEditingSoon()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            _vm.TakeWriterText(_writer?.Text);
+            _vm.LeaveEditing();
+        }, DispatcherPriority.Background);
     }
 
     // ───────────────────────── 닫기
@@ -128,14 +146,21 @@ public partial class MemoWindow : Window
     {
         _placementSaveTimer.Stop();
         SavePlacement();
-        _vm?.Flush();
 
-        // 사람이 닫는데 저장을 못 했으면 한 번은 멈춰 세운다. 띠가 이미 '저장하지 못했습니다'를 보이고 있다.
-        if (_vm is { HasUnsavedText: true } && !_closeWarned
-            && e.CloseReason == WindowCloseReason.WindowClosing && !e.IsProgrammatic)
+        if (_vm is not null)
         {
-            _closeWarned = true;
-            e.Cancel = true;
+            _vm.TakeWriterText(_writer?.Text);
+            _vm.Flush();
+
+            // 저장 못 한 글은 버리지 않는다. 사람이 닫을 때는 창을 남기고 띠로 알린다.
+            // 앱이 끝날 때(종료·업데이트·Windows 끄기)만은 한 번 저장해 보고 그대로 닫는다.
+            var exiting = _exiting
+                          || e.CloseReason is WindowCloseReason.ApplicationShutdown or WindowCloseReason.OSShutdown;
+            if (_vm.HasUnsavedText && !exiting)
+            {
+                e.Cancel = true;
+                _vm.RefuseClose();
+            }
         }
 
         base.OnClosing(e);
