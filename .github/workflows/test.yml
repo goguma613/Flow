@@ -1,0 +1,29 @@
+# 푸시·PR 마다 Windows 에서 앱을 빌드하고 시험을 돌린다.
+# UI 코드까지 컴파일해 보려고 시험 앞에 앱 빌드를 둔다.
+name: test
+
+on:
+  push:
+    branches: [main-lnhh3y]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 앱 빌드
+        shell: pwsh
+        run: dotnet build Flow/Flow.csproj -c Release --nologo -v q
+
+      - name: 시험
+        shell: pwsh
+        env:
+          FLOW_DATA_DIR: ${{ runner.temp }}\flow-test
+        run: dotnet run --project Tests/Flow.Tests -c Release
