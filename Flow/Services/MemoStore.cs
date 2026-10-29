@@ -29,6 +29,7 @@ public sealed class MemoStore
 {
     private const int TrashDays = 30;
     private static readonly Regex NumberSuffix = new(@" \(\d+\)$", RegexOptions.Compiled);
+    private static readonly Regex TagInTitle = new(@"(?<=^|\s)#[^\s#]+", RegexOptions.Compiled);
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
     private sealed class Entry
@@ -184,7 +185,7 @@ public sealed class MemoStore
             Directory.CreateDirectory(Folder);
             var doc = new MemoDocument(Guid.NewGuid(), true, false, false, null, null,
                 Array.Empty<KeyValuePair<string, string>>(), body);
-            var path = UniquePath(Folder, MemoFormat.FileStem(MemoFormat.TitleOf(body)), null);
+            var path = UniquePath(Folder, StemOf(body), null);
             WriteDoc(path, doc);
             Remember(path, doc);
             return new MemoFile(doc, path, MemoFormat.RevOf(body));
@@ -230,7 +231,7 @@ public sealed class MemoStore
 
             // 제목이 바뀌어 이름이 달라지면 먼저 이름을 바꾼다(실패해도 같은 id 가 둘 생기지 않게).
             var stem = System.IO.Path.GetFileNameWithoutExtension(path);
-            var want = MemoFormat.FileStem(MemoFormat.TitleOf(body));
+            var want = StemOf(body);
             if (!SameName(stem, want) && !SameName(NumberSuffix.Replace(stem, ""), want))
             {
                 var target = UniquePath(Folder, want, path);
@@ -334,7 +335,7 @@ public sealed class MemoStore
                 if (doc.Id != id) continue;
                 doc = doc with { HasHeader = true, Deleted = null };
                 Directory.CreateDirectory(Folder);
-                var target = UniquePath(Folder, MemoFormat.FileStem(MemoFormat.TitleOf(doc.Body)), null);
+                var target = UniquePath(Folder, StemOf(doc.Body), null);
                 WriteDoc(target, doc);
                 Remember(target, doc);
                 File.Delete(path);
@@ -412,6 +413,10 @@ public sealed class MemoStore
         return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
             || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>파일 이름감: 제목에서 #태그를 빼고 FileStem 으로 다듬는다.</summary>
+    private static string StemOf(string body)
+        => MemoFormat.FileStem(Regex.Replace(TagInTitle.Replace(MemoFormat.TitleOf(body), ""), @"\s+", " "));
 
     private static bool SameName(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
