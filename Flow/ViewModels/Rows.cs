@@ -360,7 +360,9 @@ public sealed partial class BackupRow : ObservableObject
 
     public string WhenText => Entry.CreatedAt.ToString("M월 d일 (ddd) HH:mm");
 
-    public string DetailText => $"루틴 {Entry.Routines} · 할 일 {Entry.Tasks}";
+    public string DetailText => Entry.Memos > 0
+        ? $"루틴 {Entry.Routines} · 할 일 {Entry.Tasks} · 메모 {Entry.Memos}"
+        : $"루틴 {Entry.Routines} · 할 일 {Entry.Tasks}";
 
     public bool HasTag => Entry.Tag.Length > 0;
 

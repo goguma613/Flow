@@ -35,6 +35,12 @@ public sealed class DeviceState
     public double WindowWidth { get; set; } = 340;
     public double WindowHeight { get; set; } = 620;
 
+    /// <summary>메모 창 위치·크기. 위젯 창과 같은 까닭으로 기기별이다. 위치가 null이면 가운데에 연다.</summary>
+    public double? MemoWindowLeft { get; set; }
+    public double? MemoWindowTop { get; set; }
+    public double MemoWindowWidth { get; set; } = 820;
+    public double MemoWindowHeight { get; set; } = 600;
+
     /// <summary>큰 모니터와 노트북에서 원하는 바가 다르므로 기기별로 둔다.</summary>
     public bool CompactMode { get; set; }
 

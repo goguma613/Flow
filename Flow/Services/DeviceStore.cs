@@ -27,6 +27,10 @@ public static class DeviceStore
 
     public static string FilePath => Path_;
 
+    /// <summary>앱이 끝날 때 저장하지 못한 메모를 남기는 이 PC 의 폴더. 동기화 폴더 밖이다.</summary>
+    public static string UnsavedMemoFolder
+        => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path_) ?? "", "unsaved-memos");
+
     /// <summary>이 저장 위치에서 예전에 데이터를 읽은 적이 있는지.</summary>
     public static bool DataFolderInitialized => _dataFolderInitialized;
 
@@ -47,6 +51,10 @@ public static class DeviceStore
         data.Settings.WindowSizedByUser = state.WindowSizedByUser;
         data.Settings.WindowWidth = state.WindowWidth;
         data.Settings.WindowHeight = state.WindowHeight;
+        data.Settings.MemoWindowLeft = state.MemoWindowLeft;
+        data.Settings.MemoWindowTop = state.MemoWindowTop;
+        data.Settings.MemoWindowWidth = state.MemoWindowWidth;
+        data.Settings.MemoWindowHeight = state.MemoWindowHeight;
         data.Settings.CompactMode = state.CompactMode;
         data.Settings.RunAtStartup = state.RunAtStartup;
         data.Settings.HotKey = state.HotKey ?? "";
@@ -88,6 +96,10 @@ public static class DeviceStore
             WindowSizedByUser = data.Settings.WindowSizedByUser,
             WindowWidth = data.Settings.WindowWidth,
             WindowHeight = data.Settings.WindowHeight,
+            MemoWindowLeft = data.Settings.MemoWindowLeft,
+            MemoWindowTop = data.Settings.MemoWindowTop,
+            MemoWindowWidth = data.Settings.MemoWindowWidth,
+            MemoWindowHeight = data.Settings.MemoWindowHeight,
             CompactMode = data.Settings.CompactMode,
             RunAtStartup = data.Settings.RunAtStartup,
             HotKey = data.Settings.HotKey,
