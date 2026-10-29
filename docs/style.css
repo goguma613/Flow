@@ -323,6 +323,16 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   white-space: nowrap;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* 놓치면 안 되는 알림(휴대폰 저장 공간이 모자람 등): 붉게, 화면 폭 안에서 줄을 바꾼다 */
+.toast.warn {
+  background: var(--overdue-bg);
+  color: var(--overdue-text);
+  white-space: normal;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+  line-height: 1.45;
+}
 
 /* 상태 줄을 누를 수 있을 때(다시 보내기 등)도 같은 모양 */
 button.status { width: 100%; text-align: left; font: inherit; font-size: 12px; padding: 0; }

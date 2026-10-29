@@ -37,9 +37,13 @@ const FLUSH_DELAY_MS = 700;
 // 보기용(?demo) 화면은 아무것도 남기지 않는다. 같은 주소라 저장소를 같이 쓰는데,
 // 거기서 누른 가짜 체크가 남으면 나중에 진짜로 연결할 때 PC로 넘어가 버린다.
 
+function isQuotaError(error) {
+  return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED' || error?.code === 22 || error?.code === 1014;
+}
+
 const local = DEMO ? {
   get(key, fallback) { return fallback; },
-  set() {},
+  set() { return true; },
   remove() {}
 } : {
   get(key, fallback) {
@@ -48,8 +52,23 @@ const local = DEMO ? {
       return raw == null ? fallback : JSON.parse(raw);
     } catch { return fallback; }
   },
+  /**
+   * 남겼으면 true. 자리가 모자라면(큰 메모 글·임시 글) 다시 받으면 되는 PC 화면(view)을 비우고 한 번 더 해 본다.
+   * 그래도 못 남기면(사생활 모드 등) false — 부른 쪽이 '남겼다'고 믿고 글을 버리지 않게.
+   */
   set(key, value) {
-    try { localStorage.setItem('flow.' + key, JSON.stringify(value)); } catch { /* 사생활 모드 등 */ }
+    const raw = JSON.stringify(value);
+    try {
+      localStorage.setItem('flow.' + key, raw);
+      return true;
+    } catch (error) {
+      if (key === 'view' || !isQuotaError(error)) return false;
+      try {
+        localStorage.removeItem('flow.view');
+        localStorage.setItem('flow.' + key, raw);
+        return true;
+      } catch { return false; }
+    }
   },
   remove(key) {
     try { localStorage.removeItem('flow.' + key); } catch { /* */ }
@@ -383,6 +402,9 @@ function sameIds(a, b) {
  * 보내는 사이에 새로 누른 것이 있으면 '다 보냈음'으로 치지 않고 한 번 더 보낸다.
  * 예전에는 그 사이 누른 체크가 '보냈음' 표시에 묻혀 영영 안 갔다.
  */
+/** inbox 를 올리는 중인지. 올리는 중인 일은 이미 저쪽에 닿았을 수 있어 합치지(queueMemoSave) 않는다. */
+let uploading = 0;
+
 async function syncInbox(remoteGiven) {
   const rev = state.rev;
   const applied = new Set(state.view?.AppliedOps ?? []);
@@ -395,21 +417,27 @@ async function syncInbox(remoteGiven) {
 
   let onDrive = merged.map(op => op.Id);
   if (!remote || !sameIds(remote, merged)) {
-    if (state.relay) {
-      const json = await relayCall(state.relay, { ops: merged });
-      onDrive = (json.inbox ?? []).map(op => op.Id);
-    } else {
-      await drive(`/upload/drive/v3/files/${state.ids.inbox}?uploadType=media`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ Version: 1, Ops: merged })
-      });
+    uploading++;
+    try {
+      if (state.relay) {
+        const json = await relayCall(state.relay, { ops: merged });
+        onDrive = (json.inbox ?? []).map(op => op.Id);
+      } else {
+        await drive(`/upload/drive/v3/files/${state.ids.inbox}?uploadType=media`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ Version: 1, Ops: merged })
+        });
+      }
+    } finally {
+      uploading--;
     }
   }
 
   // 여기까지 왔으면 이 일들은 드라이브에 있다. '아직 폰에만 있음'과 'PC가 받기를 기다림'을 가르는 표시.
   state.sent = new Set(onDrive);
   local.set('sent', [...state.sent]);
+  pruneMemoDrafts();   // 자리가 모자라 남겨 둔 저장 글이 이제 드라이브에 갔으면 버린다
 
   if (state.rev === rev) {
     state.dirty = false;
@@ -513,7 +541,7 @@ function pushOp(kind, target, text, extra) {
     if (last && last >= at) at = localIso(new Date(new Date(last).getTime() + 1000));
   }
 
-  state.pending.push({
+  const op = {
     Id: uuid(),
     Kind: kind,
     Target: target ?? null,
@@ -521,13 +549,20 @@ function pushOp(kind, target, text, extra) {
     At: at,
     Day: logicalToday(now),
     ...(extra ?? {})
-  });
+  };
+  state.pending.push(op);
+  return { op, saved: commitPending() };
+}
+
+/** 쌓인 일을 이 폰에 남기고 보낼 차례로 둔다. 남기지 못했으면(자리 모자람) false — 일은 메모리에 있어 연결되면 간다. */
+function commitPending() {
   state.rev++;
   state.dirty = true;
-  local.set('pending', state.pending);
+  const saved = local.set('pending', state.pending);
   local.set('dirty', true);
   render();
   scheduleFlush();
+  return saved;
 }
 
 // ───────── 화면에 보일 것 = PC 화면 + 아직 못 받은 일
@@ -749,9 +784,12 @@ function memoTitleOf(text) {
   return plainMemoLine(first) || first.trim();
 }
 
-/** 본문의 #태그(MemoFormat.TagsOf): 나온 순서, 중복 없이, # 뺀 이름. */
+/**
+ * 본문의 #태그(MemoFormat.TagsOf): 나온 순서, 중복 없이, # 뺀 이름.
+ * 앞 글자는 잡아서 버린다 — 뒤돌아보기 정규식(lookbehind)은 iOS 16.4 보다 옛 사파리가 읽지 못해 앱 전체가 안 뜬다.
+ */
 function memoTagsOf(text) {
-  return [...new Set([...String(text ?? '').matchAll(/(?<=^|\s)#([^\s#]+)/gm)].map(m => m[1]))];
+  return [...new Set([...String(text ?? '').matchAll(/(^|\s)#([^\s#]+)/gm)].map(m => m[2]))];
 }
 
 /** 체크 칸 하나를 바꾼 줄(MemoFormat.SetMark). 체크 줄이 아니면 null. */
@@ -801,7 +839,8 @@ let memoCache = null;
  * 고정·매일은 표시에, 삭제는 목록에서 뺀다. PC 가 받아 간 일(AppliedOps)은 얹지 않는다 —
  * 넣었든 건너뛰었든 충돌 사본을 만들었든 PC 의 글이 맞다(충돌 사본은 따로 한 메모로 온다).
  * PC 가 꺼진 채 하루가 지났으면, 매일 초기화 메모는 PC 가 켜지면 풀릴 체크를 미리 풀어 보여 준다.
- * 메모마다: Text(얹은 글) · lines · preview · waiting(못 받은 일 수) · edited(고친 글이 기다림) · created(폰에서 만든 새 메모).
+ * 메모마다: Text(얹은 글) · lines · preview · waiting(못 받은 일 수) · waitOther(그중 체크가 아닌 일 — 체크는 줄마다 따로 보인다)
+ * · edited(고친 글이 기다림) · created(폰에서 만든 새 메모).
  */
 function composeMemos() {
   const memos = memosOfView();
@@ -817,7 +856,7 @@ function composeMemos() {
     const preview = stale && !!memo.Daily && (!memo.Reset || memo.Reset < today);
     byId.set(memo.Id, {
       ...memo, Text: preview ? uncheckAllMemo(memo.Text) : memo.Text,
-      preview, waiting: 0, edited: false, created: false, deleted: false, waitLines: new Set()
+      preview, waiting: 0, waitOther: 0, edited: false, created: false, deleted: false, waitLines: new Set()
     });
   }
 
@@ -831,7 +870,7 @@ function composeMemos() {
       if (typeof op.Text !== 'string') continue;
       if (!memo) {
         memo = { Id: op.Target, Pinned: false, Daily: false, Reset: null, Tags: [], Rev: '', Text: '', preview: false,
-          waiting: 0, edited: false, created: true, deleted: false, waitLines: new Set() };
+          waiting: 0, waitOther: 0, edited: false, created: true, deleted: false, waitLines: new Set() };
         byId.set(op.Target, memo);
       }
       // 머리말 태그(본문에 없는 태그)는 그대로 두고 본문 #태그만 새 글로 바꾼다.
@@ -846,6 +885,7 @@ function composeMemos() {
       memo.deleted = false;
       memo.waitLines.clear();
       memo.waiting++;
+      memo.waitOther++;
       continue;
     }
     if (!memo || memo.deleted) continue;
@@ -875,6 +915,7 @@ function composeMemos() {
       default: continue;   // 이 폰이 모르는 메모 일
     }
     memo.waiting++;
+    if (op.Kind !== 'memo-check') memo.waitOther++;
   }
 
   const list = [];
@@ -1027,7 +1068,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v10',
+    'v11',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -1172,7 +1213,7 @@ function renderToday() {
 
 /** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
 function memoDiag() {
-  const parts = ['v10', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
+  const parts = ['v11', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
   return `<div class="diag">${parts.join(' · ')}</div>`;
 }
 
@@ -1283,7 +1324,7 @@ function renderMemoView() {
 
     const meta = [];
     // 체크 말고도 기다리는 일(고친 글 · 새 메모 · 고정 · 매일 · 모두 풀기)이 있으면 위에 한 번 알린다.
-    if (memo.waiting > memo.waitLines.size) meta.push(waitBadge(memo.Id));
+    if (memo.waitOther > 0) meta.push(waitBadge(memo.Id));
     if (memo.Pinned) meta.push('<span class="chip static">📌 고정</span>');
     if (memo.Daily) meta.push(`<span class="chip static daily">↻ 매일 초기화${memo.preview ? ' · 새 하루라 풀어 보임' : ''}</span>`);
     for (const t of memo.Tags ?? []) meta.push(`<span class="chip static">#${esc(bareTag(t))}</span>`);
@@ -1346,8 +1387,11 @@ function closeMemo() {
 
 let toastTimer = 0;
 
-/** 짧은 알림. #app 바깥에 하나만 두어 다시 그리기·화면 바꾸기·글 칸 위에서도 보인다. */
-function toast(message) {
+/**
+ * 짧은 알림. #app 바깥에 하나만 두어 다시 그리기·화면 바꾸기·글 칸 위에서도 보인다.
+ * warn 이면 붉게, 화면 폭 안에서 줄을 바꿔, 더 오래 보인다(놓치면 안 되는 것).
+ */
+function toast(message, warn) {
   let el = document.getElementById('toast');
   if (!el) {
     el = document.createElement('div');
@@ -1356,9 +1400,10 @@ function toast(message) {
     document.body.appendChild(el);
   }
   el.textContent = message;
+  el.classList.toggle('warn', !!warn);
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => el.classList.remove('show'), warn ? 5000 : 2200);
 }
 
 // ───────── 로그인 없이 쓰기 설정
@@ -1450,7 +1495,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=10', { cache: 'no-store' })
+  fetch('relay.gs?v=11', { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -2156,7 +2201,22 @@ const editorEl = document.createElement('div');
 editorEl.id = 'memo-editor';
 document.body.appendChild(editorEl);
 
-let memoEdit = null;          // 쓰는 중인 글 { key, id, isNew, base, start, text }
+/**
+ * 글 칸을 보이는 영역(visualViewport)에 맞춘다. iOS 사파리는 자판이 떠도 화면 높이를 줄이지 않아
+ * 바닥에 붙은 서식 줄이 자판 뒤로 숨는다. 안드로이드(interactive-widget=resizes-content)는 화면이 같이 줄어
+ * 보이는 영역 = 화면이라 전과 같다.
+ */
+function fitEditor() {
+  const vv = window.visualViewport;
+  if (!vv || !editorEl.classList.contains('open')) return;
+  editorEl.style.top = Math.max(0, vv.offsetTop) + 'px';
+  editorEl.style.height = vv.height + 'px';
+  editorEl.style.bottom = 'auto';
+}
+window.visualViewport?.addEventListener('resize', fitEditor);
+window.visualViewport?.addEventListener('scroll', fitEditor);
+
+let memoEdit = null;          // 쓰는 중인 글 { key, id, isNew, base, pcRev, start, text }
 let draftTimer = 0;
 let shiftEnter = false;       // Shift+Enter 는 이어 쓰지 않고 그냥 줄을 바꾼다
 let afterEditorPop = null;    // 글 칸을 닫으며 걷어 낸 기록이 돌아오면 할 일
@@ -2168,10 +2228,10 @@ function memoDrafts() {
   return all && typeof all === 'object' ? all : {};
 }
 
-/** 쓰는 글을 이 폰에 남긴다. 다시 열 때(앱을 닫았다 열어도) 이어서 쓴다. */
+/** 쓰는 글을 이 폰에 남긴다. 다시 열 때(앱을 닫았다 열어도) 이어서 쓴다. 남기지 못했으면(자리 모자람) false. */
 function saveMemoDraft() {
   clearTimeout(draftTimer);
-  if (!memoEdit) return;
+  if (!memoEdit) return false;
   const area = memoArea();
   if (area) {
     memoEdit.text = area.value;
@@ -2179,14 +2239,60 @@ function saveMemoDraft() {
   }
   const all = memoDrafts();
   all[memoEdit.key] = { ...memoEdit, at: localIso(new Date()) };
-  local.set('memoDrafts', all);
+  const saved = local.set('memoDrafts', all);
   local.set('memoEditing', memoEdit.key);
+  return saved;
+}
+
+/**
+ * 저장은 했는데 일(pending)을 이 폰에 남기지 못했을 때(자리 모자람): 일은 메모리에 있어 연결되면 가지만,
+ * 그 전에 앱이 닫히면 사라진다. 그래서 임시 글을 버리지 않고 그 일의 번호(savedOp)를 붙여 둔다 —
+ * 드라이브에 가거나 PC 가 받으면 버리고(pruneMemoDrafts), 일이 사라졌으면 다시 열 때 이어서 쓴다.
+ */
+function keepSavedDraft(ed, text, opId) {
+  const all = memoDrafts();
+  all[ed.key] = { ...ed, text, caret: text.length, savedOp: opId, at: localIso(new Date()) };
+  local.set('memoDrafts', all);
+  local.remove('memoEditing');
+}
+
+/** 저장 글(savedOp)의 일이 아직 이 폰의 메모리에 있거나 드라이브에 갔거나 PC 가 받았는지 — 그러면 임시 글은 쓸모없다. */
+function draftSaved(draft) {
+  const id = draft?.savedOp;
+  if (!id) return false;
+  return state.sent.has(id) || (state.view?.AppliedOps ?? []).includes(id) || state.pending.some(op => op.Id === id);
+}
+
+const DRAFT_KEEP_DAYS = 14;
+
+/**
+ * 쓸모없어진 임시 글을 버린다: 저장 글이 드라이브에 갔거나 PC 가 받은 것, 그리고 지금 없는 메모(지워짐)의 글 중
+ * 14일 넘게 안 연 것. 새 메모('new')의 글은 메모가 없는 게 당연하니 날짜로 버리지 않는다.
+ */
+function pruneMemoDrafts() {
+  const memos = composeMemos();
+  const all = memoDrafts();
+  const applied = new Set(state.view?.AppliedOps ?? []);
+  const cutoff = Date.now() - DRAFT_KEEP_DAYS * 86400000;
+  let changed = false;
+  for (const [key, draft] of Object.entries(all)) {
+    if (key === memoEdit?.key) continue;
+    const sent = !!draft?.savedOp && (state.sent.has(draft.savedOp) || applied.has(draft.savedOp));
+    const orphan = !!memos && key !== 'new' && !memos.some(m => m.Id === key) && !(new Date(draft?.at).getTime() > cutoff);
+    if (sent || orphan) {
+      delete all[key];
+      changed = true;
+    }
+  }
+  if (changed) local.set('memoDrafts', all);
 }
 
 function dropMemoDraft(key) {
   const all = memoDrafts();
-  delete all[key];
-  local.set('memoDrafts', all);
+  if (key in all) {
+    delete all[key];
+    local.set('memoDrafts', all);
+  }
   local.remove('memoEditing');
 }
 
@@ -2198,34 +2304,73 @@ function editorNote(text, warn) {
   el.classList.toggle('warn', !!warn);
 }
 
+/** 남겨 둔 글 중 이어 쓸 만한 것. 고친 것 없이 남은 것, 저장해서 일이 살아 있는 것은 버리고 지금 글로 연다. */
+function usableDraft(key) {
+  const draft = memoDrafts()[key];
+  if (!draft || draft.text === draft.start || draftSaved(draft)) return null;
+  return draft;
+}
+
+const HELD_NOTE = 'PC에서 이 메모를 쓰는 중입니다 · 저장하면 PC에서 쓰기를 마친 뒤 들어갑니다';
+
 /**
- * 글 칸을 연다. id 가 없으면 새 메모. 남겨 둔 글이 있으면 그것으로 이어 쓴다(Base 도 그때 본 판 그대로 —
+ * 남겨 둔 글로 이어 쓸 때 Base 를 다시 본다. Base 는 고치기를 시작할 때 본 글의 판인데, 그 뒤에
+ * - 이 휴대폰에서만 그 메모에 일을 더 했고(읽기 화면의 체크 · 모두 풀기 · 매일 …) PC 글은 그대로면
+ *   (매일 초기화 메모를 새 하루라 풀어 보이는 것도 같다 — PC 는 초기화를 먼저 하고 이 저장을 넣는다):
+ *   PC 가 이 저장에 닿을 때 가질 글은 지금 보이는 글이다 → 그 판으로 바꾼다(안 그러면 제 체크 때문에 충돌 사본이 생긴다).
+ *   지금 보이는 글이 고치기의 시작 글이 된다 — 저장하면 이 글로 덮인다.
+ * - PC 글이 바뀌었으면(PC 에서 고침 · 앞의 일을 받음): Base 는 그대로 두고 저장하면 충돌 사본이 될 수 있다고 알린다.
+ * 돌려주는 것: { draft, note }. PC 가 쓰는 중이면 그것도 알린다(처음 열 때와 같다).
+ */
+async function resumeDraft(draft) {
+  const notes = ['쓰던 글을 이어서 씁니다'];
+  if (!draft.isNew) {
+    const memo = findMemo(draft.id);
+    const sent = sentMemo(draft.id);
+    // PC 글이 그대로인지: 시작할 때의 PC 판이거나, 그때 얹어 계산한 판(앞의 일을 PC 가 예상대로 받음).
+    // pcRev 가 없는 것은 v10 이 남긴 글 — Base 와만 견준다.
+    const pcSame = !sent || sent.Rev === draft.pcRev || sent.Rev === draft.base;
+    if (!memo) {
+      notes.push('이 메모는 PC에 없습니다 · 저장하면 새 메모로 남습니다');
+    } else if (!pcSame) {
+      notes.push('그 사이 PC에서 이 메모가 바뀌었습니다 · 저장하면 PC 글은 두고 충돌 사본으로 남습니다');
+    } else if (memo.Text !== draft.start) {
+      // PC 글은 그대로인데 보이는 글이 바뀌었다 = 이 휴대폰이 그 뒤에 한 일(체크 · 모두 풀기 …)이나 새 하루의 매일 초기화.
+      draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text };
+      notes.push('그 뒤 바꾼 체크 등은 저장하면 이 글대로 됩니다');
+    }
+    if (isHeldMemo(draft.id)) notes.push(HELD_NOTE);
+  }
+  return { draft, note: notes.join(' · ') };
+}
+
+/**
+ * 글 칸을 연다. id 가 없으면 새 메모. 남겨 둔 글이 있으면 그것으로 이어 쓴다(Base 는 resumeDraft 가 다시 본다 —
  * 그 사이 PC 에서 고쳤으면 저장할 때 충돌 사본으로 남는다).
  */
 async function openMemoEditor(id) {
   if (memoEdit) return;
   const key = id ?? 'new';
-  let draft = memoDrafts()[key];
-  if (draft && draft.text === draft.start) draft = null;   // 고친 것 없이 남은 것은 버리고 지금 글로
-  let note = draft ? '쓰던 글을 이어서 씁니다' : '';
+  let draft = usableDraft(key);
+  let note = '';
 
-  if (!draft && id) {
+  if (draft) {
+    ({ draft, note } = await resumeDraft(draft));
+  } else if (id) {
     const memo = findMemo(id);
     if (!memo) return;
-    draft = { key, id, isNew: false, base: await memoBaseOf(memo), start: memo.Text, text: memo.Text };
-  } else if (!draft) {
-    draft = { key, id: uuid(), isNew: true, base: null, start: '', text: '' };
+    draft = { key, id, isNew: false, base: await memoBaseOf(memo), pcRev: sentMemo(id)?.Rev ?? null, start: memo.Text, text: memo.Text };
+    if (isHeldMemo(id)) note = HELD_NOTE;
+  } else {
+    draft = { key, id: uuid(), isNew: true, base: null, pcRev: null, start: '', text: '' };
   }
   if (memoEdit) return;   // 기다리는 사이 두 번 눌렀다
-
-  if (!draft.isNew && isHeldMemo(draft.id)) {
-    note = (note ? note + ' · ' : '') + 'PC에서 이 메모를 쓰는 중입니다 · 저장하면 PC에서 쓰기를 마친 뒤 들어갑니다';
-  }
   showMemoEditor(draft, note);
 }
 
 function showMemoEditor(draft, note) {
   memoEdit = { ...draft };
+  delete memoEdit.savedOp;
   closeEditor();
   editorEl.innerHTML = `
     <div class="editor">
@@ -2244,6 +2389,7 @@ function showMemoEditor(draft, note) {
   area.value = draft.text ?? '';
   document.body.classList.add('memo-editing');
   editorEl.classList.add('open');
+  fitEditor();
   // 안드로이드 뒤로 단추가 글 칸을 닫게 기록을 하나 쌓는다(쓰던 글은 남는다).
   history.pushState({ ...(history.state ?? {}), editor: true }, '');
   saveMemoDraft();
@@ -2256,6 +2402,7 @@ function hideMemoEditor() {
   clearTimeout(draftTimer);
   memoEdit = null;
   editorEl.classList.remove('open');
+  editorEl.style.top = editorEl.style.height = editorEl.style.bottom = '';
   editorEl.innerHTML = '';
   document.body.classList.remove('memo-editing');
   local.remove('memoEditing');
@@ -2271,29 +2418,68 @@ function leaveMemoEditor(then) {
   } else then?.();
 }
 
+/**
+ * 저장 하나를 일로 쌓는다. 바로 앞의 같은 메모 일이 아직 어디에도 안 올라간 저장이고 이 글이 그 글을 이어 고친 것이면
+ * (Base = 그 글의 판) 둘을 하나로 합친다 — 본문 전체가 inbox 에 들어가므로 저장을 여러 번 하면 그만큼 커진다.
+ * 합친 일은 앞 일의 Base · At 그대로, 글만 새 글로, 번호는 새로 뽑는다: 앞 일이 사실은 올라갔다면(답만 못 받음 ·
+ * 다른 탭이 보냄) 같은 번호의 옛 글이 이겨 새 글이 사라지지만, 새 번호면 둘 다 가서 PC 가 뒤의 것을 충돌 사본으로 남긴다.
+ * 돌려주는 것: pushOp 와 같은 { op, saved }.
+ */
+async function queueMemoSave(ed, text) {
+  const base = ed.isNew ? null : ed.base ?? '';
+  const applied = new Set(state.view?.AppliedOps ?? []);
+  const last = state.pending
+    .filter(op => op.Target === ed.id && isMemoOp(op) && !applied.has(op.Id))
+    .sort((a, b) => a.At.localeCompare(b.At) || a.Id.localeCompare(b.Id))
+    .pop();
+  const candidate = !!last && !ed.isNew && !!base && last.Kind === 'memo-save' && typeof last.Text === 'string';
+  const continues = candidate && base === await memoRev(last.Text);
+  // 판을 재는 사이 올리기가 시작됐거나 끝났을 수 있어 그 뒤에 본다.
+  if (!continues || uploading || state.sent.has(last.Id) || !state.pending.includes(last)) {
+    return pushOp('memo-save', ed.id, text, { Base: base });
+  }
+
+  const op = { ...last, Id: uuid(), Text: text, Day: logicalToday() };
+  state.pending = state.pending.map(o => (o === last ? op : o));
+  return { op, saved: commitPending() };
+}
+
+let savingMemo = false;      // 저장 단추를 두 번 눌러도 한 번만(합치기는 판을 재느라 잠깐 기다린다)
+
 async function saveMemoEditor() {
   const ed = memoEdit;
   const area = memoArea();
-  if (!ed || !area) return;
+  if (!ed || !area || savingMemo) return;
   const text = area.value;
 
+  // 고친 것이 없으면 크기와 상관없이 그냥 닫는다(큰 메모를 열었다 닫기만 해도 막히지 않게).
+  if (ed.isNew ? !text.trim() : text === ed.start) {
+    dropMemoDraft(ed.key);
+    leaveMemoEditor(() => toast(ed.isNew ? '빈 메모는 만들지 않았습니다' : '바뀐 것이 없습니다'));
+    return;
+  }
   const bytes = utf8Bytes(text);
   if (bytes > MEMO_MAX_BYTES) {
     saveMemoDraft();
     editorNote(`글이 너무 깁니다(${Math.ceil(bytes / 1024)} KB) · 한 메모는 200 KB 까지 보낼 수 있습니다. 나눠서 써 주세요`, true);
     return;
   }
-  if (ed.isNew ? !text.trim() : text === ed.start) {
-    dropMemoDraft(ed.key);
-    leaveMemoEditor(() => toast(ed.isNew ? '빈 메모는 만들지 않았습니다' : '바뀐 것이 없습니다'));
-    return;
-  }
 
-  pushOp('memo-save', ed.id, text, { Base: ed.isNew ? null : ed.base ?? '' });
-  dropMemoDraft(ed.key);
+  savingMemo = true;
+  let queued;
+  try {
+    queued = await queueMemoSave(ed, text);
+  } finally {
+    savingMemo = false;
+  }
+  const { op, saved } = queued;
+  // 일을 이 폰에 남겼을 때만 임시 글을 버린다. 못 남겼으면(자리 모자람) 앱이 닫혀도 글이 남게 임시 글을 둔다.
+  if (saved) dropMemoDraft(ed.key);
+  else keepSavedDraft(ed, text, op.Id);
   leaveMemoEditor(() => {
     if (ed.isNew) openMemo(ed.id, true);
-    toast(ed.isNew ? '새 메모를 적어 뒀습니다 · PC가 받아 넣습니다' : '저장했습니다 · PC가 받아 넣습니다');
+    if (!saved) toast('휴대폰 저장 공간이 모자라 임시로만 들고 있습니다 · 연결되면 바로 보냅니다', true);
+    else toast(ed.isNew ? '새 메모를 적어 뒀습니다 · PC가 받아 넣습니다' : '저장했습니다 · PC가 받아 넣습니다');
   });
   await sendEdits();
 }
@@ -2375,8 +2561,13 @@ window.addEventListener('popstate', () => {
     const area = memoArea();
     const key = memoEdit.key;
     const changed = !!area && area.value !== memoEdit.start;
-    if (changed) saveMemoDraft();
-    else dropMemoDraft(key);
+    if (changed && !saveMemoDraft()) {
+      // 남기지 못했다(자리 모자람) — 닫으면 글이 사라진다. 글 칸을 그대로 두고 알린다.
+      history.pushState({ ...(history.state ?? {}), editor: true }, '');
+      editorNote('휴대폰 저장 공간이 모자라 쓰던 글을 남겨 둘 수 없습니다 · 저장하거나 취소해 주세요', true);
+      return;
+    }
+    if (!changed) dropMemoDraft(key);
     hideMemoEditor();
     render();
     if (changed) toast('쓰던 글은 남겨 뒀습니다 · 다시 열면 이어서 씁니다');
@@ -2456,12 +2647,14 @@ if (DEMO) {
 
 render();
 
-// 쓰던 메모 글 칸을 연 채 앱이 닫혔으면 그대로 다시 연다.
+// 쓰던 메모 글 칸을 연 채 앱이 닫혔으면 그대로 다시 연다(열 때와 같이 Base · PC 쓰는 중을 다시 본다).
 {
   const key = DEMO ? null : local.get('memoEditing', null);
   const draft = key ? memoDrafts()[key] : null;
-  if (draft && state.view?.Today) showMemoEditor(draft, '쓰던 글을 이어서 씁니다');
-  else if (key) local.remove('memoEditing');
+  if (draft && state.view?.Today && !draftSaved(draft)) {
+    resumeDraft(draft).then(r => { if (!memoEdit) showMemoEditor(r.draft, r.note); });
+  } else if (key) local.remove('memoEditing');
+  if (!DEMO) pruneMemoDrafts();
 }
 
 refresh();
