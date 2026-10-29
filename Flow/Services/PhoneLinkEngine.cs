@@ -73,10 +73,12 @@ public interface IPhoneMemoTarget
     MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null);
 
     /// <summary>
-    /// 본문 전체를 맞춘다. baseRev 가 null 이면 그 id 로 새 메모(이미 있으면 건너뜀). 판이 같으면 덮고(같은 글이면 건너뜀),
-    /// 다르면 원본은 두고 충돌 사본을, 그 사이 지워졌으면 새 메모를 만든다 — 둘 다 id 는 opId(같은 일이 두 번 와도 하나).
+    /// 본문 전체를 맞춘다. baseRev 가 null 이면 그 id 로 새 메모(같은 글로 이미 있으면 건너뜀, 다른 글로 있으면 충돌 사본).
+    /// 판이 같으면 덮고(같은 글이면 건너뜀), 다르면 원본은 두고 충돌 사본을, 그 사이 지워졌으면 새 메모를 만든다 —
+    /// 둘 다 id 는 opId(같은 일이 두 번 와도 하나). day(폰에서 저장한 논리적 날짜)가 있고 매일 초기화 메모의 그 날 몫
+    /// 초기화가 아직이면 Deferred — 먼저 넣으면 곧 이어질 초기화가 휴대폰 글의 체크를 풀어 버린다.
     /// </summary>
-    PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId);
+    PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId, DateOnly? day = null);
 
     PhoneMemoResult SetPinned(Guid id, bool pinned);
 
@@ -109,23 +111,38 @@ public sealed class PhoneMemoTarget(MemoStore store, Func<Func<Guid, bool>?> hel
             ? MemoCheckResult.Held
             : store.SetLineChecked(id, text, line, isChecked, day);
 
-    public PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId)
+    public PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId, DateOnly? day = null)
     {
         if (IsHeld(id)) return PhoneMemoResult.Held;
+
+        // 새로 생길 메모(충돌 사본·지워진 뒤 새 메모)의 id. 일의 번호가 메모 id 와 같으면(그렇게 보내는 폰) 새로 뽑는다 —
+        // 같은 id 면 '이미 있음'으로 보여 휴대폰 글이 버려진다.
+        var copyId = opId == id ? Guid.NewGuid() : opId;
 
         if (baseRev is null)
         {
             var made = store.CreateWithId(id, text);
-            return made == MemoCheckResult.Applied ? new(made, PhoneMemoChange.Created, id) : new(made);
+            if (made != MemoCheckResult.Skipped) return made == MemoCheckResult.Applied ? new(made, PhoneMemoChange.Created, id) : new(made);
+
+            // 그 id 의 메모가 이미 있다. 같은 글이면 같은 일이 두 번 온 것. 다른 글이면(그 사이 PC 에서 고침 ·
+            // 휴대폰이 합친 저장의 앞 글이 벌써 들어감 등) 휴대폰 글을 버리지 않고 충돌 사본으로 — 사본 id 가 opId 라 두 번 와도 하나.
+            // 휴지통에만 있으면 예전처럼 건너뛴다(PC 에서 지운 메모를 살리지 않는다).
+            if (store.Load(id) is not { } existing || existing.Rev == MemoFormat.RevOf(text)) return PhoneMemoResult.Skipped;
+            return ResultOf(store.Save(id, text, "", ConflictSuffix, copyId));
         }
+
+        // 매일 초기화 메모의 그 날 몫 초기화가 아직이면 기다린다(메모 체크와 같다). 초기화가 먼저 되면
+        // 휴대폰이 '새 하루라 풀어 보인' 글을 보고 고친 판과 맞아 깨끗이 덮인다.
+        if (day is { } d && store.IsDailyDue(id, d)) return PhoneMemoResult.Deferred;
 
         // 지금 본문과 같은 글이면 할 것이 없다(같은 고치기가 두 번 옴·양쪽에서 같게 고침). 판이 달라도 충돌 사본을 만들지 않는다.
         if (store.Load(id) is { } current && current.Rev == MemoFormat.RevOf(text)) return PhoneMemoResult.Skipped;
 
-        // 새로 생길 메모(충돌 사본·지워진 뒤 새 메모)의 id. 일의 번호가 메모 id 와 같으면(그렇게 보내는 폰) 새로 뽑는다 —
-        // 같은 id 면 '이미 있음'으로 보여 휴대폰 글이 버려진다.
-        var saved = store.Save(id, text, baseRev, ConflictSuffix, opId == id ? Guid.NewGuid() : opId);
-        return saved.Outcome switch
+        return ResultOf(store.Save(id, text, baseRev, ConflictSuffix, copyId, day));
+    }
+
+    private static PhoneMemoResult ResultOf(SaveResult saved)
+        => saved.Outcome switch
         {
             SaveOutcome.Saved => new(MemoCheckResult.Applied, PhoneMemoChange.Saved),
             SaveOutcome.Conflict => new(MemoCheckResult.Applied, PhoneMemoChange.Conflict, saved.CopyId),
@@ -133,7 +150,6 @@ public sealed class PhoneMemoTarget(MemoStore store, Func<Func<Guid, bool>?> hel
             SaveOutcome.Unchanged => PhoneMemoResult.Skipped,
             _ => PhoneMemoResult.Deferred,
         };
-    }
 
     public PhoneMemoResult SetPinned(Guid id, bool pinned)
         => Change(id, PhoneMemoChange.Header, doc => doc.Pinned == pinned ? null : doc with { Pinned = pinned });
@@ -389,7 +405,7 @@ public static class PhoneLinkEngine
                 return new(checkResult, checkResult == MemoCheckResult.Applied ? PhoneMemoChange.Checked : PhoneMemoChange.None);
 
             case PhoneOp.MemoSave:
-                return op.Text is { } text ? memos.Save(target, text, op.Base, op.Id) : PhoneMemoResult.Skipped;
+                return op.Text is { } text ? memos.Save(target, text, op.Base, op.Id, op.Day) : PhoneMemoResult.Skipped;
 
             case PhoneOp.MemoPin:
                 return BoolOf(op.Text) is { } pinned ? memos.SetPinned(target, pinned) : PhoneMemoResult.Skipped;

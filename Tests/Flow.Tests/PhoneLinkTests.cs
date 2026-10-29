@@ -383,7 +383,7 @@ internal static partial class Program
     private abstract class MemoTargetStub : IPhoneMemoTarget
     {
         public virtual MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null) => MemoCheckResult.Skipped;
-        public virtual PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId) => PhoneMemoResult.Skipped;
+        public virtual PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId, DateOnly? day = null) => PhoneMemoResult.Skipped;
         public virtual PhoneMemoResult SetPinned(Guid id, bool pinned) => PhoneMemoResult.Skipped;
         public virtual PhoneMemoResult SetDaily(Guid id, bool daily, DateOnly day) => PhoneMemoResult.Skipped;
         public virtual PhoneMemoResult UncheckAll(Guid id) => PhoneMemoResult.Skipped;
@@ -796,7 +796,7 @@ internal static partial class Program
             return new(MemoCheckResult.Applied, change);
         }
 
-        public override PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId)
+        public override PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId, DateOnly? day = null)
         {
             var result = Do(id, "save:" + text, baseRev is null ? PhoneMemoChange.Created : PhoneMemoChange.Saved);
             if (result.Status == MemoCheckResult.Applied) Live.Add(id);
@@ -1188,6 +1188,66 @@ internal static partial class Program
             Check("있는 메모에 연결", (link.MemoLinked, routine.MemoId), (1, (Guid?)newId));
             var toTrash = PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoLink, Mon, 14, 1, routine.Id, trashed.ToString())], target);
             Check("휴지통 메모에는 연결하지 않음", (toTrash.Skipped, routine.MemoId), (1, (Guid?)newId));
+        }
+
+        // ── Base 없는 새 메모인데 그 id 의 메모가 벌써 있음: 같은 글이면 건너뜀, 다른 글이면 충돌 사본(휴대폰 글을 버리지 않음)
+        {
+            var made = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000001d4");
+            PhoneLinkEngine.Apply(data, [MemoSaveOp(made, "# 합친 저장\n앞 글", null, Mon, 14, 10)], target);
+            var before = Count();
+            var same = PhoneLinkEngine.Apply(data, [MemoSaveOp(made, "# 합친 저장\n앞 글", null, Mon, 14, 11)], target);
+            Check("Base 없음 + 같은 글로 이미 있음 → 건너뜀", (same.Skipped, same.MemoConflicts, Count()), (1, 0, before));
+
+            var other = MemoSaveOp(made, "# 합친 저장\n뒤 글", null, Mon, 14, 12);
+            var result = PhoneLinkEngine.Apply(data, [other], target);
+            Check("Base 없음 + 다른 글로 이미 있음 → 충돌 사본, 처리함",
+                (result.MemoConflicts, result.Skipped, Count(), data.PhoneOpsApplied.Any(a => a.Id == other.Id)), (1, 0, before + 1, true));
+            Check("원본 그대로", Body(made), "# 합친 저장\n앞 글");
+            Check("사본 id 는 그 일의 번호, 휴대폰 글 + 제목 끝 표시",
+                store.Load(other.Id) is null ? null : Body(other.Id), "# 합친 저장 (휴대폰 충돌 사본)\n뒤 글");
+
+            data.PhoneOpsApplied.Clear();
+            var again = PhoneLinkEngine.Apply(data, [other], target);
+            Check("같은 일이 또 와도 사본은 하나", (again.MemoConflicts, again.Skipped, Count()), (0, 1, before + 1));
+
+            store.Delete(other.Id);
+            store.Delete(made);
+            var trashed = PhoneLinkEngine.Apply(data, [MemoSaveOp(made, "# 합친 저장\n휴지통 뒤", null, Mon, 14, 13)], target);
+            Check("휴지통에만 있으면 예전처럼 건너뜀(살리지 않음)", (trashed.Skipped, trashed.MemoCreated, trashed.MemoConflicts), (1, 0, 0));
+        }
+
+        // ── 매일 초기화 메모: 그 날 몫 초기화가 아직이면 휴대폰 고치기를 기다린다(메모 체크와 같다)
+        {
+            var daily = store.Create("# 매일 점검\n[x] 하나\n[ ] 둘")!;
+            var id = daily.Doc.Id;
+            store.SetDaily(id, true, Mon);
+            var monRev = store.Load(id)!.Rev;
+            var tue = new AppData { LastLogicalDate = Tue };
+
+            // 화요일: PC 는 아직 화요일 몫을 풀지 않았다. 휴대폰은 '새 하루라 풀어 보인' 글을 보고 고쳤다
+            var tueSave = MemoSaveOp(id, "# 매일 점검\n[ ] 하나\n[x] 둘", MemoFormat.RevOf("# 매일 점검\n[ ] 하나\n[ ] 둘"), Tue, 9);
+            var waiting = PhoneLinkEngine.Apply(tue, [tueSave], target);
+            Check("초기화 전엔 기다림(적지 않음 · 글 그대로 · 사본 없음)",
+                (waiting.MemoSaved, waiting.MemoConflicts, tue.PhoneOpsApplied.Any(a => a.Id == tueSave.Id), store.Load(id)!.Rev, Count()),
+                (0, 0, false, monRev, store.Memos.Count));
+
+            var noBase = MemoSaveOp(id, "# 매일 점검\n[x] 하나\n[ ] 둘", monRev, Tue, 9, 1);
+            Check("판이 같아도 초기화 전엔 덮지 않음", PhoneLinkEngine.Apply(tue, [noBase], target).MemoSaved, 0);
+
+            store.ResetDaily(Tue);
+            var applied = PhoneLinkEngine.Apply(tue, [tueSave], target);
+            Check("초기화 뒤엔 풀어 보인 판과 맞아 깨끗이 덮음",
+                (applied.MemoSaved, applied.MemoConflicts, Body(id)), (1, 0, "# 매일 점검\n[ ] 하나\n[x] 둘"));
+            Check("덮어도 그 날 체크는 남음(초기화가 다시 풀지 않음)", (store.ResetDaily(Tue).Written, Body(id).Contains("[x] 둘")), (0, true));
+
+            var later = MemoSaveOp(id, "# 매일 점검\n[x] 하나\n[x] 둘", store.Load(id)!.Rev, Tue, 10);
+            Check("그 날 몫을 이미 풀었으면 바로 덮음", PhoneLinkEngine.Apply(tue, [later], target).MemoSaved, 1);
+
+            var rev = store.Load(id)!.Rev;
+            Check("MemoStore.Save 에 다음 날을 주면 초기화 전이라 Failed",
+                store.Save(id, "# 매일 점검\n다음 날", rev, null, null, Tue.AddDays(1)).Outcome, SaveOutcome.Failed);
+            Check("day 없이(PC 메모 창)는 그대로 덮음", store.Save(id, "# 매일 점검\nPC", rev).Outcome, SaveOutcome.Saved);
+            store.Delete(id);
         }
 
         // ── PC 가 쓰는 중이면 남김 → 놓으면 들어감. PC 글과 휴대폰 글이 겹치면 둘 다 남는다

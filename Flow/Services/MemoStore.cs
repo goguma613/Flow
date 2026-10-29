@@ -280,14 +280,18 @@ public sealed class MemoStore
     /// conflictSuffix 는 충돌 사본 제목 끝에 붙일 말(없으면 " (충돌 사본 MM-dd HH:mm)"),
     /// newId 는 충돌 사본·새 메모의 id(없으면 새로 뽑는다). 휴대폰은 그 일의 번호를 준다 — 그 id 의 메모가 이미 있으면(휴지통 포함)
     /// 같은 일이 두 번 온 것이라 아무것도 만들지 않고 Unchanged.
+    /// day(휴대폰이 저장한 논리적 날짜)가 있고 그 메모가 매일 초기화인데 그 날 몫 초기화가 아직이면 Failed(나중에 다시) —
+    /// 먼저 덮으면 곧 이어질 초기화가 방금 넣은 글의 체크를 풀어 버린다(SetLineChecked 와 같다). PC 메모 창은 day 를 주지 않는다.
     /// </summary>
-    public SaveResult Save(Guid id, string body, string baseRev, string? conflictSuffix = null, Guid? newId = null)
+    public SaveResult Save(Guid id, string body, string baseRev, string? conflictSuffix = null, Guid? newId = null, DateOnly? day = null)
     {
         if (!_canWrite()) return new SaveResult(SaveOutcome.Failed, null, null);
         try
         {
             // 그 자리에 다른 메모가 와 있으면 덮지 않는다. 끝내 못 찾으면 지워진 것으로 본다.
             var located = Locate(id);
+            if (located is (_, var due) && due.Daily && day is { } d && (due.Reset is not { } reset || reset < d))
+                return new SaveResult(SaveOutcome.Failed, null, null);
 
             // 덮지 못하고 새 메모로 남길 차례인데 newId 의 메모가 벌써 있다 — 같은 일이 두 번 왔다.
             var overwrites = located is { } l && MemoFormat.RevOf(l.Doc.Body) == baseRev;
