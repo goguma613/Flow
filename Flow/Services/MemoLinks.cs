@@ -47,13 +47,14 @@ public static class MemoLinks
         => memoId is { } id && liveIds.Contains(id);
 
     /// <summary>
-    /// 하루가 바뀐 자리의 매일 초기화. 열린 메모를 먼저 저장하게 하고(flush), 그래도 저장 안 된 글을
-    /// 들고 있는 메모(dirty)는 이번에 건너뛴다 — 다음 롤오버나 다음 시작 때 푼다.
-    /// 쓴 파일 수를 돌려준다(풀 체크가 없던 것도 날짜를 적으므로 센다).
+    /// 하루가 바뀐 자리의 매일 초기화. 열린 메모(openId)가 오늘 풀어야 할 매일 초기화 메모일 때만 먼저 저장하게 하고(flush) —
+    /// 상관없는 메모를 쓰던 사람을 쓰기 모드에서 빼내지 않게 —, 그래도 쓰는 중으로 들고 있는 메모(held)는 이번에 건너뛴다.
+    /// 건너뛴 메모는 결과의 Pending 에 남아 같은 날 다시 해 본다(그때는 flush 없이 ResetDaily 만).
     /// </summary>
-    public static int ResetAtRollover(MemoStore store, DateOnly today, Action? flush, Func<Guid, bool>? dirty)
+    public static DailyResetResult ResetAtRollover(MemoStore store, DateOnly today, Action? flush,
+        Func<Guid?>? openId, Func<Guid, bool>? held)
     {
-        flush?.Invoke();
-        return store.ResetDaily(today, dirty);
+        if (flush is not null && openId?.Invoke() is { } open && store.IsDailyDue(open, today)) flush();
+        return store.ResetDaily(today, held);
     }
 }

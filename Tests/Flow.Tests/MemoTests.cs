@@ -317,17 +317,17 @@ internal static partial class Program
         store.SetDaily(empty.Doc.Id, true, Mon);
         store.SetDaily(trashed.Doc.Id, true, Mon);
         store.Delete(trashed.Doc.Id);
-        Check("켠 날은 안 풀림", store.ResetDaily(Mon), 0);
+        Check("켠 날은 안 풀림", store.ResetDaily(Mon).Written, 0);
         Check("켠 날 본문 그대로", Body(m.Doc.Id), "절차\n[x] 하나\n  - [X] 둘\n글 [x]");
 
         // 다음 날: 줄 머리 체크만 풀고 reset 을 적는다. 풀 것이 없어도 날짜는 적는다.
-        Check("다음 날 풀림 (체크 있는 것·없는 것)", store.ResetDaily(Tue), 2);
+        Check("다음 날 풀림 (체크 있는 것·없는 것)", store.ResetDaily(Tue).Written, 2);
         Check("줄 머리만 풂", Body(m.Doc.Id), "절차\n[ ] 하나\n  - [ ] 둘\n글 [x]");
         Check("reset 기록", Header(m.Doc.Id).Contains(ResetLine(Tue)), true);
         Check("daily 는 남음", Header(m.Doc.Id).Contains("daily: true"), true);
         Check("풀 것이 없어도 reset 기록", (Header(empty.Doc.Id).Contains(ResetLine(Tue)), Body(empty.Doc.Id)), (true, "빈 절차\n[ ] 하나\n글"));
         Check("푼 메모는 판이 바뀜", store.Load(m.Doc.Id)!.Rev == revBefore, false);
-        Check("같은 날 두 번째는 0", store.ResetDaily(Tue), 0);
+        Check("같은 날 두 번째는 0", store.ResetDaily(Tue).Written, 0);
         Check("daily 아니면 그대로", (Body(plain.Doc.Id), Header(plain.Doc.Id).Contains("reset:")), ("평범한 메모\n[x] 그대로", false));
         Check("daily 아닌 다른 메모도 그대로", Body(other.Doc.Id).Contains("[x]"), true);
         var trashFile = store.Trash().First(x => x.Id == trashed.Doc.Id).Path;
@@ -339,14 +339,17 @@ internal static partial class Program
         var current = store.Load(m.Doc.Id)!;
         store.Save(m.Doc.Id, current.Doc.Body.Replace("[ ] 하나", "[x] 하나"), current.Rev);
         Check("다시 체크함", Body(m.Doc.Id).Contains("[x] 하나"), true);
-        Check("skip 은 건너뜀 (나머지는 풂)", store.ResetDaily(Wed, id => id == m.Doc.Id), 1);
+        var skipped = store.ResetDaily(Wed, id => id == m.Doc.Id);
+        Check("skip 은 건너뜀 (나머지는 풂)", skipped.Written, 1);
+        Check("skip 한 메모는 Pending", (string.Join(",", skipped.Pending), skipped.Complete), (m.Doc.Id.ToString(), false));
         Check("건너뛴 메모는 체크·reset 그대로", (Body(m.Doc.Id).Contains("[x] 하나"), Header(m.Doc.Id).Contains(ResetLine(Tue))), (true, true));
-        Check("skip 한 메모는 다음에 풂", store.ResetDaily(Wed), 1);
+        Check("skip 한 메모는 다음에 풂", store.ResetDaily(Wed).Written, 1);
         Check("그때 풀림", (Body(m.Doc.Id).Contains("[x] 하나"), Header(m.Doc.Id).Contains(ResetLine(Wed))), (false, true));
-        Check("skip 이 거짓이면 풂", store.ResetDaily(Wed, _ => false), 0);
+        Check("skip 이 거짓이면 풂", store.ResetDaily(Wed, _ => false).Written, 0);
 
         // 못 쓰면 아무것도
-        Check("못 쓰면 아무것도", waitingStore.ResetDaily(Thu), 0);
+        Check("못 쓰면 아무것도", waitingStore.ResetDaily(Thu).Written, 0);
+        Check("못 쓰면 끝나지 않은 것으로", (waitingStore.ResetDaily(Thu).IsBlocked, waitingStore.ResetDaily(Thu).Complete), (true, false));
         Check("못 쓰면 reset 도 그대로", (Header(m.Doc.Id).Contains(ResetLine(Wed)), Header(empty.Doc.Id).Contains(ResetLine(Wed))), (true, true));
         Check("기다리는 중엔 모두 풀기도 안 함", waitingStore.UncheckAll(other.Doc.Id), false);
         Check("ResetDaily 뒤에도 Scan 은 바뀜 없음", store.Scan(), false);
@@ -356,9 +359,13 @@ internal static partial class Program
         store.Save(m.Doc.Id, current.Doc.Body.Replace("[ ] 하나", "[x] 하나"), current.Rev);
         using (new FileStream(store.Load(m.Doc.Id)!.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
-            Check("잠긴 메모는 건너뜀", store.ResetDaily(Thu), 1);
+            var lockedResult = store.ResetDaily(Thu);
+            Check("잠긴 메모는 건너뜀", lockedResult.Written, 1);
+            Check("잠긴 메모는 Pending", (string.Join(",", lockedResult.Pending), lockedResult.Complete), (m.Doc.Id.ToString(), false));
         }
-        Check("풀리면 다음에 풂", store.ResetDaily(Thu), 1);
+        var unlocked = store.ResetDaily(Thu);
+        Check("풀리면 다음에 풂", unlocked.Written, 1);
+        Check("다 풀면 끝", (unlocked.Pending.Count, unlocked.Complete), (0, true));
         Check("그때 풀림 (잠겼던 메모)", (Body(m.Doc.Id).Contains("[x] 하나"), Header(m.Doc.Id).Contains(ResetLine(Thu))), (false, true));
 
         // 모두 풀기: 날짜와 상관없이 지금, reset 은 그대로
@@ -377,8 +384,83 @@ internal static partial class Program
         Check("끄면 daily 줄 없음·reset 남음", (Header(m.Doc.Id).Contains("daily:"), Header(m.Doc.Id).Contains(ResetLine(Thu))), (false, true));
         Check("끄기도 판은 그대로", store.Load(m.Doc.Id)!.Rev, offRev);
         Check("목록에서 매일 아님", store.Memos.First(x => x.Id == m.Doc.Id).Daily, false);
-        Check("끈 메모는 더 안 풂", store.ResetDaily(Thu.AddDays(5)), 1);   // 빈 절차 하나만
+        Check("끈 메모는 더 안 풂", store.ResetDaily(Thu.AddDays(5)).Written, 1);   // 빈 절차 하나만
         Check("이미 꺼진 것을 또 꺼도 참", store.SetDaily(m.Doc.Id, false, Thu), true);
+
+        MemoDailyRetryTests();
+    }
+
+    /// <summary>같은 날 다시 해 보기 · 풀 것이 없을 때 시각 지키기 · 롤오버에서 열린 메모 저장 여부.</summary>
+    private static void MemoDailyRetryTests()
+    {
+        var root = Path.Combine(DataStore.Directory, "memotest-daily-retry");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+
+        var clock = new DateTime(2026, 10, 5, 9, 0, 0);
+        var store = new MemoStore(root, () => true, () => clock);
+        string Body(Guid memo) => store.Load(memo)!.Doc.Body.Replace("\r\n", "\n");
+        bool ResetOn(Guid memo, DateOnly day) => File.ReadAllText(store.Load(memo)!.Path).Contains("reset: " + day.ToString("yyyy-MM-dd"));
+
+        var locked = store.Create("잠길 절차\n[x] 하나")!;
+        var done = store.Create("끝낼 절차\n[x] 하나")!;
+        store.SetDaily(locked.Doc.Id, true, Mon);
+        store.SetDaily(done.Doc.Id, true, Mon);
+
+        // 잠긴 매일 메모: 이번엔 Pending, 같은 날 다시 하면 그것만 푼다
+        DailyResetResult first;
+        using (new FileStream(store.Load(locked.Doc.Id)!.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            first = store.ResetDaily(Tue);
+        }
+        Check("잠긴 매일 메모는 Pending", (first.Written, string.Join(",", first.Pending), first.Complete), (1, locked.Doc.Id.ToString(), false));
+        Check("잠긴 메모는 아직 체크", (Body(locked.Doc.Id), ResetOn(locked.Doc.Id, Tue)), ("잠길 절차\n[x] 하나", false));
+        Check("다른 메모는 풀림", Body(done.Doc.Id), "끝낼 절차\n[ ] 하나");
+
+        // 오늘 푼 메모에 오늘 다시 체크한다
+        store.Save(done.Doc.Id, "끝낼 절차\n[x] 하나", store.Load(done.Doc.Id)!.Rev);
+        var retry = store.ResetDaily(Tue);
+        Check("같은 날 다시: 남은 것만 풂", (retry.Written, retry.Pending.Count, retry.Complete), (1, 0, true));
+        Check("잠겼던 메모 풀림", (Body(locked.Doc.Id), ResetOn(locked.Doc.Id, Tue)), ("잠길 절차\n[ ] 하나", true));
+        Check("오늘 푼 메모는 다시 안 풂", Body(done.Doc.Id), "끝낼 절차\n[x] 하나");
+        Check("한 번 더 해도 아무것도", store.ResetDaily(Tue).Written, 0);
+        var restarted = new MemoStore(root, () => true, () => clock);
+        var again = restarted.ResetDaily(Tue);
+        Check("같은 날 다시 켜도 오늘 체크는 그대로", (again.Written, again.Complete, Body(done.Doc.Id)), (0, true, "끝낼 절차\n[x] 하나"));
+
+        // 풀 체크가 없어 reset 만 바뀌면 고친 시각을 지킨다(매일 아침 '최근' 맨 위로 뛰지 않게)
+        var quiet = store.Create("조용한 절차\n[ ] 하나")!;
+        store.SetDaily(quiet.Doc.Id, true, Tue);
+        var old = new DateTime(2026, 10, 1, 8, 0, 0);
+        File.SetLastWriteTime(store.Load(quiet.Doc.Id)!.Path, old);
+        File.SetLastWriteTime(store.Load(done.Doc.Id)!.Path, old);
+        store.Scan();
+        Check("시각을 옛날로", store.Memos.First(x => x.Id == quiet.Doc.Id).Updated, old);
+        var wed = store.ResetDaily(Wed);
+        Check("다음 날 셋 다 씀", (wed.Written, wed.Complete), (3, true));
+        Check("reset 은 적힘", (ResetOn(quiet.Doc.Id, Wed), Body(quiet.Doc.Id)), (true, "조용한 절차\n[ ] 하나"));
+        Check("reset 만 바뀌면 Updated 그대로", store.Memos.First(x => x.Id == quiet.Doc.Id).Updated, old);
+        Check("파일 시각도 그대로", File.GetLastWriteTime(store.Load(quiet.Doc.Id)!.Path), old);
+        Check("체크를 푼 메모는 시각이 바뀜", store.Memos.First(x => x.Id == done.Doc.Id).Updated == old, false);
+        Check("시각을 되돌린 뒤 Scan 은 바뀜 없음", store.Scan(), false);
+
+        // 롤오버: 열린 메모가 오늘 풀 매일 메모일 때만 먼저 저장하게 한다
+        var flushed = 0;
+        var plain = store.Create("상관없는 메모\n[x] 그대로")!;
+        var thu = MemoLinks.ResetAtRollover(store, Thu, () => flushed++, () => plain.Doc.Id, null);
+        Check("상관없는 메모가 열려 있으면 저장 안 시킴", (flushed, thu.Written), (0, 3));
+        var fri = Thu.AddDays(1);
+        MemoLinks.ResetAtRollover(store, fri, () => flushed++, () => null, null);
+        Check("열린 메모가 없으면 저장 안 시킴", flushed, 0);
+        var sat = fri.AddDays(1);
+        store.Save(done.Doc.Id, "끝낼 절차\n[x] 하나", store.Load(done.Doc.Id)!.Rev);
+        var held = MemoLinks.ResetAtRollover(store, sat, () => flushed++, () => done.Doc.Id, id => id == done.Doc.Id);
+        Check("풀 차례인 메모가 열려 있으면 저장 시킴", flushed, 1);
+        Check("쓰는 중이면 건너뛰고 Pending", (held.Written, string.Join(",", held.Pending), Body(done.Doc.Id)), (2, done.Doc.Id.ToString(), "끝낼 절차\n[x] 하나"));
+        MemoLinks.ResetAtRollover(store, sat, () => flushed++, () => quiet.Doc.Id, id => id == done.Doc.Id);
+        Check("이미 오늘 푼 메모가 열려 있으면 저장 안 시킴", flushed, 1);
+        var heldRetry = store.ResetDaily(sat, _ => false);
+        Check("쓰기가 끝나면 다시 해서 풂", (heldRetry.Written, heldRetry.Complete, Body(done.Doc.Id)), (1, true, "끝낼 절차\n[ ] 하나"));
+        Check("쓰는 중이 아닌 메모는 skip 이 참이어도 안 셈", store.ResetDaily(sat, _ => true).Complete, true);
     }
 
     private static void MemoQueryTests()
@@ -602,7 +684,7 @@ internal static partial class Program
         de.Edit("매일 절차\n[x] 하나\n쓰던 줄\n더");
         Check("켠 뒤 저장도 충돌 없음", de.Flush()?.Outcome, (SaveOutcome?)SaveOutcome.Saved);
         Check("저장이 머리말을 지킴", Header(daily.Doc.Id).Contains("daily: true"), true);
-        Check("같은 날 롤오버는 안 풂", store.ResetDaily(Tue), 0);
+        Check("같은 날 롤오버는 안 풂", store.ResetDaily(Tue).Written, 0);
         Check("매일 초기화 끄기", de.SetDaily(false, Wed), true);
         Check("꺼짐", (de.IsDaily, Header(daily.Doc.Id).Contains("daily: true")), (false, false));
         var reopened = new MemoEditorState(store);
@@ -769,7 +851,7 @@ internal static partial class Program
         editor.IsEditing = true;
         editor.Edit("절차\n[x] 하나\n새벽에 쓴 줄");
         var flushed = false;
-        var count = MemoLinks.ResetAtRollover(store, Tue, () => { editor.Flush(); flushed = true; }, dirty);
+        var count = MemoLinks.ResetAtRollover(store, Tue, () => { editor.Flush(); flushed = true; }, () => editor.CurrentId, dirty).Written;
         Check("롤오버는 먼저 저장하게 함", flushed, true);
         Check("저장한 뒤 풂 (둘 다)", count, 2);
         Check("쓰던 글은 남고 체크만 풀림", Body(memo.Doc.Id), "절차\n[ ] 하나\n새벽에 쓴 줄");
@@ -785,12 +867,12 @@ internal static partial class Program
         editor.Edit("절차\n[x] 하나\n새벽에 쓴 줄\n아침\n저장 못 함");
         var other2 = store.Load(other.Doc.Id)!;
         store.Save(other.Doc.Id, other2.Doc.Body.Replace("[ ] 둘", "[x] 둘"), other2.Rev);
-        Check("저장 못 한 메모는 건너뜀 (나머지는 풂)", MemoLinks.ResetAtRollover(store, Wed, null, dirty), 1);
+        Check("저장 못 한 메모는 건너뜀 (나머지는 풂)", MemoLinks.ResetAtRollover(store, Wed, null, () => editor.CurrentId, dirty).Written, 1);
         Check("건너뛴 메모는 체크 그대로", Body(memo.Doc.Id).Contains("[x] 하나"), true);
         Check("다른 매일 메모는 풀림", Body(other.Doc.Id), "다른 절차\n[ ] 둘");
         Check("쓰던 글도 그대로", editor.Body.EndsWith("저장 못 함"), true);
         Check("나중에 저장하면 충돌 없음", editor.Flush()!.Outcome, SaveOutcome.Saved);
-        Check("다음 기회에 풂", MemoLinks.ResetAtRollover(store, Wed, () => editor.Flush(), dirty), 1);
+        Check("다음 기회에 풂", MemoLinks.ResetAtRollover(store, Wed, () => editor.Flush(), () => editor.CurrentId, dirty).Written, 1);
         Check("그때 풀림", Body(memo.Doc.Id), "절차\n[ ] 하나\n새벽에 쓴 줄\n아침\n저장 못 함");
     }
 }

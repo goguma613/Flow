@@ -247,10 +247,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Memos.Scan();
         Memos.PurgeTrash(_today);
 
-        // 하루가 바뀐 뒤 처음 켰으면 '매일 초기화' 메모의 체크를 푼다.
-        // 아직 메모 창이 없으니 먼저 저장할 글도, 건너뛸 메모도 없다.
-        Memos.ResetDaily(_today);
-        _memoResetDay = _today;
+        // 하루가 바뀐 뒤 처음 켰으면 '매일 초기화' 메모의 체크를 푼다. 그 전에 하루치 백업을 남겨
+        // 어제 마지막 체크가 백업에 담기게 한다(CheckRollover 와 같은 순서).
+        // 아직 메모 창이 없으니 먼저 저장할 글도, 건너뛸 메모도 없다. 못 푼 것은 매 분 다시 해 본다.
+        BackUpIfDue();
+        _memoResetTried = _today;
+        MarkMemoReset(Memos.ResetDaily(_today));
 
         // MemoStore 는 스레드 안전하지 않으므로 UI 스레드 타이머로만 훑는다.
         _memoScanTimer = new DispatcherTimer { Interval = MemoScanInterval };
@@ -306,7 +308,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         UpdateService.CleanUpAfterUpdate();
         ScheduleUpdateCheck();
-        BackUpIfDue();
         RefreshBackupSummary();
 
         RebuildAll();
@@ -366,20 +367,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>할 일·루틴의 메모 연결이나 그 목록이 바뀌었을 때. 메모 창이 '연결:' 줄을 다시 맞춘다.</summary>
     public event Action? MemoLinksChanged;
 
-    /// <summary>오늘(논리적 날짜). 메모 창이 '매일 초기화'를 켤 때 reset 으로 적는다.</summary>
-    public DateOnly Today => _today;
-
     /// <summary>
-    /// 열린 메모 창이 그 메모를 저장 안 된 글과 함께 들고 있는지. 메모 창을 만들 때 MainWindow 가 꽂고 닫힐 때 뺀다.
-    /// 매일 초기화가 이 메모를 이번에는 건너뛴다 — 풀어 버리면 쓰던 글과 엇갈린다.
+    /// 열린 메모 창이 그 메모를 저장 안 된 글과 함께(또는 쓰기 모드로) 들고 있는지. 메모 창을 만들 때 MainWindow 가 꽂고 닫힐 때 뺀다.
+    /// 매일 초기화가 이 메모를 이번에는 건너뛰고 매 분 다시 해 본다 — 풀어 버리면 쓰던 글과 엇갈린다.
     /// </summary>
     public Func<Guid, bool>? IsMemoDirty { get; set; }
+
+    /// <summary>메모 창에 열린 메모(없으면 null). 롤오버에서 그 메모가 풀 차례일 때만 먼저 저장하게 한다. IsMemoDirty 와 함께 꽂고 뺀다.</summary>
+    public Func<Guid?>? OpenMemoId { get; set; }
 
     /// <summary>지금 목록에 있는 메모 id. 📝 를 그릴지 정한다. RefreshMemos 가 맞춘다.</summary>
     private HashSet<Guid> _liveMemoIds = [];
 
-    /// <summary>매일 초기화를 마지막으로 해 본 논리적 날짜. 날짜를 다른 길(동기화·되돌리기)로 바꿔도 놓치지 않게.</summary>
+    /// <summary>매일 초기화를 마지막으로 끝낸 논리적 날짜. 날짜를 다른 길(동기화·되돌리기)로 바꿔도 놓치지 않게.
+    /// 건너뛴 메모가 남아 있으면 적지 않고, 매 분 남은 것만 다시 해 본다.</summary>
     private DateOnly? _memoResetDay;
+
+    /// <summary>그 날 첫 매일 초기화(열린 메모 저장 포함)를 해 본 날. 같은 날 다시 할 때는 열린 메모를 건드리지 않는다.</summary>
+    private DateOnly? _memoResetTried;
 
     /// <summary>
     /// 울렸는데 아직 처리되지 않은 항목들. 파일에 남기지 않는다 —
@@ -818,7 +823,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             DayEngine.SyncToday(_data, _today);
             // 다른 PC 의 변경을 읽으며 날짜가 먼저 넘어갔으면 메모는 여기서 푼다.
-            if (_memoResetDay != _today) ResetDailyMemos();
+            // 이미 해 봤는데 건너뛴 메모가 남았으면 그것만 다시 해 본다.
+            if (_memoResetDay != _today)
+            {
+                if (_memoResetTried == _today) RetryDailyMemos();
+                else ResetDailyMemos();
+            }
             return;
         }
 
@@ -1647,20 +1657,41 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// 하루가 바뀐 자리(롤오버·저장 폴더가 돌아옴)에서 '매일 초기화' 메모의 체크를 푼다.
-    /// 열린 메모 창이 쓰던 글을 먼저 저장하게 하고, 그래도 저장 안 된 글이 있는 메모는 다음 기회로 미룬다.
-    /// 매일 초기화 메모가 하나도 없으면 메모 창을 건드리지 않는다(저장하며 쓰기 모드를 빠지게 되므로).
+    /// 메모 창에 열린 메모가 오늘 풀 매일 초기화 메모일 때만 먼저 저장하게 한다(저장하며 쓰기 모드를 빠지게 되므로).
+    /// 그래도 쓰는 중인 메모·읽지 못한 메모는 건너뛰고, 매 분 RetryDailyMemos 가 남은 것만 다시 해 본다.
     /// </summary>
     private void ResetDailyMemos(bool rescan = false)
     {
-        _memoResetDay = _today;
+        _memoResetTried = _today;
 
         var changed = rescan && Memos.Scan();
-        var flush = Memos.Memos.Any(m => m.Daily) ? MemoFlushRequested : null;
-        if (MemoLinks.ResetAtRollover(Memos, _today, flush, IsMemoDirty) > 0) changed = true;
+        var result = MemoLinks.ResetAtRollover(Memos, _today, MemoFlushRequested, OpenMemoId, IsMemoDirty);
+        MarkMemoReset(result);
+        if (result.Written > 0) changed = true;
         if (!changed) return;
 
         RefreshMemos();
         MemosChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 같은 날 건너뛴 매일 초기화 메모를 다시 해 본다(매 분). 메모 창은 건드리지 않고(쓰기 모드를 빼지 않음),
+    /// 아직 쓰는 중인 메모는 또 건너뛴다 — 저장되거나 닫히면 그때 푼다.
+    /// </summary>
+    private void RetryDailyMemos()
+    {
+        var result = Memos.ResetDaily(_today, IsMemoDirty);
+        MarkMemoReset(result);
+        if (result.Written == 0) return;
+
+        RefreshMemos();
+        MemosChanged?.Invoke();
+    }
+
+    /// <summary>남은 것이 없을 때만 오늘 몫을 끝낸 것으로 적는다.</summary>
+    private void MarkMemoReset(DailyResetResult result)
+    {
+        if (result.Complete) _memoResetDay = _today;
     }
 
     public void ToggleMemoTag(string tag)

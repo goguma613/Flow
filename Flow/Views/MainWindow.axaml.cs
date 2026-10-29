@@ -184,15 +184,18 @@ public partial class MainWindow : Window
         if (_memoWindow is null)
         {
             var window = new MemoWindow(vm);
-            // 하루가 바뀔 때 이 창이 저장 못 한 글을 들고 있는 메모는 풀지 않게 한다.
-            Func<Guid, bool> dirty = window.HoldsUnsaved;
+            // 하루가 바뀔 때 이 창이 쓰는 중으로 들고 있는 메모는 풀지 않고, 열린 메모가 풀 차례일 때만 먼저 저장하게 한다.
+            Func<Guid, bool> dirty = window.HoldsForWriting;
+            Func<Guid?> open = window.OpenMemoId;
             window.Closed += (_, _) =>
             {
                 if (_memoWindow == window) _memoWindow = null;
                 if (vm.IsMemoDirty == dirty) vm.IsMemoDirty = null;
+                if (vm.OpenMemoId == open) vm.OpenMemoId = null;
             };
             _memoWindow = window;
             vm.IsMemoDirty = dirty;
+            vm.OpenMemoId = open;
             if (id is { } first) window.OpenMemo(first);
             window.Show();
         }

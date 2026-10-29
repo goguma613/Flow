@@ -266,6 +266,11 @@
                                    KeyDown="OnRenameKeyDown"
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
+                        <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
+                                IsVisible="{Binding HasMemo}"
+                                Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
+                          <TextBlock Text="📝" />
+                        </Button>
                         <TextBlock Grid.Column="3" Classes="meta" Text="{Binding CarryOverText}"
                                    Foreground="{StaticResource TextDisabledBrush}"
                                    Margin="0,0,6,0" IsVisible="{Binding HasCarryOver}" />

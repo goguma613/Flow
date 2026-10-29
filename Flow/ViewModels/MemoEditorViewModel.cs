@@ -149,8 +149,14 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>저장하지 못한 글이 남아 있는지. 창을 닫을 때 본다.</summary>
     public bool HasUnsavedText => _state.IsDirty;
 
-    /// <summary>그 메모를 저장 못 한 글과 함께 들고 있는지.</summary>
-    public bool HoldsUnsaved(Guid id) => _state.IsDirty && _state.CurrentId == id;
+    /// <summary>
+    /// 그 메모를 쓰는 중으로 들고 있는지(저장 못 한 글이 있거나 쓰기 모드). 매일 초기화가 이 메모를 건너뛴다 —
+    /// 쓰기 모드에서 파일만 풀리면 다음 저장이 충돌 사본이 된다.
+    /// </summary>
+    public bool HoldsForWriting(Guid id) => _state.CurrentId == id && (_state.IsDirty || _state.IsEditing);
+
+    /// <summary>열린 메모(없으면 null).</summary>
+    public Guid? OpenMemoId => _state.CurrentId;
 
     /// <summary>저장 못 한 글이 있어 닫기를 거절했다. 띠로 알리고 다시 시도는 계속한다.</summary>
     public void RefuseClose()
@@ -233,6 +239,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     {
         if (_syncing || !IsEditing) return;
         _state.Edit(value);
+        // '모두 풀기'가 쓰던 글 기준으로 켜지고 꺼지게.
+        HasChecked = _state.HasChecked;
         if (!_state.IsDirty) return;
 
         _saveTimer.Stop();
@@ -296,7 +304,9 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     {
         if (!HasMemo || IsTrashView) return;
         _saveTimer.Stop();
-        var done = _state.SetDaily(!_state.IsDaily, Main.Today);
+        // 하루가 막 바뀌어 위젯이 아직 롤오버를 하지 않았어도 지금의 논리적 날짜를 적는다.
+        var today = DayEngine.LogicalDate(DateTime.Now, Main.DayStartHour);
+        var done = _state.SetDaily(!_state.IsDaily, today);
         AfterHeaderAction(done, "매일 초기화를 바꾸지 못했습니다");
     }
 
@@ -306,17 +316,18 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         if (!HasMemo || IsTrashView || !_state.HasChecked) return;
         _saveTimer.Stop();
         var done = _state.UncheckAll();
-        AfterHeaderAction(done, "체크를 풀지 못했습니다");
+        // 저장하고 보니 풀 체크가 없었으면(다른 곳에서 이미 풂) 실패가 아니다.
+        AfterHeaderAction(done, _state.HasChecked ? "체크를 풀지 못했습니다" : null);
     }
 
     /// <summary>
     /// ↻·모두 풀기 뒤. 앞선 저장(충돌 사본·새 메모 포함)과 바뀐 표시가 위젯 목록에 보이게 한다.
     /// 저장하지 못해 멈춘 것이면 띠가 이미 알리고, 그 밖의 실패(폴더를 기다리는 중 등)만 짧게 알린다.
     /// </summary>
-    private void AfterHeaderAction(bool done, string failure)
+    private void AfterHeaderAction(bool done, string? failure)
     {
         Main.RefreshMemoList();
-        if (!done && !_state.IsDirty && _state.Banner is null) ShowTagHint(failure);
+        if (!done && failure is not null && !_state.IsDirty && _state.Banner is null) ShowTagHint(failure);
         AfterSave(null);
     }
 
