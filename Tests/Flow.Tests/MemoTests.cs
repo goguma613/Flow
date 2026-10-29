@@ -137,5 +137,15 @@ internal static partial class Program
         var waiting = new MemoStore(root, () => false, () => clock);
         Check("기다리는 중엔 안 만듦", waiting.Create("x"), null);
         Check("기다리는 중엔 저장 실패", waiting.Save(a.Doc.Id, "x", "y").Outcome, SaveOutcome.Failed);
+
+        // 다른 PC 가 이름을 바꿨는데 이 PC 는 아직 훑지 않음
+        var r = store.Create("이름 바뀔 메모\n본문")!;
+        var moved = Path.Combine(store.Folder, "다른 이름.md");
+        File.Move(r.Path, moved);
+        Check("이름이 바뀐 메모도 읽음", store.Load(r.Doc.Id)?.Path, moved);
+        File.Move(moved, r.Path);
+        File.Move(r.Path, moved);
+        Check("이름이 바뀐 메모에 저장", store.Save(r.Doc.Id, "이름 바뀔 메모\n본문 고침", r.Rev).Outcome, SaveOutcome.Saved);
+        Check("tmp·bak 가 남지 않음", Directory.EnumerateFiles(store.Folder).Any(f => f.EndsWith(".tmp") || f.EndsWith(".bak")), false);
     }
 }

@@ -391,7 +391,7 @@ public sealed class MemoStore
     /// <summary>한 번도 훑지 않았거나 모르는 id 면 먼저 훑는다.</summary>
     private Entry? Find(Guid id)
     {
-        if (_scanned && TryFind(id, out var known)) return known;
+        if (_scanned && TryFind(id, out var known) && File.Exists(known!.Path)) return known;
         Scan();
         return TryFind(id, out var found) ? found : null;
     }
@@ -455,15 +455,36 @@ public sealed class MemoStore
         var body = doc.Body.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
         var text = MemoFormat.Serialize(doc with { Body = body });
         var tmp = path + ".tmp";
+        var bak = path + ".bak";
         try
         {
             File.WriteAllText(tmp, text, Utf8NoBom);
-            if (File.Exists(path)) File.Replace(tmp, path, null);
+        }
+        catch
+        {
+            try { File.Delete(tmp); } catch { /* 남아도 훑기가 무시한다 */ }
+            throw;
+        }
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                // 백업 이름을 줘서 원본이 이름 모를 곳에 남지 않게 한다.
+                File.Replace(tmp, path, bak);
+                try { File.Delete(bak); } catch { /* 남아도 훑기가 무시한다 */ }
+            }
             else File.Move(tmp, path);
         }
-        finally
+        catch
         {
-            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* 남아도 훑기가 무시한다 */ }
+            if (File.Exists(path))
+            {
+                try { File.Delete(tmp); } catch { /* 남아도 훑기가 무시한다 */ }
+                throw;
+            }
+            // 원본이 사라졌으면 새 글이 담긴 tmp 를 지우지 않고 제자리로 옮긴다. 실패하면 tmp 를 남긴 채 알린다.
+            File.Move(tmp, path);
         }
     }
 }
