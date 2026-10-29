@@ -13,6 +13,9 @@ public sealed partial class MemoRow : ObservableObject
     /// <summary>컴팩트 모드에서는 줄 높이를 줄인다. 다른 탭의 줄과 같은 규칙.</summary>
     [ObservableProperty] private bool _isCompact;
 
+    /// <summary>메모 창에 지금 열려 있는 메모. 메모 창 목록에서만 칠한다.</summary>
+    [ObservableProperty] private bool _isCurrent;
+
     public MemoRow(MemoSummary summary, MainViewModel owner)
     {
         _owner = owner;

@@ -331,6 +331,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>훑기나 되돌리기로 메모 목록이 바뀌었을 때. 열려 있는 메모 창이 듣는다.</summary>
     public event Action? MemosChanged;
 
+    /// <summary>되돌리기가 메모 파일을 덮기 직전. 열려 있는 메모 창이 쓰던 글을 먼저 저장한다.</summary>
+    public event Action? MemoFlushRequested;
+
     /// <summary>
     /// 울렸는데 아직 처리되지 않은 항목들. 파일에 남기지 않는다 —
     /// 앱을 껐다 켜면 사라지지만, 그때는 목록에 마감 시각이 그대로 보인다.
@@ -1122,6 +1125,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public void RestoreFrom(BackupRow row)
     {
+        // 쓰던 메모를 먼저 내려놓아야 되돌리기 전 백업에 담기고, 되돌린 뒤 다시 읽을 수 있다.
+        MemoFlushRequested?.Invoke();
+
         // 폴더를 기다리는 동안은 데이터도 메모도 쓰지 않는다.
         if (_store.WaitingForFolder)
         {
@@ -1486,6 +1492,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>태그 줄. 컴팩트에서는 접지만, 눌러 둔 태그가 있으면 풀 길이 보여야 하므로 남긴다.</summary>
     public bool ShowMemoTags => HasMemoTags && (!IsCompact || HasMemoTag);
+
+    /// <summary>메모 창이 저장·고정·삭제·되살리기를 한 뒤 목록을 다시 맞춘다.</summary>
+    public void RefreshMemoList() => RefreshMemos();
 
     /// <summary>
     /// 목록을 다시 만든다. 요약만 다루고, 검색어가 있어 제목만으로 못 가릴 때에 한해

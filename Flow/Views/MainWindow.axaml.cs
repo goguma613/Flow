@@ -50,6 +50,9 @@ public partial class MainWindow : Window
     private TextBox? _quickAddBox;
     private bool _placementRestored;
     private bool _pointerInside;
+
+    /// <summary>메모 창. 처음 열 때 만들고, 닫히면 버린다.</summary>
+    private MemoWindow? _memoWindow;
     private Point _pointer;
 
     public MainWindow()
@@ -168,9 +171,38 @@ public partial class MainWindow : Window
         // 알림을 눌렀을 때 돌아올 자리를 먼저 걸어 둔다. 첫 알림보다 앞서야 한다.
         Notifier.HookActivation(() => Dispatcher.UIThread.Post(SummonToFront));
         vm.CompactModeChanged += OnCompactModeChanged;
+        vm.MemoOpenRequested += OnMemoOpenRequested;
 
         UpdateCompactMode();
     }
+
+    /// <summary>메모 탭에서 메모를 눌렀거나 새로 만들었다. 메모 창을 (없으면 만들어) 앞으로 내고 그 메모를 연다.</summary>
+    private void OnMemoOpenRequested(Guid? id)
+    {
+        if (ViewModel is not { } vm) return;
+
+        if (_memoWindow is null)
+        {
+            var window = new MemoWindow(vm);
+            window.Closed += (_, _) =>
+            {
+                if (_memoWindow == window) _memoWindow = null;
+            };
+            _memoWindow = window;
+            if (id is { } first) window.OpenMemo(first);
+            window.Show();
+        }
+        else
+        {
+            if (_memoWindow.WindowState == WindowState.Minimized) _memoWindow.WindowState = WindowState.Normal;
+            if (id is { } next) _memoWindow.OpenMemo(next);
+        }
+
+        _memoWindow.Activate();
+    }
+
+    /// <summary>위젯이 끝날 때 메모 창도 닫는다. 닫히면서 쓰던 글을 저장한다.</summary>
+    private void CloseMemoWindow() => _memoWindow?.CloseForExit();
 
     /// <summary>
     /// 알림이 울렸다. 창이 보이면 한 번 밝히는 것이 전부다 —
@@ -285,6 +317,7 @@ public partial class MainWindow : Window
     }
 
     private void ShutdownForUpdate()    {
+        CloseMemoWindow();
         if (Application.Current?.ApplicationLifetime is
             Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -322,6 +355,7 @@ public partial class MainWindow : Window
 
     public void RequestExit()
     {
+        CloseMemoWindow();
         SaveWindowPlacement();
         ViewModel?.FlushNow();
 
@@ -428,6 +462,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
+        CloseMemoWindow();
         _placementSaveTimer.Stop();
         SaveWindowPlacement();
         ViewModel?.FlushNow();
