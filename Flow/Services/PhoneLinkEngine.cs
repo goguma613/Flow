@@ -122,7 +122,9 @@ public sealed class PhoneMemoTarget(MemoStore store, Func<Func<Guid, bool>?> hel
         // 지금 본문과 같은 글이면 할 것이 없다(같은 고치기가 두 번 옴·양쪽에서 같게 고침). 판이 달라도 충돌 사본을 만들지 않는다.
         if (store.Load(id) is { } current && current.Rev == MemoFormat.RevOf(text)) return PhoneMemoResult.Skipped;
 
-        var saved = store.Save(id, text, baseRev, ConflictSuffix, opId);
+        // 새로 생길 메모(충돌 사본·지워진 뒤 새 메모)의 id. 일의 번호가 메모 id 와 같으면(그렇게 보내는 폰) 새로 뽑는다 —
+        // 같은 id 면 '이미 있음'으로 보여 휴대폰 글이 버려진다.
+        var saved = store.Save(id, text, baseRev, ConflictSuffix, opId == id ? Guid.NewGuid() : opId);
         return saved.Outcome switch
         {
             SaveOutcome.Saved => new(MemoCheckResult.Applied, PhoneMemoChange.Saved),
@@ -245,7 +247,8 @@ public static class PhoneLinkEngine
     /// 메모의 일(체크·고치기·고정·매일·모두 풀기·삭제·연결)은 memos 가 있을 때만 넣는다. 없으면 모르는 갈래처럼 손대지도 적지도 않는다.
     /// 지금 못 하는 메모 일(Deferred · Held)도 적지 않는다 — inbox 에 남아 다음에 다시 온다.
     /// 한 메모의 일을 하나 남겼으면 이번에 그 메모에 온 뒤의 일도 모두 남긴다 — 체크 뒤 해제, 고치기 뒤 고정이
-    /// 뒤의 것만 먼저 들어갔다가 다음에 앞의 것이 들어가 거꾸로 끝나지 않게(순서는 At 순). 그 메모에 잇는 연결도 함께 남긴다.
+    /// 뒤의 것만 먼저 들어갔다가 다음에 앞의 것이 들어가 거꾸로 끝나지 않게(순서는 At 순).
+    /// 연결(memo-link)은 그 메모를 만드는 일(Base 없는 memo-save)이 inbox 에 남아 있는 동안 기다린다 — 순서와 상관없이.
     /// PC 가 쓰는 중이라 남긴 것(Held)은 메모마다 세어 결과의 Held 로 돌려준다.
     /// </summary>
     public static PhoneApplyResult Apply(AppData data, IEnumerable<PhoneOp>? ops, IPhoneMemoTarget? memos = null)
@@ -269,7 +272,16 @@ public static class PhoneLinkEngine
             held[memo] = held.GetValueOrDefault(memo) + 1;
         }
 
-        foreach (var op in ops.Where(o => !applied.Contains(o.Id)).OrderBy(o => o.At).ThenBy(o => o.Id))
+        var pending = ops.Where(o => !applied.Contains(o.Id)).ToList();
+
+        // 아직 못 넣은 '새 메모 만들기'(Base 없는 memo-save)가 만들 메모. 그 메모에 잇는 연결은 만들기가 들어갈 때까지 기다린다 —
+        // '새 메모로'는 만들기와 연결이 같은 순간에 오고, 연결이 먼저 들어가면 없는 메모라 건너뛰어 영영 끊긴다.
+        var creating = new HashSet<Guid>(pending
+            .Where(o => o.Kind == PhoneOp.MemoSave && o.Base is null && o.Target is not null)
+            .Select(o => o.Target!.Value));
+
+        // 같은 순간이면 메모 일(만들기 등)을 연결보다 먼저.
+        foreach (var op in pending.OrderBy(o => o.At).ThenBy(o => o.Kind == PhoneOp.MemoLink ? 1 : 0).ThenBy(o => o.Id))
         {
             // PC가 아직 그 날에 오지 않았다. 롤오버 뒤에 다시 본다.
             if (op.Day > openDay) continue;
@@ -318,7 +330,7 @@ public static class PhoneLinkEngine
                 case PhoneOp.MemoLink:
                     if (memos is null) continue;
                     // 이을 메모를 만드는 일이 아직 남았다('새 메모로'). 먼저 하면 없는 메모라 끊긴다.
-                    if (LinkedMemoOf(op) is { } linked && waitingMemos.ContainsKey(linked)) continue;
+                    if (LinkedMemoOf(op) is { } linked && creating.Contains(linked)) continue;
                     outcome = ApplyLink(data, op, memos);
                     break;
 
@@ -346,6 +358,7 @@ public static class PhoneLinkEngine
 
             data.PhoneOpsApplied.Add(new AppliedPhoneOp { Id = op.Id, Day = openDay });
             applied.Add(op.Id);
+            if (op.Kind == PhoneOp.MemoSave && op.Base is null && op.Target is { } created) creating.Remove(created);
         }
 
         var cutoff = openDay.AddDays(-AppliedRetentionDays);

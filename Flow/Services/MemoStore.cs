@@ -235,12 +235,24 @@ public sealed class MemoStore
         return CreateAs(id, body) is null ? MemoCheckResult.Deferred : MemoCheckResult.Applied;
     }
 
-    /// <summary>그 id 의 메모가 메모 폴더나 휴지통에 있는지. 읽지 못하면 IOException 그대로.</summary>
+    /// <summary>
+    /// 그 id 의 메모가 메모 폴더나 휴지통에 있는지. 메모 폴더를 읽지 못하면 IOException 그대로.
+    /// 휴지통의 읽지 못하는 파일은 훑기처럼 건너뛴다 — 그 하나 때문에 휴대폰 저장이 영영 미뤄지지 않게.
+    /// </summary>
     private bool Has(Guid id)
     {
         if (Locate(id) is not null) return true;
         foreach (var path in TrashFiles())
-            if (ReadDoc(path).Id == id) return true;
+        {
+            try
+            {
+                if (ReadDoc(path).Id == id) return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 다음 파일
+            }
+        }
         return false;
     }
 

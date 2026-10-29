@@ -952,6 +952,44 @@ internal static partial class Program
             target.Blocked.Clear();
             var made = PhoneLinkEngine.Apply(data, [linkFresh, create], target);
             Check("만든 뒤 연결", (task.MemoId, made.MemoCreated, made.MemoLinked), ((Guid?)fresh, 1, 1));
+
+            // '새 메모로'는 만들기와 연결이 같은 순간에 온다. 번호 순서가 어느 쪽이든 만들기가 먼저.
+            foreach (var linkFirst in new[] { true, false })
+            {
+                var memo = Guid.NewGuid();
+                var low = Guid.Parse("00000000-0000-4000-8000-000000000001");
+                var high = Guid.Parse("ffffffff-ffff-4fff-bfff-ffffffffffff");
+                var save = MemoSaveOp(memo, "새 메모", null, Mon, 12);
+                var linkOp = Op(PhoneOp.MemoLink, Mon, 12, 0, task.Id, memo.ToString());
+                save.Id = linkFirst ? high : low;
+                linkOp.Id = linkFirst ? low : high;
+                data.PhoneOpsApplied.RemoveAll(a => a.Id == low || a.Id == high);
+                var same = PhoneLinkEngine.Apply(data, linkFirst ? [linkOp, save] : [save, linkOp], target);
+                Check($"같은 순간 만들기·연결 (연결 번호가 {(linkFirst ? "앞" : "뒤")}): 둘 다 들어감",
+                    (task.MemoId, same.MemoCreated, same.MemoLinked), ((Guid?)memo, 1, 1));
+            }
+
+            // 연결이 만들기보다 먼저 눌린 것으로 와도(폰 시계) 만들기가 inbox 에 있는 동안은 버리지 않는다
+            {
+                var memo = Guid.NewGuid();
+                var linkOp = Op(PhoneOp.MemoLink, Mon, 13, 0, routine.Id, memo.ToString());
+                var save = MemoSaveOp(memo, "늦게 만든 메모", null, Mon, 13, 1);
+                var first = PhoneLinkEngine.Apply(data, [save, linkOp], target);
+                Check("만들기가 뒤에 있으면 연결은 기다림 (적지 않음)",
+                    (first.MemoCreated, routine.MemoId == memo, data.PhoneOpsApplied.Any(a => a.Id == linkOp.Id)), (1, false, false));
+                var next = PhoneLinkEngine.Apply(data, [save, linkOp], target);
+                Check("다음에 연결이 들어감", (next.MemoLinked, routine.MemoId), (1, (Guid?)memo));
+            }
+
+            // 연결은 그 메모를 '만드는' 일만 기다린다. 다른 일(고정)이 쓰는 중이라 남아도 연결은 들어간다.
+            {
+                target.Blocked[memoB] = MemoCheckResult.Held;
+                var pinB = Op(PhoneOp.MemoPin, Mon, 14, 0, memoB, "true");
+                var linkB = Op(PhoneOp.MemoLink, Mon, 14, 1, routine.Id, memoB.ToString());
+                var mixed = PhoneLinkEngine.Apply(data, [pinB, linkB], target);
+                Check("고정은 남고 연결은 들어감", (mixed.HeldFor(memoB), mixed.MemoLinked, routine.MemoId), (1, 1, (Guid?)memoB));
+                target.Blocked.Clear();
+            }
         }
 
         // ── inbox 의 새 갈래를 읽음
@@ -1031,11 +1069,13 @@ internal static partial class Program
         }
 
         // ── 판이 다름: 원본 그대로 + 휴대폰 글은 제목 끝에 (휴대폰 충돌 사본)
+        var stale0 = Guid.Empty;
         {
             var pcRev = store.Load(newId)!.Rev;
             store.Save(newId, "# 장보기\n[x] 우유\n[x] 계란\n[x] 빵\nPC 에서 더함", pcRev);
             var pcBody = Body(newId);
             var stale = MemoSaveOp(newId, "# 장보기\n휴대폰에서 더함", pcRev, Mon, 11);
+            stale0 = stale.Id;
             var result = PhoneLinkEngine.Apply(data, [stale], target);
             Check("충돌 사본 1", (result.MemoConflicts, result.MemoSaved), (1, 0));
             Check("원본은 그대로", Body(newId), pcBody);
@@ -1047,6 +1087,20 @@ internal static partial class Program
             data.PhoneOpsApplied.Clear();
             var again = PhoneLinkEngine.Apply(data, [stale], target);
             Check("같은 충돌이 또 와도 사본은 하나", (again.MemoConflicts, again.Skipped, Count()), (0, 1, 2));
+        }
+
+        // ── 일의 번호를 메모 id 와 같게 보낸 폰: 충돌 사본은 새 id 로 — 휴대폰 글이 버려지지 않는다
+        {
+            var current = store.Load(newId)!;
+            var reused = MemoSaveOp(newId, "# 장보기\n같은 번호로 보낸 글", "0000000000000000", Mon, 11, 30);
+            reused.Id = newId;
+            var before = Count();
+            var result = PhoneLinkEngine.Apply(data, [reused], target);
+            Check("번호가 메모 id 와 같아도 충돌 사본이 생김", (result.MemoConflicts, Count()), (1, before + 1));
+            Check("원본은 그대로", store.Load(newId)!.Rev, current.Rev);
+            var copy = store.Memos.Single(m => m.Id != newId && m.Id != stale0);
+            Check("사본에 휴대폰 글", Body(copy.Id), "# 장보기 (휴대폰 충돌 사본)\n같은 번호로 보낸 글");
+            store.Delete(copy.Id);
         }
 
         // ── 그 사이 PC 에서 지움(휴지통): 휴대폰 글은 새 id 의 새 메모로
@@ -1064,6 +1118,16 @@ internal static partial class Program
             PhoneLinkEngine.Apply(data, [late], target);
             Check("또 와도 하나", Count(), before + 1);
             store.Delete(late.Id);
+
+            if (OperatingSystem.IsWindows())
+            {
+                // 휴지통의 파일 하나가 잠겨 있어도 새 메모 만들기는 미뤄지지 않는다
+                var trashPath = Directory.EnumerateFiles(store.TrashFolder).First();
+                var lockedTrash = MemoSaveOp(Guid.NewGuid(), "휴지통이 잠긴 동안", null, Mon, 12, 30);
+                using (new FileStream(trashPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    Check("휴지통 파일이 잠겨도 새 메모를 만듦", PhoneLinkEngine.Apply(data, [lockedTrash], target).MemoCreated, 1);
+                store.Delete(lockedTrash.Target!.Value);
+            }
         }
 
         // ── 고정·매일 초기화·체크 모두 풀기·삭제
