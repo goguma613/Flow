@@ -1069,9 +1069,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public void RestoreFrom(BackupRow row)
     {
+        // 폴더를 기다리는 동안은 데이터도 메모도 쓰지 않는다.
+        if (_store.WaitingForFolder)
+        {
+            Announce("저장 폴더를 기다리는 중이라 되돌릴 수 없습니다");
+            return;
+        }
+
         _store.Flush();
 
-        if (!BackupService.Restore(row.Entry.Path))
+        var result = BackupService.RestoreDetailed(row.Entry.Path);
+        if (result.Outcome == RestoreOutcome.Failed)
         {
             Announce("되돌리지 못했습니다");
             return;
@@ -1089,7 +1097,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RebuildBackupList();
 
         IsRestoreOpen = false;
-        Announce($"{row.WhenText} 상태로 되돌렸습니다");
+        Announce(result.Outcome == RestoreOutcome.MemosPartial
+            ? $"되돌렸지만 메모 {result.FailedMemos}개는 되돌리지 못했습니다"
+            : $"{row.WhenText} 상태로 되돌렸습니다");
     }
 
     /// <summary>설정 값들은 _data 를 직접 보므로, 데이터를 갈아끼우면 다시 읽으라고 알려야 한다.</summary>

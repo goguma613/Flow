@@ -10,6 +10,11 @@ using System.Threading;
 namespace Flow.Services;
 
 /// <summary>백업 파일 하나에 대한 정보.</summary>
+public enum RestoreOutcome { Failed, Ok, MemosPartial }
+
+/// <summary>되돌리기 결과. Failed 는 아무것도 바꾸기 전에 실패, Ok 는 전부 성공, MemosPartial 은 data.json 은 되돌렸지만 메모 FailedMemos 개는 못 했다.</summary>
+public sealed record RestoreResult(RestoreOutcome Outcome, int FailedMemos = 0);
+
 public sealed record BackupEntry(string Path, DateTime CreatedAt, int Routines, int Tasks, string Tag, int Memos);
 
 /// <summary>
@@ -24,6 +29,7 @@ public static class BackupService
     private const string Prefix = "data-";
     private const string DataEntry = "data.json";
     private const string MemoPrefix = "memos/";
+    private const string IncompleteEntry = "memos-incomplete";
     private static readonly UTF8Encoding Utf8 = new(false);
 
     public static string Directory => Path.Combine(DataStore.Directory, "backup");
@@ -54,9 +60,24 @@ public static class BackupService
                     AddFile(archive, DataEntry, DataStore.FilePath);
 
                     var memoFolder = Path.Combine(DataStore.Directory, "memos");
+                    var unreadable = new List<string>();
                     if (System.IO.Directory.Exists(memoFolder))
                         foreach (var file in System.IO.Directory.EnumerateFiles(memoFolder).Where(IsMemoFile).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
-                            AddFile(archive, MemoPrefix + Path.GetFileName(file), file);
+                        {
+                            // 잠긴 메모 하나 때문에 백업 전체를 버리지 않는다. 세 번 시도하고, 그래도 안 되면 표시를 남긴다.
+                            if (ReadWithRetry(file) is { } bytes)
+                            {
+                                using var output = archive.CreateEntry(MemoPrefix + Path.GetFileName(file), CompressionLevel.Optimal).Open();
+                                output.Write(bytes, 0, bytes.Length);
+                            }
+                            else unreadable.Add(Path.GetFileName(file));
+                        }
+
+                    if (unreadable.Count > 0)
+                    {
+                        using var writer = new StreamWriter(archive.CreateEntry(IncompleteEntry).Open(), Utf8);
+                        writer.Write(string.Join("\n", unreadable));
+                    }
                 }
 
                 File.Move(tmp, target, overwrite: false);
@@ -145,31 +166,35 @@ public static class BackupService
         return entries;
     }
 
+    /// <summary>되돌리기. 완전히 성공했을 때만 true.</summary>
+    public static bool Restore(string backupPath) => RestoreDetailed(backupPath).Outcome == RestoreOutcome.Ok;
+
     /// <summary>
     /// 백업 파일을 현재 데이터 자리에 되돌린다.
-    /// 되돌리기 자체도 되돌릴 수 있도록, 지금 상태를 먼저 백업해 둔다.
+    /// 되돌리기 자체도 되돌릴 수 있도록, 지금 상태를 먼저 백업해 둔다(못 만들면 아무것도 건드리지 않는다).
     /// .json 은 data.json 만. .zip 은 메모도 되돌린다(백업에 없는 지금 메모는 휴지통으로).
     /// </summary>
-    public static bool Restore(string backupPath)
+    public static RestoreResult RestoreDetailed(string backupPath)
     {
+        var failed = new RestoreResult(RestoreOutcome.Failed);
         try
         {
-            if (!File.Exists(backupPath)) return false;
+            if (!File.Exists(backupPath)) return failed;
 
             if (!IsZip(backupPath))
             {
-                // 되돌린 게 잘못이었을 때를 대비한 안전망.
-                Create("before-restore");
+                // 되돌린 게 잘못이었을 때를 대비한 안전망. 없으면 되돌리지 않는다.
+                if (Create("before-restore") is null) return failed;
 
                 File.Copy(backupPath, DataStore.FilePath, overwrite: true);
-                return true;
+                return new RestoreResult(RestoreOutcome.Ok);
             }
 
             using var archive = ZipFile.Open(backupPath, ZipArchiveMode.Read, Utf8);
             var data = archive.GetEntry(DataEntry);
-            if (data is null) return false;
+            if (data is null) return failed;
 
-            Create("before-restore");
+            if (Create("before-restore") is null) return failed;
 
             var tmp = DataStore.FilePath + ".restore.tmp";
             try
@@ -185,15 +210,44 @@ public static class BackupService
                 throw;
             }
 
-            return RestoreMemos(archive);
+            // 여기부터는 data.json 이 이미 바뀌었다. 메모가 일부 실패해도 Failed 로 돌려주지 않는다.
+            try
+            {
+                var bad = RestoreMemos(archive, archive.GetEntry(IncompleteEntry) is not null);
+                return bad == 0 ? new RestoreResult(RestoreOutcome.Ok) : new RestoreResult(RestoreOutcome.MemosPartial, bad);
+            }
+            catch (Exception)
+            {
+                return new RestoreResult(RestoreOutcome.MemosPartial, 1);
+            }
         }
         catch (Exception)
         {
-            return false;
+            return failed;
         }
     }
 
-    private static bool RestoreMemos(ZipArchive archive)
+    private static byte[]? ReadWithRetry(string path)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var ms = new MemoryStream();
+                input.CopyTo(ms);
+                return ms.ToArray();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt < 2) Thread.Sleep(100);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>메모를 되돌리고 못 한 개수를 돌려준다. incomplete 이면 백업에 없는 지금 메모는 건드리지 않는다.</summary>
+    private static int RestoreMemos(ZipArchive archive, bool incomplete)
     {
         var store = new MemoStore(DataStore.Directory, () => true, () => DateTime.Now);
         store.Scan();
@@ -214,15 +268,16 @@ public static class BackupService
             incoming.Add((name, doc.Id, bytes));
         }
 
-        var ok = true;
+        var bad = 0;
 
         // 백업에 없는 지금 메모는 휴지통으로(지우지 않는다). 이름이 비도록 먼저 한다.
         var backupIds = incoming.Select(i => i.Id).ToHashSet();
-        foreach (var m in store.Memos.Where(m => !backupIds.Contains(m.Id)).ToList())
-            if (!store.Delete(m.Id)) ok = false;
+        if (!incomplete)
+            foreach (var m in store.Memos.Where(m => !backupIds.Contains(m.Id)).ToList())
+                if (!store.Delete(m.Id)) bad++;
 
         var folder = store.Folder;
-        if (incoming.Count == 0) return ok;
+        if (incoming.Count == 0) return bad;
         System.IO.Directory.CreateDirectory(folder);
 
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -253,14 +308,15 @@ public static class BackupService
                 File.WriteAllBytes(tmp, bytes);
                 File.Move(tmp, target, overwrite: true);
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // 하나 실패해도 나머지는 계속 되돌린다.
                 try { File.Delete(tmp); } catch (Exception) { /* 남아도 훑기가 무시한다 */ }
-                throw;
+                bad++;
             }
         }
 
-        return ok;
+        return bad;
     }
 
     private static void AddFile(ZipArchive archive, string entryName, string path)

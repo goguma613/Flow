@@ -540,7 +540,26 @@ internal static partial class Program
         memos.Scan();
         Check("메모 내용 되돌아옴", memos.Load(kept.Doc.Id)!.Doc.Body.Contains("백업 전 내용"), true);
         Check("백업에 없던 메모는 휴지통", memos.Trash().Any(m => m.Id == extra.Doc.Id), true);
-        Check("휴지통은 백업에 안 들어감", ZipFile.OpenRead(BackupService.Create("again")!).Entries.Any(e => e.FullName.Contains("휴지통")), false);
+        using (var again2 = ZipFile.OpenRead(BackupService.Create("again")!))
+            Check("휴지통은 백업에 안 들어감", again2.Entries.Any(e => e.FullName.Contains("휴지통")), false);
+
+        // 잠긴 메모가 있어도 백업은 만들어지고, 표시가 남는다. 되돌려도 없는 메모를 휴지통으로 보내지 않는다.
+        var locked = memos.Create("잠긴 메모\n내용")!;
+        string lockedZip;
+        using (new System.IO.FileStream(locked.Path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.None))
+            lockedZip = BackupService.Create("locked")!;
+        Check("잠겨도 zip 이 만들어짐", lockedZip is not null && System.IO.File.Exists(lockedZip), true);
+        using (var la = ZipFile.OpenRead(lockedZip!))
+        {
+            Check("잠긴 zip 에 data.json", la.GetEntry("data.json") is not null, true);
+            Check("잠긴 zip 에 표시", la.GetEntry("memos-incomplete") is not null, true);
+            Check("잠긴 메모는 못 담음", la.Entries.Any(e => e.FullName == "memos/잠긴 메모.md"), false);
+            Check("읽힌 메모는 담음", la.Entries.Any(e => e.FullName == "memos/남을 메모.md"), true);
+        }
+        Check("표시 있는 zip 되돌리기", BackupService.Restore(lockedZip!), true);
+        memos.Scan();
+        Check("없는 메모를 휴지통으로 안 보냄", memos.Trash().Any(m => m.Id == locked.Doc.Id), false);
+        Check("잠겼던 메모는 그대로", memos.Load(locked.Doc.Id) is not null, true);
     }
 
     private static void BucketTests()
