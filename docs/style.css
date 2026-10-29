@@ -319,10 +319,20 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.18s, transform 0.18s;
-  z-index: 10;
+  z-index: 40;   /* 고치기 창 · 메모 글 칸 위에서도 보이게 */
   white-space: nowrap;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* 놓치면 안 되는 알림(휴대폰 저장 공간이 모자람 등): 붉게, 화면 폭 안에서 줄을 바꾼다 */
+.toast.warn {
+  background: var(--overdue-bg);
+  color: var(--overdue-text);
+  white-space: normal;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+  line-height: 1.45;
+}
 
 /* 상태 줄을 누를 수 있을 때(다시 보내기 등)도 같은 모양 */
 button.status { width: 100%; text-align: left; font: inherit; font-size: 12px; padding: 0; }
@@ -620,11 +630,132 @@ button.link { display: block; margin: 10px auto 0; font-size: 12px; color: var(-
 .m-check.waiting .m-box { border-style: dashed; }
 .m-check .badge { margin-top: 1px; flex: none; }
 
-.memo-foot {
-  margin: 28px 0 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
+.memo-meta .badge { align-self: center; }
+.memo-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-secondary); }
+.memo-note.held { color: var(--medium); }
+
+/* 메모 머리줄의 글 단추(고치기)와 목록의 + */
+.text-btn { padding: 8px 10px; border-radius: 10px; font-size: 15px; color: var(--text-body); }
+.text-btn:active { background: var(--pressed); }
+.plus-btn svg { width: 20px; height: 20px; }
+.icon-btn[hidden] { display: none; }
+
+/* ===== 메모 쓰기 · 고치기 (#app 바깥, 화면 전체) ===== */
+
+body.memo-editing #app { display: none; }
+#memo-editor { display: none; }
+#memo-editor.open {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--panel);
 }
+.editor {
+  max-width: 560px;
+  height: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.editor-title { flex: 1; text-align: center; font-size: 14px; color: var(--text-secondary); }
+.editor-head .text-btn { color: var(--text-secondary); }
+.save-btn {
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--panel);
+  font-size: 15px;
+  font-weight: 650;
+}
+.save-btn:active { opacity: 0.85; }
+.editor-note { margin: 8px 16px 0; padding: 8px 12px; border-radius: 10px; background: var(--surface); font-size: 12.5px; color: var(--text-secondary); }
+.editor-note.warn { background: var(--overdue-bg); color: var(--overdue-text); }
+.editor-note[hidden] { display: none; }
+#memo-text {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 14px 18px;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 16px; /* 16px 보다 작으면 iOS 가 화면을 확대한다 */
+  line-height: 1.6;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+#memo-text::placeholder { color: var(--text-muted); }
+.format-bar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 8px 12px calc(8px + var(--safe-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.format-bar button {
+  height: 40px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-body);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.format-bar button:active { background: var(--pressed); }
+
+/* ===== 메모 … 메뉴 · 메모 연결 고르기 ===== */
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: 15px;
+  color: var(--text-body);
+  border: 1px solid transparent;
+}
+.menu-item:active { background: var(--hover); }
+.menu-item:disabled { opacity: 0.4; }
+.menu-item.accent { color: var(--accent); font-weight: 600; }
+.menu-item.danger { color: var(--overdue-text); }
+.menu-item.danger.armed { background: var(--overdue-bg); border-color: var(--high); }
+.menu-item.pick.on { background: var(--surface-active); }
+.pick-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-on { flex: none; font-size: 12px; color: var(--accent); }
+.menu-item .pin { font-size: 12px; flex: none; }
+.pick-list { max-height: 45vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--border); padding-top: 4px; }
+
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  text-align: left;
+}
+.link-row:active { background: var(--hover); }
+.link-now { flex: 1; min-width: 0; text-align: right; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-row svg { width: 10px; height: 10px; flex: none; color: var(--text-muted); }

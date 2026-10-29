@@ -215,13 +215,54 @@ public sealed class MemoStore
         }
     }
 
-    public MemoFile? Create(string body)
+    public MemoFile? Create(string body) => CreateAs(Guid.NewGuid(), body);
+
+    /// <summary>
+    /// 휴대폰에서 만든 새 메모를 그 id 로 만든다 — 같은 일이 두 번 와도 하나만 생기게.
+    /// 그 id 의 메모가 이미 있으면(휴지통 포함) Skipped, 쓸 수 없거나 쓰지 못하면 Deferred, 만들면 Applied.
+    /// </summary>
+    public MemoCheckResult CreateWithId(Guid id, string body)
+    {
+        if (!_canWrite()) return MemoCheckResult.Deferred;
+        try
+        {
+            if (Has(id)) return MemoCheckResult.Skipped;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return MemoCheckResult.Deferred;
+        }
+        return CreateAs(id, body) is null ? MemoCheckResult.Deferred : MemoCheckResult.Applied;
+    }
+
+    /// <summary>
+    /// 그 id 의 메모가 메모 폴더나 휴지통에 있는지. 메모 폴더를 읽지 못하면 IOException 그대로.
+    /// 휴지통의 읽지 못하는 파일은 훑기처럼 건너뛴다 — 그 하나 때문에 휴대폰 저장이 영영 미뤄지지 않게.
+    /// </summary>
+    private bool Has(Guid id)
+    {
+        if (Locate(id) is not null) return true;
+        foreach (var path in TrashFiles())
+        {
+            try
+            {
+                if (ReadDoc(path).Id == id) return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 다음 파일
+            }
+        }
+        return false;
+    }
+
+    private MemoFile? CreateAs(Guid id, string body)
     {
         if (!_canWrite()) return null;
         try
         {
             Directory.CreateDirectory(Folder);
-            var doc = new MemoDocument(Guid.NewGuid(), true, false, false, null, null,
+            var doc = new MemoDocument(id, true, false, false, null, null,
                 Array.Empty<KeyValuePair<string, string>>(), body);
             var path = UniquePath(Folder, StemOf(body), null);
             WriteDoc(path, doc);
@@ -234,15 +275,31 @@ public sealed class MemoStore
         }
     }
 
-    public SaveResult Save(Guid id, string body, string baseRev)
+    /// <summary>
+    /// 판이 baseRev 그대로면 덮어쓴다. 그 사이 바뀌었으면 원본은 두고 글을 충돌 사본(새 메모)으로, 지워졌으면 새 메모로 남긴다.
+    /// conflictSuffix 는 충돌 사본 제목 끝에 붙일 말(없으면 " (충돌 사본 MM-dd HH:mm)"),
+    /// newId 는 충돌 사본·새 메모의 id(없으면 새로 뽑는다). 휴대폰은 그 일의 번호를 준다 — 그 id 의 메모가 이미 있으면(휴지통 포함)
+    /// 같은 일이 두 번 온 것이라 아무것도 만들지 않고 Unchanged.
+    /// day(휴대폰이 저장한 논리적 날짜)가 있고 그 메모가 매일 초기화인데 그 날 몫 초기화가 아직이면 Failed(나중에 다시) —
+    /// 먼저 덮으면 곧 이어질 초기화가 방금 넣은 글의 체크를 풀어 버린다(SetLineChecked 와 같다). PC 메모 창은 day 를 주지 않는다.
+    /// </summary>
+    public SaveResult Save(Guid id, string body, string baseRev, string? conflictSuffix = null, Guid? newId = null, DateOnly? day = null)
     {
         if (!_canWrite()) return new SaveResult(SaveOutcome.Failed, null, null);
         try
         {
             // 그 자리에 다른 메모가 와 있으면 덮지 않는다. 끝내 못 찾으면 지워진 것으로 본다.
-            if (Locate(id) is not (var e, var current))
+            var located = Locate(id);
+            if (located is (_, var due) && due.Daily && day is { } d && (due.Reset is not { } reset || reset < d))
+                return new SaveResult(SaveOutcome.Failed, null, null);
+
+            // 덮지 못하고 새 메모로 남길 차례인데 newId 의 메모가 벌써 있다 — 같은 일이 두 번 왔다.
+            var overwrites = located is { } l && MemoFormat.RevOf(l.Doc.Body) == baseRev;
+            if (!overwrites && newId is { } fresh && Has(fresh)) return new SaveResult(SaveOutcome.Unchanged, null, null);
+
+            if (located is not (var e, var current))
             {
-                var made = Create(body);
+                var made = CreateAs(newId ?? Guid.NewGuid(), body);
                 return made is null
                     ? new SaveResult(SaveOutcome.Failed, null, null)
                     : new SaveResult(SaveOutcome.Missing, null, made.Doc.Id);
@@ -251,9 +308,9 @@ public sealed class MemoStore
             var currentRev = MemoFormat.RevOf(current.Body);
             if (currentRev != baseRev)
             {
-                var copyBody = MemoFormat.AppendToTitle(body,
-                    " (충돌 사본 " + _now().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + ")");
-                var copy = Create(copyBody);
+                var copyBody = MemoFormat.AppendToTitle(body, conflictSuffix
+                    ?? " (충돌 사본 " + _now().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + ")");
+                var copy = CreateAs(newId ?? Guid.NewGuid(), copyBody);
                 return copy is null
                     ? new SaveResult(SaveOutcome.Failed, null, null)
                     : new SaveResult(SaveOutcome.Conflict, null, copy.Doc.Id);
@@ -304,6 +361,28 @@ public sealed class MemoStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 휴대폰에서 온 고치기 하나(고정·매일 초기화·체크 모두 풀기). change 가 고친 문서를 돌려주면 쓰고 Applied,
+    /// null 이면(이미 그 상태) Skipped. 메모가 없으면(휴지통 포함) Skipped, 쓸 수 없거나 읽지·쓰지 못하면 Deferred.
+    /// </summary>
+    public MemoCheckResult Update(Guid id, Func<MemoDocument, MemoDocument?> change)
+    {
+        if (!_canWrite()) return MemoCheckResult.Deferred;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return MemoCheckResult.Skipped;
+            if (change(doc) is not { } changed) return MemoCheckResult.Skipped;
+            changed = changed with { Id = id, HasHeader = true };
+            WriteDoc(e.Path, changed);
+            Remember(e.Path, changed);
+            return MemoCheckResult.Applied;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return MemoCheckResult.Deferred;
         }
     }
 
@@ -500,12 +579,15 @@ public sealed class MemoStore
 
     // ───────────────────────── 휴지통
 
-    public bool Delete(Guid id)
+    public bool Delete(Guid id) => MoveToTrash(id) == MemoCheckResult.Applied;
+
+    /// <summary>휴지통으로 옮긴다. 없으면(이미 휴지통 포함) Skipped, 쓸 수 없거나 옮기지 못하면 Deferred.</summary>
+    public MemoCheckResult MoveToTrash(Guid id)
     {
-        if (!_canWrite()) return false;
+        if (!_canWrite()) return MemoCheckResult.Deferred;
         try
         {
-            if (Locate(id) is not (var e, var found)) return false;
+            if (Locate(id) is not (var e, var found)) return MemoCheckResult.Skipped;
             var doc = found with
             {
                 Id = id, HasHeader = true, Deleted = DateOnly.FromDateTime(_now()),
@@ -520,11 +602,11 @@ public sealed class MemoStore
                 throw;
             }
             _entries.Remove(e.Path);
-            return true;
+            return MemoCheckResult.Applied;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return false;
+            return MemoCheckResult.Deferred;
         }
     }
 

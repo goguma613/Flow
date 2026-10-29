@@ -31,6 +31,29 @@ public sealed class PhoneOp
     /// </summary>
     public const string MemoCheck = "memo-check";
 
+    // ── 메모 고치기(4단계). 이 갈래들을 모르는 옛 PC 는 손대지 않고 남긴다.
+
+    /// <summary>
+    /// 메모 본문 전체를 맞춘다. <see cref="Target"/> 은 메모 id(새 메모면 폰이 만든 새 id), <see cref="Text"/> 는 본문 전체(\n),
+    /// <see cref="Base"/> 는 폰이 보고 고친 판(새 메모면 null). 그 사이 PC 에서 고쳤으면 원본은 두고 충돌 사본을 만든다.
+    /// </summary>
+    public const string MemoSave = "memo-save";
+
+    /// <summary>고정. <see cref="Text"/> 는 "true" / "false".</summary>
+    public const string MemoPin = "memo-pin";
+
+    /// <summary>매일 초기화. <see cref="Text"/> 는 "true" / "false". 켠 날(<see cref="Day"/>)은 풀리지 않는다.</summary>
+    public const string MemoDaily = "memo-daily";
+
+    /// <summary>체크 모두 풀기. <see cref="Target"/> 만.</summary>
+    public const string MemoUncheckAll = "memo-uncheck-all";
+
+    /// <summary>메모를 휴지통으로. <see cref="Target"/> 만.</summary>
+    public const string MemoDelete = "memo-delete";
+
+    /// <summary>루틴·할 일의 메모 연결. <see cref="Target"/> 은 루틴·할 일 id, <see cref="Text"/> 는 메모 id(빈 글이면 끊기).</summary>
+    public const string MemoLink = "memo-link";
+
     /// <summary>
     /// 이 일의 고유 번호. PC는 반영한 번호를 기억해 두 번 하지 않는다.
     /// '추가'라면 새로 생기는 항목의 Id 로도 쓴다 — 같은 추가가 두 번 와도 하나만 생긴다.
@@ -39,7 +62,8 @@ public sealed class PhoneOp
 
     /// <summary>
     /// <see cref="Add"/> · <see cref="Done"/> · <see cref="Undone"/> · <see cref="Rename"/> ·
-    /// <see cref="SetPriority"/> · <see cref="Delete"/> · <see cref="MemoCheck"/>. 모르는 값은 건너뛴다.
+    /// <see cref="SetPriority"/> · <see cref="Delete"/> · <see cref="MemoCheck"/> · <see cref="MemoSave"/> · <see cref="MemoPin"/> ·
+    /// <see cref="MemoDaily"/> · <see cref="MemoUncheckAll"/> · <see cref="MemoDelete"/> · <see cref="MemoLink"/>. 모르는 값은 건너뛴다.
     /// </summary>
     public string Kind { get; set; } = "";
 
@@ -66,6 +90,9 @@ public sealed class PhoneOp
 
     /// <summary>메모 체크에만: 그 줄을 체크된 상태로 맞출지(true) 풀린 상태로 맞출지(false).</summary>
     public bool? Checked { get; set; }
+
+    /// <summary>메모 고치기에만: 폰이 보고 고친 본문의 판(<see cref="PhoneMemo.Rev"/>). 새 메모면 null.</summary>
+    public string? Base { get; set; }
 }
 
 /// <summary>phone-inbox.json. 폰만 쓴다.</summary>

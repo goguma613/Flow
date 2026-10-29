@@ -37,4 +37,9 @@
     <Compile Include="../../Flow/ViewModels/MemoEditorState.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 휴대폰(docs/app.js)의 판 계산과 같은지 보는 고정 입력. 폰 쪽 시험도 이 파일을 읽는다. -->
+    <None Include="rev-fixtures.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

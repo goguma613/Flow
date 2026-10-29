@@ -457,7 +457,7 @@
               </Panel>
             </DockPanel>
 
-            <!-- 띠: 충돌·지워짐·저장 실패가 위, 쓰는 중이라 기다리는 휴대폰 체크가 아래(둘 다 있으면 쌓인다) -->
+            <!-- 띠: 충돌·지워짐·저장 실패가 위, 쓰는 중이라 기다리는 휴대폰의 일(체크·고치기 등)이 아래(둘 다 있으면 쌓인다) -->
             <StackPanel Grid.Row="1">
               <Border IsVisible="{Binding HasBanner}"
                       Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
@@ -703,6 +703,12 @@
                     <TextBlock Classes="helphead" Text="고정과 삭제" />
                     <TextBlock Classes="helpline" Text="고정하면 목록 맨 위에 와요." />
                     <TextBlock Classes="helpline" Text="지운 메모는 휴지통에 30일 동안 남아요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="휴대폰에서" />
+                    <TextBlock Classes="helpline" Text="메모 탭의 + 로 새로 쓰고, '고치기'로 고쳐요." />
+                    <TextBlock Classes="helpline" Text="… 에서 고정·매일 초기화·모두 풀기·삭제도 돼요." />
+                    <TextBlock Classes="helpline" Text="여기서 같이 고쳤으면 '휴대폰 충돌 사본'으로 따로 남아요." />
                   </StackPanel>
                   <StackPanel Spacing="1">
                     <TextBlock Classes="helphead" Text="단축키" />
