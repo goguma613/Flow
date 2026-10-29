@@ -279,6 +279,27 @@ public sealed class MemoStore
         }
     }
 
+    /// <summary>머리말 tags 만 고친다. 본문·판은 그대로. 잘못된 이름은 버리고 중복은 하나로 한다.</summary>
+    public bool SetTags(Guid id, IReadOnlyList<string> tags)
+    {
+        if (!_canWrite()) return false;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return false;
+            var clean = tags.Select(MemoFormat.NormalizeTag).OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (doc.HasHeader && (doc.Tags ?? Array.Empty<string>()).SequenceEqual(clean)) return true;
+            doc = doc with { Id = id, HasHeader = true, Tags = clean };
+            WriteDoc(e.Path, doc);
+            Remember(e.Path, doc);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     // ───────────────────────── 휴지통
 
     public bool Delete(Guid id)
@@ -478,7 +499,7 @@ public sealed class MemoStore
 
     private static MemoSummary Summarize(MemoDocument doc, string path, DateTime updated)
         => new(doc.Id, path, MemoFormat.TitleOf(doc.Body), MemoFormat.PreviewOf(doc.Body),
-            MemoFormat.TagsOf(doc.Body), doc.Pinned, doc.Daily, updated, MemoFormat.RevOf(doc.Body), false);
+            MemoFormat.TagsOfDoc(doc), doc.Pinned, doc.Daily, updated, MemoFormat.RevOf(doc.Body), false);
 
     /// <summary>스스로 쓴 파일의 (크기, 고친 시각)을 기억해 바로 다음 훑기가 제 쓰기를 바뀜으로 읽지 않게 한다.</summary>
     private void Remember(string path, MemoDocument doc)

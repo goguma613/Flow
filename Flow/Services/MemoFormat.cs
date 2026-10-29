@@ -22,9 +22,9 @@ public static class MemoFormat
     private static readonly Regex TagRx = new(@"(?<=^|\s)#([^\s#]+)", RegexOptions.Compiled | RegexOptions.Multiline);
     private static readonly Regex Heading1Rx = new(@"^#\s+", RegexOptions.Compiled);
     private static readonly Regex Heading2Rx = new(@"^##\s+", RegexOptions.Compiled);
-    private static readonly Regex CheckRx = new(@"^(?<pre>(?:-\s+)?\[)(?<c>[ xX])\](?<sp>\s?)", RegexOptions.Compiled);
-    private static readonly Regex NumberedRx = new(@"^(?<n>\d{1,3}\.)\s+", RegexOptions.Compiled);
-    private static readonly Regex BulletRx = new(@"^[-*]\s+", RegexOptions.Compiled);
+    private static readonly Regex CheckRx = new(@"^[ \t]*(?:-\s+)?\[(?<c>[ xX]?)\]\s?", RegexOptions.Compiled);
+    private static readonly Regex NumberedRx = new(@"^[ \t]*(?<n>\d{1,3}\.)\s+", RegexOptions.Compiled);
+    private static readonly Regex BulletRx = new(@"^[ \t]*[-*]\s+", RegexOptions.Compiled);
     private static readonly Regex ReservedRx = new(@"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -48,6 +48,7 @@ public static class MemoFormat
         }
 
         Guid? id = null;
+        var tags = new List<string>();
         bool pinned = false, daily = false;
         DateOnly? reset = null, deleted = null;
         var extra = new List<KeyValuePair<string, string>>();
@@ -65,12 +66,14 @@ public static class MemoFormat
                 case "daily": daily = value == "true"; break;
                 case "reset": reset = ParseDate(value); break;
                 case "deleted": deleted = ParseDate(value); break;
+                case "tags": tags = value.Split(',').Select(t => t.Trim().TrimStart('#').Trim()).Where(t => t.Length > 0).ToList(); break;
                 default: extra.Add(new KeyValuePair<string, string>(key, value)); break;
             }
         }
 
         if (id is null) return none;
-        return new MemoDocument(id.Value, true, pinned, daily, reset, deleted, extra, fileText[pos..]);
+        return new MemoDocument(id.Value, true, pinned, daily, reset, deleted, extra, fileText[pos..],
+            tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
     /// <summary>언제나 머리말을 쓴다. 머리말은 \r\n, 본문은 들어온 그대로.</summary>
@@ -83,6 +86,7 @@ public static class MemoFormat
         if (doc.Daily) sb.Append("daily: true\r\n");
         if (doc.Reset is { } r) sb.Append("reset: ").Append(r.ToString(DateFormat, CultureInfo.InvariantCulture)).Append("\r\n");
         if (doc.Deleted is { } d) sb.Append("deleted: ").Append(d.ToString(DateFormat, CultureInfo.InvariantCulture)).Append("\r\n");
+        if (doc.Tags is { Count: > 0 } tags) sb.Append("tags: ").Append(string.Join(", ", tags)).Append("\r\n");
         foreach (var kv in doc.Extra) sb.Append(kv.Key).Append(": ").Append(kv.Value).Append("\r\n");
         sb.Append("---\r\n");
         sb.Append(doc.Body);
@@ -115,6 +119,19 @@ public static class MemoFormat
     /// <summary>나온 순서, 중복 없이, # 뺀 이름.</summary>
     public static IReadOnlyList<string> TagsOf(string body)
         => TagRx.Matches(body).Select(m => m.Groups[1].Value).Distinct().ToList();
+
+    /// <summary>머리말 tags 가 먼저, 그다음 본문 #태그. 대소문자 무시 중복 없이, # 뺀 이름.</summary>
+    public static IReadOnlyList<string> TagsOfDoc(MemoDocument doc)
+        => (doc.Tags ?? Array.Empty<string>()).Concat(TagsOf(doc.Body))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>앞의 #들과 앞뒤 공백을 뗀 태그 이름. 비었거나 공백·#·쉼표가 들어 있으면 null.</summary>
+    public static string? NormalizeTag(string raw)
+    {
+        var name = raw.Trim().TrimStart('#').Trim();
+        if (name.Length == 0 || name.Any(ch => char.IsWhiteSpace(ch) || ch == '#' || ch == ',')) return null;
+        return name;
+    }
 
     /// <summary>본문을 줄바꿈 \n 으로 맞춘 SHA-256 의 소문자 16진 앞 16자.</summary>
     public static string RevOf(string body)
@@ -160,7 +177,7 @@ public static class MemoFormat
 
         var c = CheckRx.Match(line);
         if (c.Success)
-            return new MemoLine(index, MemoLineKind.Check, line[c.Length..], null, c.Groups["c"].Value != " ");
+            return new MemoLine(index, MemoLineKind.Check, line[c.Length..], null, c.Groups["c"].Value is "x" or "X");
 
         var n = NumberedRx.Match(line);
         if (n.Success) return new MemoLine(index, MemoLineKind.Numbered, line[n.Length..], n.Groups["n"].Value, false);
@@ -198,7 +215,8 @@ public static class MemoFormat
         var m = CheckRx.Match(line);
         if (!m.Success) return null;
         var c = m.Groups["c"];
-        return line[..c.Index] + (isChecked ? "x" : " ") + line[(c.Index + 1)..];
+        if (c.Length == 0 && !isChecked) return line;   // [] 는 이미 빈 칸
+        return line[..c.Index] + (isChecked ? "x" : " ") + line[(c.Index + c.Length)..];
     }
 
     // ───────────────────────── 이름·id
