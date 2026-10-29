@@ -182,6 +182,13 @@ public sealed class AppSettings
 
     [JsonIgnore] public double WindowWidth { get; set; } = 340;
     [JsonIgnore] public double WindowHeight { get; set; } = 620;
+
+    /// <summary>메모 창 위치. null이면 화면 가운데에 연다.</summary>
+    [JsonIgnore] public double? MemoWindowLeft { get; set; }
+    [JsonIgnore] public double? MemoWindowTop { get; set; }
+
+    [JsonIgnore] public double MemoWindowWidth { get; set; } = 820;
+    [JsonIgnore] public double MemoWindowHeight { get; set; } = 600;
 }
 
 public sealed class AppData

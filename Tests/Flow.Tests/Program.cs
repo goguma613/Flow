@@ -819,6 +819,10 @@ internal static partial class Program
         data.Settings.HotKey = "Ctrl+Shift+F9";
         data.Settings.LastUpdateCheck = new DateTime(2026, 9, 9, 12, 0, 0);
         data.Settings.LastBackupDate = today;
+        data.Settings.MemoWindowLeft = 300;
+        data.Settings.MemoWindowTop = 200;
+        data.Settings.MemoWindowWidth = 900;
+        data.Settings.MemoWindowHeight = 640;
 
         var routine = new Routine
         {
@@ -838,7 +842,7 @@ internal static partial class Program
         foreach (var field in new[] { "WindowLeft", "WindowTop", "WindowWidth", "WindowHeight",
                                       "WindowSizedByUser", "CompactMode", "RunAtStartup",
                                       "HotKey", "LastUpdateCheck", "LastBackupDate",
-                                      "RemindHandled", "RemindSnoozedUntil" })
+                                      "RemindHandled", "RemindSnoozedUntil", "MemoWindow" })
         {
             Check($"{field} 는 data.json 에 없다", json.Contains(field), false);
         }
@@ -861,6 +865,8 @@ internal static partial class Program
 
         Check("창 위치가 돌아옴", reloaded.Settings.WindowLeft, (double?)1234);
         Check("창 높이가 돌아옴", reloaded.Settings.WindowHeight, 800.0);
+        Check("메모 창 위치가 돌아옴", (reloaded.Settings.MemoWindowLeft, reloaded.Settings.MemoWindowTop), ((double?)300, (double?)200));
+        Check("메모 창 크기가 돌아옴", (reloaded.Settings.MemoWindowWidth, reloaded.Settings.MemoWindowHeight), (900.0, 640.0));
         Check("컴팩트 모드가 돌아옴", reloaded.Settings.CompactMode, true);
         Check("자동 시작이 돌아옴", reloaded.Settings.RunAtStartup, true);
         Check("단축키 조합이 돌아옴", reloaded.Settings.HotKey, "Ctrl+Shift+F9");

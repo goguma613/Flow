@@ -47,6 +47,10 @@ public static class DeviceStore
         data.Settings.WindowSizedByUser = state.WindowSizedByUser;
         data.Settings.WindowWidth = state.WindowWidth;
         data.Settings.WindowHeight = state.WindowHeight;
+        data.Settings.MemoWindowLeft = state.MemoWindowLeft;
+        data.Settings.MemoWindowTop = state.MemoWindowTop;
+        data.Settings.MemoWindowWidth = state.MemoWindowWidth;
+        data.Settings.MemoWindowHeight = state.MemoWindowHeight;
         data.Settings.CompactMode = state.CompactMode;
         data.Settings.RunAtStartup = state.RunAtStartup;
         data.Settings.HotKey = state.HotKey ?? "";
@@ -88,6 +92,10 @@ public static class DeviceStore
             WindowSizedByUser = data.Settings.WindowSizedByUser,
             WindowWidth = data.Settings.WindowWidth,
             WindowHeight = data.Settings.WindowHeight,
+            MemoWindowLeft = data.Settings.MemoWindowLeft,
+            MemoWindowTop = data.Settings.MemoWindowTop,
+            MemoWindowWidth = data.Settings.MemoWindowWidth,
+            MemoWindowHeight = data.Settings.MemoWindowHeight,
             CompactMode = data.Settings.CompactMode,
             RunAtStartup = data.Settings.RunAtStartup,
             HotKey = data.Settings.HotKey,
