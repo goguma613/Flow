@@ -453,7 +453,8 @@
 
               <!-- 읽기 모드. 글 자리를 누르면 쓰기 모드로 간다(체크 칸은 제외). -->
               <Panel Name="ReadArea" Background="Transparent" IsVisible="{Binding ShowReader}">
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <!-- 오른쪽 크기 조절 띠(5px)를 비켜 스크롤바를 둔다 -->
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" Margin="0,0,6,0">
                   <StackPanel Margin="28,6,28,28">
                     <ItemsControl ItemsSource="{Binding ReadLines}">
                   <ItemsControl.ItemTemplate>

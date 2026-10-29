@@ -50,6 +50,9 @@ internal static partial class Program
         Section("단축키 조합");
         HotKeyTests();
 
+        Section("업데이트 확인 주기");
+        UpdatePolicyTests();
+
         Section("기기별 상태 분리");
         DeviceStateTests();
 
@@ -1079,6 +1082,33 @@ internal static partial class Program
         var data = new AppData { LastLogicalDate = lastDate };
         data.Routines.Add(new Routine { Title = "매일 루틴" });
         return data;
+    }
+
+    // ───────────────────────── 업데이트 확인 주기
+
+    private static void UpdatePolicyTests()
+    {
+        var now = new DateTime(2026, 10, 29, 12, 0, 0);
+        UpdateCheckAction Decide(bool manual = false, bool periodic = false, bool auto = true, bool busy = false,
+            bool ready = false, DateTime? paused = null)
+            => UpdatePolicy.Decide(manual, periodic, auto, busy, ready, now, paused);
+
+        Check("시작할 때 확인", Decide(), UpdateCheckAction.Check);
+        Check("30분 확인", Decide(periodic: true), UpdateCheckAction.Check);
+        Check("자동 업데이트 끔 → 30분 확인 안 함", Decide(periodic: true, auto: false), UpdateCheckAction.Skip);
+        Check("자동 업데이트 꺼도 직접 누르면 확인", Decide(manual: true, auto: false), UpdateCheckAction.Check);
+        Check("확인 중이면 겹치지 않음", Decide(periodic: true, busy: true), UpdateCheckAction.Skip);
+        Check("직접 눌러도 확인 중이면 겹치지 않음", Decide(manual: true, busy: true), UpdateCheckAction.Skip);
+        Check("받아 둔 것이 있으면 30분 확인 안 함", Decide(periodic: true, ready: true), UpdateCheckAction.Skip);
+        Check("받아 둔 것이 있으면 직접 눌러도 다시 안 받음", Decide(manual: true, ready: true), UpdateCheckAction.ShowReady);
+        Check("쉬는 동안 30분 확인 안 함", Decide(periodic: true, paused: now.AddHours(1)), UpdateCheckAction.Skip);
+        Check("쉬는 시간이 지나면 다시", Decide(periodic: true, paused: now), UpdateCheckAction.Check);
+        Check("쉬는 중에도 직접 누르면 확인", Decide(manual: true, paused: now.AddHours(1)), UpdateCheckAction.Check);
+        Check("30분 확인 내려받기 실패 → 6시간 쉼",
+            UpdatePolicy.PauseAfter(true, true, now, null), (DateTime?)now.AddHours(6));
+        Check("확인만 실패하면 쉬지 않음", UpdatePolicy.PauseAfter(true, false, now, null), (DateTime?)null);
+        Check("직접 확인 실패는 쉼을 정하지 않음", UpdatePolicy.PauseAfter(false, true, now, null), (DateTime?)null);
+        Check("이미 쉬는 중이면 그대로", UpdatePolicy.PauseAfter(true, false, now, now.AddHours(2)), (DateTime?)now.AddHours(2));
     }
 
     private static void Section(string name)

@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using Avalonia;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Input;
@@ -175,11 +176,56 @@ public partial class MemoWindow : Window
             return;
         }
 
+        // 한글을 조합하던 중이면 그 글자를 먼저 들여보낸다. 마우스로 단추를 눌러서는 조합이 끝나지 않으므로
+        // 입력기에 '조합 끝내기'를 청하고, 그 글자가 쓰기 칸에 들어온 뒤(Background)에 글과 커서를 다시 읽는다.
+        if (IsComposing(_writer))
+        {
+            CompleteComposition();
+            Dispatcher.UIThread.Post(() => ToggleWriterLine(kind), DispatcherPriority.Background);
+            return;
+        }
+
+        ToggleWriterLine(kind);
+    }
+
+    private void ToggleWriterLine(MemoLineKind kind)
+    {
+        if (_vm is null || _writer is null || !_vm.IsEditing || !_writer.IsVisible) return;
+
         var text = _writer.Text ?? "";
         var edit = MemoEditing.Toggle(text, _writer.SelectionStart, _writer.SelectionEnd, kind);
         ApplyWriterEdit(edit);
         _writer.Focus();
     }
+
+    /// <summary>
+    /// 입력기에 조합 중인 글자를 확정하라고 청한다(Windows IMM). 확정된 글자는 보통 입력처럼 쓰기 칸에 들어온다.
+    /// 못 하면(다른 OS·입력기 없음) 아무것도 하지 않는다.
+    /// </summary>
+    private void CompleteComposition()
+    {
+        if (!OperatingSystem.IsWindows() || TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == IntPtr.Zero) return;
+        try
+        {
+            var himc = ImmGetContext(hwnd);
+            if (himc == IntPtr.Zero) return;
+            ImmNotifyIME(himc, NiCompositionStr, CpsComplete, 0);
+            ImmReleaseContext(hwnd, himc);
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
+    }
+
+    private const int NiCompositionStr = 0x15;
+    private const int CpsComplete = 0x1;
+
+    [DllImport("imm32.dll")]
+    private static extern IntPtr ImmGetContext(IntPtr hwnd);
+
+    [DllImport("imm32.dll")]
+    private static extern bool ImmNotifyIME(IntPtr himc, int action, int index, int value);
+
+    [DllImport("imm32.dll")]
+    private static extern bool ImmReleaseContext(IntPtr hwnd, IntPtr himc);
 
     /// <summary>
     /// 체크·번호·점 줄에서 Enter: 다음 줄에 같은 기호를 붙인다. 기호만 있는 줄이면 기호를 지워 목록을 끝낸다.
@@ -405,13 +451,24 @@ public partial class MemoWindow : Window
         {
             var target = new PixelPoint((int)left, (int)top);
 
-            // 어느 모니터에도 걸치지 않으면(모니터를 뺐을 때) 처음처럼 가운데에 둔다.
-            if (Screens.ScreenFromPoint(target) is not null) Position = target;
+            // 제목 줄(잡고 끌 곳)이 어느 화면 안에도 없으면(모니터를 뺐을 때) 처음처럼 가운데에 둔다.
+            // 창 테두리가 없어 제목 줄이 화면 밖이면 옮길 길이 없다.
+            if (TitleBarVisibleAt(target)) Position = target;
             else CenterOnScreen();
         }
 
         _placementRestored = true;
     }
+
+    /// <summary>창 왼쪽 위가 target 일 때 제목 줄 앞부분(16px 들어가서 120×30)이 어느 화면의 작업 영역 안에 다 들어오는지.</summary>
+    private bool TitleBarVisibleAt(PixelPoint target)
+        => Screens.All.Any(screen =>
+        {
+            var scale = screen.Scaling;
+            var strip = new PixelRect(target.X + (int)(16 * scale), target.Y + (int)(6 * scale),
+                (int)(120 * scale), (int)(30 * scale));
+            return screen.WorkingArea.Contains(strip);
+        });
 
     private void CenterOnScreen()
     {

@@ -67,6 +67,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly DataStore _store;
     private readonly UpdateService _updates = new();
     private DispatcherTimer? _updateTimer;
+
+    /// <summary>30분 확인의 내려받기가 실패하면 이때까지 30분 확인을 쉰다. 메모리에만 둔다(다음 실행 때 다시 해 본다).</summary>
+    private DateTime? _periodicUpdatePausedUntil;
     private DateTime _busyStartedAt;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _statusTimer;
@@ -1019,12 +1022,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task RunUpdateCheckAsync(bool manual, bool periodic = false)
     {
-        // 자동 확인을 꺼 뒀으면 아무 것도 하지 않는다. 직접 누른 경우는 그래도 확인한다.
-        if (!manual && !_data.Settings.AutoUpdate) return;
-        if (IsCheckingUpdate) return;
-
-        // 이미 받아 둔 새 버전이 있으면 주기 확인은 다시 받지 않는다(재시작만 기다린다).
-        if (periodic && UpdateReady) return;
+        // 꺼 둠·확인 중·이미 받아 둠·30분 확인 쉬는 중은 UpdatePolicy 가 가른다.
+        var action = UpdatePolicy.Decide(manual, periodic, _data.Settings.AutoUpdate, IsCheckingUpdate,
+            UpdateReady, DateTime.Now, _periodicUpdatePausedUntil);
+        if (action == UpdateCheckAction.Skip) return;
+        if (action == UpdateCheckAction.ShowReady)
+        {
+            UpdateStatus = UpdateText;
+            Announce(UpdateText);
+            return;
+        }
 
         IsCheckingUpdate = true;
         UpdateStatus = "확인 중…";
@@ -1037,9 +1044,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         UpdatePercentText = "";
         UpdateBusyText = "새 버전이 있는지 확인하는 중…";
 
+        // 30분 확인은 내려받기가 시작될 때만 진행 줄을 띄운다.
+        var downloadStarted = false;
         var progress = new Progress<double>(value =>
         {
             // 내려받기가 시작된 순간부터 진행 줄을 보여준다.
+            downloadStarted = true;
             IsUpdateBusy = true;
             IsUpdateDownloading = true;
             UpdateProgress = value;
@@ -1048,7 +1058,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         });
 
         var found = await _updates.CheckAndStageAsync(progress).ConfigureAwait(true);
-        if (IsUpdateBusy) await HoldBusyDisplayAsync().ConfigureAwait(true);
+        if (!periodic || downloadStarted) await HoldBusyDisplayAsync().ConfigureAwait(true);
 
         _data.Settings.LastUpdateCheck = DateTime.Now;
         PersistDevice();
@@ -1070,9 +1080,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // 주기 확인에서 받을 것이 없었으면 조용히 끝낸다. 설정의 상태 글만 맞춘다.
-        if (periodic && !IsUpdateBusy)
+        // 30분 확인은 받지 못했으면 조용히 끝낸다. 진행 줄을 걷고 설정의 상태 글만 맞춘다.
+        // 내려받다 실패했으면 6시간은 30분 확인을 쉰다(같은 실패를 30분마다 되풀이하지 않게).
+        if (periodic)
         {
+            _periodicUpdatePausedUntil = UpdatePolicy.PauseAfter(periodic, _updates.LastDownloadFailed,
+                DateTime.Now, _periodicUpdatePausedUntil);
+            IsUpdateBusy = false;
             UpdateStatus = _updates.LastError is { Length: > 0 } ? "확인하지 못했습니다" : "최신 버전입니다";
             return;
         }

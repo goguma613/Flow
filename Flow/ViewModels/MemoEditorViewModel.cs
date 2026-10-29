@@ -497,10 +497,10 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
             _renderedBody = _state.Body;
         }
 
-        WindowTitle = HasMemo ? MemoFormat.TitleOf(_state.Body) + " — " + AppTitle : AppTitle;
+        WindowTitle = HasMemo ? DisplayTitle(_state.Body) + " — " + AppTitle : AppTitle;
         BarTitle = IsTrashView
-            ? (SelectedTrash is { } shown ? shown.Title + " · 휴지통" : "휴지통")
-            : HasMemo ? MemoFormat.TitleOf(_state.Body) : "";
+            ? (SelectedTrash is { } shown ? StripHeading(shown.Title) + " · 휴지통" : "휴지통")
+            : HasMemo ? DisplayTitle(_state.Body) : "";
         HasBarTitle = BarTitle.Length > 0;
         ModeText = IsEditing ? "읽기" : "쓰기";
 
@@ -522,6 +522,17 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
             ? (TrashRows.Count == 0 ? "휴지통이 비어 있습니다" : "왼쪽에서 되살릴 메모를 고르세요")
             : "왼쪽에서 메모를 고르세요";
         ListEmptyText = Main.Memos.Memos.Count == 0 ? "아직 메모가 없습니다" : "찾는 메모가 없습니다";
+    }
+
+    /// <summary>제목 줄이 소제목(# · ##)이면 기호를 뗀 글. 읽기 모드 제목과 같다.</summary>
+    private static string DisplayTitle(string body) => StripHeading(MemoFormat.TitleOf(body));
+
+    private static string StripHeading(string title)
+    {
+        var line = MemoFormat.Classify(0, title);
+        return line.Kind is MemoLineKind.Heading1 or MemoLineKind.Heading2 && line.Text.Trim().Length > 0
+            ? line.Text.Trim()
+            : title;
     }
 
     /// <summary>읽기 모드 화면을 본문으로 다시 만든다. 첫 비어 있지 않은 줄은 제목으로 따로 보인다.</summary>

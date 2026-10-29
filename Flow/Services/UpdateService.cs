@@ -43,6 +43,9 @@ public sealed class UpdateService
 
     public string? LastError { get; private set; }
 
+    /// <summary>마지막 확인이 새 버전을 찾았지만 내려받다가 실패했는지.</summary>
+    public bool LastDownloadFailed { get; private set; }
+
     /// <summary>
     /// 새 버전이 있으면 내려받아 둔다. 성공하면 적용 준비가 된 버전을 돌려준다.
     /// 예외는 밖으로 던지지 않는다 — 업데이트 실패가 앱을 방해해선 안 된다.
@@ -52,13 +55,16 @@ public sealed class UpdateService
         IProgress<double>? downloadProgress = null,
         CancellationToken token = default)
     {
+        var downloading = false;
         try
         {
             LastError = null;
+            LastDownloadFailed = false;
 
             var info = await FetchLatestAsync(token).ConfigureAwait(false);
             if (info is null || info.Version <= Current) return null;
 
+            downloading = true;
             await DownloadAsync(info, downloadProgress, token).ConfigureAwait(false);
 
             StagedVersion = info.Version;
@@ -67,6 +73,7 @@ public sealed class UpdateService
         catch (Exception ex)
         {
             LastError = ex.Message;
+            LastDownloadFailed = downloading;
             return null;
         }
     }
@@ -110,6 +117,25 @@ public sealed class UpdateService
 
         var temporary = StagedPath + ".part";
 
+        try
+        {
+            await DownloadToAsync(info, temporary, progress, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 끊기거나 취소된 반쪽 파일은 남기지 않는다.
+            try { File.Delete(temporary); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
+
+        // 다 받은 뒤에 제자리로 옮긴다. 중간에 끊겨도 반쪽짜리가 남지 않는다.
+        File.Move(temporary, StagedPath, overwrite: true);
+    }
+
+    private static async Task DownloadToAsync(
+        UpdateInfo info, string temporary, IProgress<double>? progress, CancellationToken token)
+    {
         using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
         {
             http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Flow", CurrentText));
@@ -146,9 +172,6 @@ public sealed class UpdateService
                 progress.Report(percent / 100.0);
             }
         }
-
-        // 다 받은 뒤에 제자리로 옮긴다. 중간에 끊겨도 반쪽짜리가 남지 않는다.
-        File.Move(temporary, StagedPath, overwrite: true);
     }
 
     /// <summary>
