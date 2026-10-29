@@ -1068,7 +1068,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v11',
+    'v12',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -1213,7 +1213,7 @@ function renderToday() {
 
 /** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
 function memoDiag() {
-  const parts = ['v11', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
+  const parts = ['v12', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
   return `<div class="diag">${parts.join(' · ')}</div>`;
 }
 
@@ -1495,7 +1495,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=11', { cache: 'no-store' })
+  fetch('relay.gs?v=12', { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -2238,10 +2238,21 @@ function saveMemoDraft() {
     memoEdit.caret = area.selectionEnd;
   }
   const all = memoDrafts();
+  // 자리가 모자라 남겨 둔 저장 글(savedOp)은 그 일이 이 폰에 남거나 드라이브에 갈 때까지 덮지 않는다 —
+  // 덮으면 앱이 닫혔을 때 그 저장 글이 사라진다.
+  if (unpersistedSave(all[memoEdit.key])) return false;
   all[memoEdit.key] = { ...memoEdit, at: localIso(new Date()) };
   const saved = local.set('memoDrafts', all);
   local.set('memoEditing', memoEdit.key);
   return saved;
+}
+
+/** 임시 글이 든 저장(savedOp)이 아직 이 폰에도(pending) 드라이브에도 없고 PC 도 안 받았는지. */
+function unpersistedSave(draft) {
+  const id = draft?.savedOp;
+  if (!id) return false;
+  if (state.sent.has(id) || (state.view?.AppliedOps ?? []).includes(id)) return false;
+  return !local.get('pending', []).some(op => op?.Id === id);
 }
 
 /**
@@ -2287,9 +2298,10 @@ function pruneMemoDrafts() {
   if (changed) local.set('memoDrafts', all);
 }
 
-function dropMemoDraft(key) {
+/** 임시 글을 버린다. 아직 어디에도 안 남은 저장 글(savedOp)은 force 가 아니면 두고 간다(취소 · 뒤로 · 고친 것 없음). */
+function dropMemoDraft(key, force) {
   const all = memoDrafts();
-  if (key in all) {
+  if (key in all && (force || !unpersistedSave(all[key]))) {
     delete all[key];
     local.set('memoDrafts', all);
   }
@@ -2315,7 +2327,7 @@ const HELD_NOTE = 'PC에서 이 메모를 쓰는 중입니다 · 저장하면 PC
 
 /**
  * 남겨 둔 글로 이어 쓸 때 Base 를 다시 본다. Base 는 고치기를 시작할 때 본 글의 판인데, 그 뒤에
- * - 이 휴대폰에서만 그 메모에 일을 더 했고(읽기 화면의 체크 · 모두 풀기 · 매일 …) PC 글은 그대로면
+ * - 그 메모에 체크 · 모두 풀기 같은 일만 더 있고(아직 PC 가 안 받은 다른 글 저장은 없음) PC 글은 그대로면
  *   (매일 초기화 메모를 새 하루라 풀어 보이는 것도 같다 — PC 는 초기화를 먼저 하고 이 저장을 넣는다):
  *   PC 가 이 저장에 닿을 때 가질 글은 지금 보이는 글이다 → 그 판으로 바꾼다(안 그러면 제 체크 때문에 충돌 사본이 생긴다).
  *   지금 보이는 글이 고치기의 시작 글이 된다 — 저장하면 이 글로 덮인다.
@@ -2335,9 +2347,18 @@ async function resumeDraft(draft) {
     } else if (!pcSame) {
       notes.push('그 사이 PC에서 이 메모가 바뀌었습니다 · 저장하면 PC 글은 두고 충돌 사본으로 남습니다');
     } else if (memo.Text !== draft.start) {
-      // PC 글은 그대로인데 보이는 글이 바뀌었다 = 이 휴대폰이 그 뒤에 한 일(체크 · 모두 풀기 …)이나 새 하루의 매일 초기화.
-      draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text };
-      notes.push('그 뒤 바꾼 체크 등은 저장하면 이 글대로 됩니다');
+      // PC 글은 그대로인데 보이는 글이 바뀌었다. 체크 · 모두 풀기(어느 탭 · 기기에서든)나 새 하루의 매일 초기화뿐이면
+      // Base 를 지금 글로 옮긴다. 아직 PC 가 안 받은 다른 글 전체(memo-save — 다른 탭 · 기기에서 고친 것)가 끼어 있으면
+      // 옮기지 않는다 — 옮기면 PC 가 그 글을 넣은 뒤 이 저장이 판이 맞아 그 글을 사본 없이 덮는다.
+      const applied = new Set(state.view?.AppliedOps ?? []);
+      const otherSave = state.pending.some(op => op.Kind === 'memo-save' && op.Target === draft.id
+        && !applied.has(op.Id) && op.Text !== draft.start);
+      if (otherSave) {
+        notes.push('그 사이 다른 곳에서 이 메모를 고쳤습니다 · 저장하면 충돌 사본이 생길 수 있습니다');
+      } else {
+        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text };
+        notes.push('그 뒤 바꾼 체크 등은 저장하면 이 글대로 됩니다');
+      }
     }
     if (isHeldMemo(draft.id)) notes.push(HELD_NOTE);
   }
@@ -2474,7 +2495,7 @@ async function saveMemoEditor() {
   }
   const { op, saved } = queued;
   // 일을 이 폰에 남겼을 때만 임시 글을 버린다. 못 남겼으면(자리 모자람) 앱이 닫혀도 글이 남게 임시 글을 둔다.
-  if (saved) dropMemoDraft(ed.key);
+  if (saved) dropMemoDraft(ed.key, true);   // 새 일이 남았다(합쳐서 옛 저장 글의 일이 없어졌어도 버린다)
   else keepSavedDraft(ed, text, op.Id);
   leaveMemoEditor(() => {
     if (ed.isNew) openMemo(ed.id, true);
