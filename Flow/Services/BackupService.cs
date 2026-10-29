@@ -1,18 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 
 namespace Flow.Services;
 
 /// <summary>백업 파일 하나에 대한 정보.</summary>
-public sealed record BackupEntry(string Path, DateTime CreatedAt, int Routines, int Tasks, string Tag);
+public sealed record BackupEntry(string Path, DateTime CreatedAt, int Routines, int Tasks, string Tag, int Memos);
 
 /// <summary>
-/// data.json 을 백업 폴더로 복사해 둔다.
-/// 파일 하나짜리 앱이라 백업도 복사 한 번이면 끝난다 — 몇 KB짜리라 부담이 없다.
+/// data.json 과 메모 폴더를 zip 하나로 묶어 백업 폴더에 둔다(엔트리 data.json, memos/파일 이름 — 휴지통 제외).
+/// 예전 .json 백업도 목록에 보이고 되돌릴 수 있다.
 /// </summary>
 public static class BackupService
 {
@@ -20,6 +22,9 @@ public static class BackupService
     private const int KeepCount = 20;
 
     private const string Prefix = "data-";
+    private const string DataEntry = "data.json";
+    private const string MemoPrefix = "memos/";
+    private static readonly UTF8Encoding Utf8 = new(false);
 
     public static string Directory => Path.Combine(DataStore.Directory, "backup");
 
@@ -36,10 +41,32 @@ public static class BackupService
             System.IO.Directory.CreateDirectory(Directory);
 
             var suffix = string.IsNullOrWhiteSpace(tag) ? "" : "-" + tag;
-            if (NextFreePath(suffix) is not { } target) return null;
+            if (NextFreePath(suffix, ".zip") is not { } target) return null;
 
-            // 기존 백업을 덮어쓰지 않는다. 되돌리기 직전에 만드는 안전망이 사라지면 안 된다.
-            File.Copy(DataStore.FilePath, target, overwrite: false);
+            // 임시 파일에 다 쓴 뒤 옮긴다. 덜 쓴 zip 이 백업 이름으로 남으면 안 된다.
+            // 옮길 때도 덮어쓰지 않는다. 되돌리기 직전에 만드는 안전망이 사라지면 안 된다.
+            var tmp = target + ".tmp";
+            try
+            {
+                using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, false, Utf8))
+                {
+                    AddFile(archive, DataEntry, DataStore.FilePath);
+
+                    var memoFolder = Path.Combine(DataStore.Directory, "memos");
+                    if (System.IO.Directory.Exists(memoFolder))
+                        foreach (var file in System.IO.Directory.EnumerateFiles(memoFolder).Where(IsMemoFile).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                            AddFile(archive, MemoPrefix + Path.GetFileName(file), file);
+                }
+
+                File.Move(tmp, target, overwrite: false);
+            }
+            catch
+            {
+                try { File.Delete(tmp); } catch (Exception) { /* 남아도 목록에 안 보인다 */ }
+                throw;
+            }
+
             Prune();
 
             return target;
@@ -61,7 +88,7 @@ public static class BackupService
         {
             System.IO.Directory.CreateDirectory(Directory);
 
-            if (NextFreePath("-" + tag) is not { } target) return null;
+            if (NextFreePath("-" + tag, ".json") is not { } target) return null;
 
             File.WriteAllText(target, json);
             Prune();
@@ -83,10 +110,23 @@ public static class BackupService
         {
             var routines = 0;
             var tasks = 0;
+            var memos = 0;
 
             try
             {
-                using var document = JsonDocument.Parse(File.ReadAllText(file.FullName));
+                string json;
+                if (IsZip(file.Name))
+                {
+                    using var archive = ZipFile.Open(file.FullName, ZipArchiveMode.Read, Utf8);
+                    memos = archive.Entries.Count(e => MemoNameOf(e) is not null);
+                    var data = archive.GetEntry(DataEntry);
+                    if (data is null) throw new InvalidDataException();
+                    using var reader = new StreamReader(data.Open(), Utf8);
+                    json = reader.ReadToEnd();
+                }
+                else json = File.ReadAllText(file.FullName);
+
+                using var document = JsonDocument.Parse(json);
                 var root = document.RootElement;
 
                 if (root.TryGetProperty("Routines", out var r) && r.ValueKind == JsonValueKind.Array)
@@ -99,7 +139,7 @@ public static class BackupService
                 // 못 읽는 파일이어도 목록에는 남겨 둔다. 사용자가 판단하면 된다.
             }
 
-            entries.Add(new BackupEntry(file.FullName, file.LastWriteTime, routines, tasks, TagOf(file.Name)));
+            entries.Add(new BackupEntry(file.FullName, file.LastWriteTime, routines, tasks, TagOf(file.Name), memos));
         }
 
         return entries;
@@ -108,6 +148,7 @@ public static class BackupService
     /// <summary>
     /// 백업 파일을 현재 데이터 자리에 되돌린다.
     /// 되돌리기 자체도 되돌릴 수 있도록, 지금 상태를 먼저 백업해 둔다.
+    /// .json 은 data.json 만. .zip 은 메모도 되돌린다(백업에 없는 지금 메모는 휴지통으로).
     /// </summary>
     public static bool Restore(string backupPath)
     {
@@ -115,11 +156,36 @@ public static class BackupService
         {
             if (!File.Exists(backupPath)) return false;
 
-            // 되돌린 게 잘못이었을 때를 대비한 안전망.
+            if (!IsZip(backupPath))
+            {
+                // 되돌린 게 잘못이었을 때를 대비한 안전망.
+                Create("before-restore");
+
+                File.Copy(backupPath, DataStore.FilePath, overwrite: true);
+                return true;
+            }
+
+            using var archive = ZipFile.Open(backupPath, ZipArchiveMode.Read, Utf8);
+            var data = archive.GetEntry(DataEntry);
+            if (data is null) return false;
+
             Create("before-restore");
 
-            File.Copy(backupPath, DataStore.FilePath, overwrite: true);
-            return true;
+            var tmp = DataStore.FilePath + ".restore.tmp";
+            try
+            {
+                using (var input = data.Open())
+                using (var output = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                    input.CopyTo(output);
+                File.Move(tmp, DataStore.FilePath, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(tmp); } catch (Exception) { /* 남아도 무시한다 */ }
+                throw;
+            }
+
+            return RestoreMemos(archive);
         }
         catch (Exception)
         {
@@ -127,16 +193,115 @@ public static class BackupService
         }
     }
 
+    private static bool RestoreMemos(ZipArchive archive)
+    {
+        var store = new MemoStore(DataStore.Directory, () => true, () => DateTime.Now);
+        store.Scan();
+
+        var currentById = new Dictionary<Guid, MemoSummary>();
+        foreach (var m in store.Memos) currentById.TryAdd(m.Id, m);
+
+        // 백업의 메모를 id 와 함께 읽는다. 머리말이 없으면 파일 이름에서 나온 id 를 쓴다(MemoStore 와 같다).
+        var incoming = new List<(string Name, Guid Id, byte[] Bytes)>();
+        foreach (var entry in archive.Entries)
+        {
+            if (MemoNameOf(entry) is not { } name) continue;
+
+            using var ms = new MemoryStream();
+            using (var input = entry.Open()) input.CopyTo(ms);
+            var bytes = ms.ToArray();
+            var doc = MemoFormat.Parse(Utf8.GetString(bytes), MemoFormat.IdFromPath(name));
+            incoming.Add((name, doc.Id, bytes));
+        }
+
+        var ok = true;
+
+        // 백업에 없는 지금 메모는 휴지통으로(지우지 않는다). 이름이 비도록 먼저 한다.
+        var backupIds = incoming.Select(i => i.Id).ToHashSet();
+        foreach (var m in store.Memos.Where(m => !backupIds.Contains(m.Id)).ToList())
+            if (!store.Delete(m.Id)) ok = false;
+
+        var folder = store.Folder;
+        if (incoming.Count == 0) return ok;
+        System.IO.Directory.CreateDirectory(folder);
+
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in System.IO.Directory.EnumerateFiles(folder)) taken.Add(Path.GetFileName(p));
+
+        var claimed = new HashSet<Guid>();
+        foreach (var (name, id, bytes) in incoming)
+        {
+            string target;
+            if (currentById.TryGetValue(id, out var current) && claimed.Add(id)
+                && File.Exists(current.Path))
+            {
+                target = current.Path;
+            }
+            else
+            {
+                var stem = Path.GetFileNameWithoutExtension(name);
+                var ext = Path.GetExtension(name);
+                var candidate = name;
+                for (var n = 2; taken.Contains(candidate); n++) candidate = $"{stem} ({n}){ext}";
+                taken.Add(candidate);
+                target = Path.Combine(folder, candidate);
+            }
+
+            var tmp = target + ".tmp";
+            try
+            {
+                File.WriteAllBytes(tmp, bytes);
+                File.Move(tmp, target, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(tmp); } catch (Exception) { /* 남아도 훑기가 무시한다 */ }
+                throw;
+            }
+        }
+
+        return ok;
+    }
+
+    private static void AddFile(ZipArchive archive, string entryName, string path)
+    {
+        var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var output = entry.Open();
+        input.CopyTo(output);
+    }
+
+    /// <summary>memos/ 바로 아래의 메모 파일이면 파일 이름, 아니면 null(휴지통 등 하위 폴더 제외).</summary>
+    private static string? MemoNameOf(ZipArchiveEntry entry)
+    {
+        var full = entry.FullName.Replace('\\', '/');
+        if (!full.StartsWith(MemoPrefix, StringComparison.Ordinal)) return null;
+        var name = full[MemoPrefix.Length..];
+        if (name.Length == 0 || name.Contains('/') || !IsMemoFile(name)) return null;
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+        return name;
+    }
+
+    private static bool IsMemoFile(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsZip(string path)
+        => Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// 아직 없는 파일 이름을 찾는다.
     /// 초 단위 이름만 쓰면 같은 초에 두 번 백업할 때 이름이 겹쳐 앞의 것이 사라진다.
     /// </summary>
-    private static string? NextFreePath(string suffix)
+    private static string? NextFreePath(string suffix, string extension)
     {
         for (var attempt = 0; attempt < 50; attempt++)
         {
             var candidate = Path.Combine(
-                Directory, $"{Prefix}{DateTime.Now:yyyyMMdd-HHmmssfff}{suffix}.json");
+                Directory, $"{Prefix}{DateTime.Now:yyyyMMdd-HHmmssfff}{suffix}{extension}");
 
             if (!File.Exists(candidate)) return candidate;
             Thread.Sleep(2);
@@ -175,7 +340,8 @@ public static class BackupService
         if (!System.IO.Directory.Exists(Directory)) return [];
 
         return new DirectoryInfo(Directory)
-            .GetFiles($"{Prefix}*.json")
+            .GetFiles($"{Prefix}*")
+            .Where(f => IsZip(f.Name) || f.Extension.Equals(".json", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(f => f.LastWriteTime)
             .ToArray();
     }

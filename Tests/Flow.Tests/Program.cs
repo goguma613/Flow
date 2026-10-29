@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using Flow.Models;
@@ -524,6 +525,22 @@ internal static partial class Program
         Check("다시 되돌리기", BackupService.Restore(safety.Path), true);
         var again = store.Load();
         Check("바뀐 내용으로 복귀", again.Tasks.Count, 2);
+
+        var memos = new MemoStore(DataStore.Directory, () => true, () => DateTime.Now);
+        var kept = memos.Create("남을 메모\n백업 전 내용")!;
+        var zip = BackupService.Create("memo")!;
+        Check("zip 으로 만듦", System.IO.Path.GetExtension(zip), ".zip");
+        using (var archive = ZipFile.OpenRead(zip))
+            Check("메모가 들어감", archive.Entries.Any(e => e.FullName == "memos/남을 메모.md"), true);
+        Check("목록에 메모 수", BackupService.List().First(e => e.Path == zip).Memos, 1);
+
+        memos.Save(kept.Doc.Id, "남을 메모\n백업 뒤에 고침", kept.Rev);
+        var extra = memos.Create("백업 뒤 메모\n새것")!;
+        Check("zip 되돌리기", BackupService.Restore(zip), true);
+        memos.Scan();
+        Check("메모 내용 되돌아옴", memos.Load(kept.Doc.Id)!.Doc.Body.Contains("백업 전 내용"), true);
+        Check("백업에 없던 메모는 휴지통", memos.Trash().Any(m => m.Id == extra.Doc.Id), true);
+        Check("휴지통은 백업에 안 들어감", ZipFile.OpenRead(BackupService.Create("again")!).Entries.Any(e => e.FullName.Contains("휴지통")), false);
     }
 
     private static void BucketTests()
