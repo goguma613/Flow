@@ -705,6 +705,12 @@
                     <TextBlock Classes="helpline" Text="지운 메모는 휴지통에 30일 동안 남아요." />
                   </StackPanel>
                   <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="휴대폰에서" />
+                    <TextBlock Classes="helpline" Text="메모 탭의 + 로 새로 쓰고, '고치기'로 고쳐요." />
+                    <TextBlock Classes="helpline" Text="… 에서 고정·매일 초기화·모두 풀기·삭제도 돼요." />
+                    <TextBlock Classes="helpline" Text="여기서 같이 고쳤으면 '휴대폰 충돌 사본'으로 따로 남아요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
                     <TextBlock Classes="helphead" Text="단축키" />
                     <Border Classes="helpblock" Margin="0,6,0,0" HorizontalAlignment="Left">
                       <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="Auto,Auto">
