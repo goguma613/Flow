@@ -7,10 +7,18 @@
         Title="{Binding WindowTitle}"
         Icon="/Assets/flow.ico"
         Width="820" Height="600"
-        MinWidth="520" MinHeight="360"
+        MinWidth="560" MinHeight="380"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource PanelBrush}"
+        CanResize="True"
+        WindowDecorations="None"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
         FontFamily="Inter, Malgun Gothic, Segoe UI">
+
+  <Window.Resources>
+    <StreamGeometry x:Key="MaximizeIcon">M 4,4 L 12,4 L 12,12 L 4,12 Z</StreamGeometry>
+    <StreamGeometry x:Key="RestoreIcon">M 4,6.5 L 9.5,6.5 L 9.5,12 L 4,12 Z M 6.5,6.5 L 6.5,4 L 12,4 L 12,9.5 L 9.5,9.5</StreamGeometry>
+  </Window.Resources>
 
   <Window.Styles>
     <!-- 지금 연 메모 줄 -->
@@ -69,245 +77,476 @@
       <Setter Property="Background" Value="Transparent" />
     </Style>
 
-    <!-- 태그 칩(보기만) -->
+    <!-- 창 테두리: 위젯과 같은 둥근 어두운 판. 최대화하면 모서리를 편다. -->
+    <Style Selector="Border.frame">
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="#F217171A" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.frame.maximized">
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="#FA17171A" />
+    </Style>
+
+    <!-- 최대화 단추는 상태에 따라 그림을 바꾼다 -->
+    <Style Selector="Button.maxbutton Path.restore">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.maxbutton.restore Path.restore">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Button.maxbutton.restore Path.maximize">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <!-- 서식 단추: 칩 모양에 작은 기호 -->
+    <Style Selector="Button.format">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="Margin" Value="0,0,2,2" />
+      <Setter Property="Focusable" Value="False" />
+    </Style>
+    <Style Selector="Button.format TextBlock.glyph">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.format:pointerover TextBlock.glyph">
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    </Style>
+    <Style Selector="Button.format Border.box">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="BorderThickness" Value="1.3" />
+      <Setter Property="BorderBrush" Value="{StaticResource TextMutedBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.format:pointerover Border.box">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    </Style>
+
+    <!-- 태그 칩. 본문에만 적힌 태그는 테두리만 두고 흐리게. -->
     <Style Selector="Border.tagchip">
       <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource SurfaceActiveBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="Padding" Value="8,2" />
       <Setter Property="Margin" Value="0,0,5,5" />
+      <Setter Property="MinHeight" Value="24" />
+    </Style>
+    <Style Selector="Border.tagchip TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.tagchip.body">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderSoftBrush}" />
+    </Style>
+    <Style Selector="Border.tagchip.body TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    </Style>
+
+    <!-- 태그 더하기 칸 -->
+    <Style Selector="Border.tagadd">
+      <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderSoftBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="Margin" Value="0,0,5,5" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Width" Value="120" />
+    </Style>
+    <Style Selector="Border.tagadd:focus-within">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentDimBrush}" />
+    </Style>
+    <Style Selector="TextBox.tagbox">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
   </Window.Styles>
 
-  <Grid ColumnDefinitions="260,*">
+  <Panel>
 
-    <!-- ════════ 왼쪽: 검색 · 태그 · 목록 · 휴지통 ════════ -->
-    <Border Grid.Column="0" Background="{StaticResource PanelBrush}"
-            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
-      <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14,14,14,10">
+    <Border Name="Frame" Classes="frame">
+      <Grid RowDefinitions="Auto,*">
 
-        <Border Grid.Row="0" Classes="quickaddshell" Margin="0,0,0,8">
-          <TextBox Classes="quickadd"
-                   PlaceholderText="메모 찾기 — 제목, 본문, #태그"
-                   Text="{Binding Main.MemoSearch}" />
+        <!-- ════════ 제목 줄: 끌어서 옮기고, 두 번 누르면 최대화 ════════ -->
+        <Grid Name="TitleBar" Grid.Row="0" ColumnDefinitions="Auto,*,Auto"
+              Background="Transparent" Height="40" Margin="16,2,8,0">
+          <!-- 위젯 아이콘과 같은 초록 원 체크 -->
+          <Border Width="16" Height="16" CornerRadius="8" Background="{StaticResource AccentBrush}"
+                  VerticalAlignment="Center" IsHitTestVisible="False">
+            <Path Data="{StaticResource CheckIcon}" Width="9" Height="9" Stretch="Uniform"
+                  Stroke="#17171A" StrokeThickness="1.8" StrokeLineCap="Round" StrokeJoin="Round"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <Panel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Center" IsHitTestVisible="False">
+            <TextBlock Text="{Binding BarTitle}" IsVisible="{Binding HasBarTitle}"
+                       FontSize="13" FontWeight="Medium" MaxLines="1" TextTrimming="CharacterEllipsis"
+                       Foreground="{StaticResource TextBodyBrush}" />
+            <TextBlock Text="Flow 메모" IsVisible="{Binding !HasBarTitle}"
+                       FontSize="13" Foreground="{StaticResource TextMutedBrush}" />
+          </Panel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="1" VerticalAlignment="Center">
+            <Button Name="MinimizeButton" Classes="icon" ToolTip.Tip="최소화">
+              <Path Data="{StaticResource MinimizeIcon}" Width="16" Height="16" Stretch="None" />
+            </Button>
+            <Button Name="MaximizeButton" Classes="icon maxbutton" ToolTip.Tip="최대화">
+              <Panel>
+                <Path Classes="maximize" Data="{StaticResource MaximizeIcon}" Width="16" Height="16" Stretch="None" />
+                <Path Classes="restore" Data="{StaticResource RestoreIcon}" Width="16" Height="16" Stretch="None" />
+              </Panel>
+            </Button>
+            <Button Name="CloseButton" Classes="icon danger" ToolTip.Tip="닫기">
+              <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="260,*">
+
+        <!-- ════════ 왼쪽: 검색 · 태그 · 목록 · 휴지통 ════════ -->
+        <Border Grid.Column="0" Background="Transparent"
+                BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="0,0,1,0">
+          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14,4,14,10">
+
+            <Border Grid.Row="0" Classes="quickaddshell" Margin="0,0,0,8">
+              <TextBox Classes="quickadd"
+                       PlaceholderText="메모 찾기 — 제목, 본문, #태그"
+                       Text="{Binding Main.MemoSearch}" />
+            </Border>
+
+            <ItemsControl Grid.Row="1" ItemsSource="{Binding Main.MemoTagChips}"
+                          IsVisible="{Binding Main.HasMemoTags}" Margin="0,0,0,6">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:MemoTagChip">
+                  <Button Classes="chip" Classes.active="{Binding IsActive}"
+                          Content="{Binding Text}" Command="{Binding ToggleCommand}"
+                          HorizontalAlignment="Left" Padding="9,4" Margin="0,0,4,4" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" Padding="6,0">
+              <Panel>
+                <!-- 메모 목록(위젯과 같은 것) -->
+                <StackPanel IsVisible="{Binding !IsTrashView}">
+                  <ItemsControl ItemsSource="{Binding Main.MemoRows}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate DataType="vm:MemoRow">
+                        <Button Classes="row"
+                                Classes.current="{Binding IsCurrent}"
+                                Classes.unreadable="{Binding IsUnreadable}"
+                                Command="{Binding OpenCommand}">
+                          <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                            <TextBlock Classes="title" MaxLines="1" TextWrapping="NoWrap"
+                                       FontSize="13" Text="{Binding Title}" />
+                            <TextBlock Grid.Row="1" Text="{Binding Preview}" FontSize="11"
+                                       MaxLines="1" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource TextMutedBrush}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
+                                        Margin="8,0,0,0" VerticalAlignment="Center">
+                              <TextBlock Text="↻" FontSize="12" IsVisible="{Binding IsDaily}"
+                                         Foreground="{StaticResource TextSecondaryBrush}"
+                                         ToolTip.Tip="매일 초기화" />
+                              <TextBlock Text="📌" FontSize="11" IsVisible="{Binding IsPinned}"
+                                         ToolTip.Tip="고정" />
+                            </StackPanel>
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="empty" IsVisible="{Binding Main.MemosEmpty}"
+                             Text="{Binding ListEmptyText}" />
+                </StackPanel>
+
+                <!-- 휴지통 목록 -->
+                <StackPanel IsVisible="{Binding IsTrashView}">
+                  <ItemsControl ItemsSource="{Binding TrashRows}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate DataType="vm:MemoTrashRow">
+                        <Button Classes="row" Classes.current="{Binding IsSelected}"
+                                Command="{Binding SelectCommand}">
+                          <StackPanel>
+                            <TextBlock Classes="title" MaxLines="1" TextWrapping="NoWrap"
+                                       FontSize="13" Text="{Binding Title}" />
+                            <TextBlock Text="{Binding Preview}" FontSize="11"
+                                       MaxLines="1" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource TextMutedBrush}" />
+                          </StackPanel>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="empty" IsVisible="{Binding TrashEmpty}"
+                             Text="휴지통이 비어 있습니다" />
+                </StackPanel>
+              </Panel>
+            </ScrollViewer>
+
+            <Button Grid.Row="3" Classes="link" Classes.open="{Binding IsTrashView}"
+                    Margin="0,6,0,0" Command="{Binding ToggleTrashCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform"
+                      Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.3"
+                      StrokeLineCap="Round" StrokeJoin="Round" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding TrashLabel}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+          </Grid>
         </Border>
 
-        <ItemsControl Grid.Row="1" ItemsSource="{Binding Main.MemoTagChips}"
-                      IsVisible="{Binding Main.HasMemoTags}" Margin="0,0,0,6">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel Orientation="Horizontal" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate DataType="vm:MemoTagChip">
-              <Button Classes="chip" Classes.active="{Binding IsActive}"
-                      Content="{Binding Text}" Command="{Binding ToggleCommand}"
-                      HorizontalAlignment="Left" Padding="9,4" Margin="0,0,4,4" />
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
 
-        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" Padding="6,0">
-          <Panel>
-            <!-- 메모 목록(위젯과 같은 것) -->
-            <StackPanel IsVisible="{Binding !IsTrashView}">
-              <ItemsControl ItemsSource="{Binding Main.MemoRows}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate DataType="vm:MemoRow">
-                    <Button Classes="row"
-                            Classes.current="{Binding IsCurrent}"
-                            Classes.unreadable="{Binding IsUnreadable}"
-                            Command="{Binding OpenCommand}">
-                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                        <TextBlock Classes="title" MaxLines="1" TextWrapping="NoWrap"
-                                   FontSize="13" Text="{Binding Title}" />
-                        <TextBlock Grid.Row="1" Text="{Binding Preview}" FontSize="11"
-                                   MaxLines="1" TextTrimming="CharacterEllipsis"
-                                   Foreground="{StaticResource TextMutedBrush}" />
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
-                                    Margin="8,0,0,0" VerticalAlignment="Center">
-                          <TextBlock Text="↻" FontSize="12" IsVisible="{Binding IsDaily}"
-                                     Foreground="{StaticResource TextSecondaryBrush}"
-                                     ToolTip.Tip="매일 초기화" />
-                          <TextBlock Text="📌" FontSize="11" IsVisible="{Binding IsPinned}"
-                                     ToolTip.Tip="고정" />
+          <!-- ════════ 오른쪽: 도구 줄 · 띠 · 제목 · 태그 · 본문 ════════ -->
+          <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,*">
+
+            <!-- 서식 단추(왼쪽) · 쓰기/읽기 · 고정 · 삭제(오른쪽). 좁으면 서식 단추가 두 줄이 된다. -->
+            <DockPanel Grid.Row="0" Margin="22,4,16,4" MinHeight="30">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+                <Button Classes="chip" Content="되살리기" Padding="12,5"
+                        IsVisible="{Binding ShowRestore}" Command="{Binding RestoreCommand}" />
+                <Button Classes="chip" Content="{Binding ModeText}" Padding="12,5"
+                        IsVisible="{Binding ShowToolbar}" Command="{Binding ToggleEditCommand}"
+                        ToolTip.Tip="Ctrl+E" />
+                <Button Classes="icon" Classes.pinned="{Binding IsPinned}"
+                        IsVisible="{Binding ShowToolbar}" Command="{Binding TogglePinCommand}"
+                        ToolTip.Tip="고정">
+                  <Path Data="{StaticResource PinIcon}" Width="13" Height="13" Stretch="Uniform" />
+                </Button>
+                <Button Classes="icon danger"
+                        IsVisible="{Binding ShowToolbar}" Command="{Binding DeleteCommand}"
+                        ToolTip.Tip="삭제 (휴지통으로)">
+                  <Path Data="{StaticResource TrashIcon}" Width="14" Height="14" Stretch="Uniform" />
+                </Button>
+              </StackPanel>
+
+              <Panel>
+                <TextBlock Classes="meta" Text="휴지통 · 읽기 전용" IsVisible="{Binding IsTrashView}" />
+                <WrapPanel Orientation="Horizontal" IsVisible="{Binding ShowToolbar}" Margin="0,0,8,0">
+                  <Button Classes="chip format" Tag="Heading1" Click="OnFormatClick"
+                          ToolTip.Tip="큰 소제목 (# ) · 쓰는 중이면 커서 줄을 바꾸고, 다시 누르면 풉니다">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <TextBlock Classes="glyph" Text="#" />
+                      <TextBlock Text="큰 소제목" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="chip format" Tag="Heading2" Click="OnFormatClick"
+                          ToolTip.Tip="소제목 (## ) · 쓰는 중이면 커서 줄을 바꾸고, 다시 누르면 풉니다">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <TextBlock Classes="glyph" Text="##" />
+                      <TextBlock Text="소제목" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="chip format" Tag="Numbered" Click="OnFormatClick"
+                          ToolTip.Tip="번호 목록 (1. ) · 위 번호에 이어 매깁니다">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <TextBlock Classes="glyph" Text="1." />
+                      <TextBlock Text="번호" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="chip format" Tag="Bullet" Click="OnFormatClick"
+                          ToolTip.Tip="점 목록 (- )">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <TextBlock Classes="glyph" Text="•" />
+                      <TextBlock Text="점" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="chip format" Tag="Check" Click="OnFormatClick"
+                          ToolTip.Tip="체크 항목 ([ ] ) · 읽기 화면에서 눌러 체크합니다">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <Border Classes="box" />
+                      <TextBlock Text="체크" />
+                    </StackPanel>
+                  </Button>
+                </WrapPanel>
+              </Panel>
+            </DockPanel>
+
+            <!-- 충돌·지워짐·저장 실패 띠 -->
+            <Border Grid.Row="1" IsVisible="{Binding HasBanner}"
+                    Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
+                    CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding Banner}" FontSize="13" TextWrapping="Wrap"
+                           Foreground="#F3D48B" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="icon" Width="22" Height="22" Margin="8,0,0,0"
+                        Command="{Binding DismissBannerCommand}" ToolTip.Tip="닫기">
+                  <Path Data="{StaticResource CloseIcon}" Width="9" Height="9" Stretch="Uniform" />
+                </Button>
+              </Grid>
+            </Border>
+
+            <!-- 읽기 모드 제목. 누르면 쓰기 모드로. -->
+            <TextBlock Name="ReadTitleText" Grid.Row="2" Text="{Binding ReadTitle}" IsVisible="{Binding ShowReader}"
+                       FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
+                       TextTrimming="CharacterEllipsis" Margin="28,6,28,0"
+                       Foreground="{StaticResource TextPrimaryBrush}" />
+
+            <!-- 태그 칸. 머리말 태그는 ✕ 로 빼고, 본문에만 적힌 #태그는 흐리게 보인다. -->
+            <StackPanel Grid.Row="3" IsVisible="{Binding ShowTagField}" Margin="28,10,28,0" Spacing="2">
+              <WrapPanel Orientation="Horizontal">
+                <ItemsControl ItemsSource="{Binding TagChips}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:MemoTagChipView">
+                      <Border Classes="tagchip" Classes.body="{Binding IsBodyOnly}" ToolTip.Tip="{Binding Tip}">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                          <TextBlock Text="{Binding Text}" />
+                          <Button Classes="icon" Width="16" Height="16" CornerRadius="4" Margin="0,0,-4,0"
+                                  IsVisible="{Binding Removable}" Command="{Binding RemoveCommand}"
+                                  ToolTip.Tip="태그 빼기">
+                            <Path Data="{StaticResource CloseIcon}" Width="7" Height="7" Stretch="Uniform" />
+                          </Button>
                         </StackPanel>
-                      </Grid>
-                    </Button>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-              <TextBlock Classes="empty" IsVisible="{Binding Main.MemosEmpty}"
-                         Text="{Binding ListEmptyText}" />
-            </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Classes="tagadd" IsVisible="{Binding CanEditTags}">
+                  <TextBox Name="TagBox" Classes="quickadd tagbox" PlaceholderText="+ 태그 추가"
+                           Text="{Binding TagInput}" ToolTip.Tip="이름을 적고 Enter" />
+                </Border>
+              </WrapPanel>
 
-            <!-- 휴지통 목록 -->
-            <StackPanel IsVisible="{Binding IsTrashView}">
-              <ItemsControl ItemsSource="{Binding TrashRows}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate DataType="vm:MemoTrashRow">
-                    <Button Classes="row" Classes.current="{Binding IsSelected}"
-                            Command="{Binding SelectCommand}">
-                      <StackPanel>
-                        <TextBlock Classes="title" MaxLines="1" TextWrapping="NoWrap"
-                                   FontSize="13" Text="{Binding Title}" />
-                        <TextBlock Text="{Binding Preview}" FontSize="11"
-                                   MaxLines="1" TextTrimming="CharacterEllipsis"
-                                   Foreground="{StaticResource TextMutedBrush}" />
-                      </StackPanel>
-                    </Button>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-              <TextBlock Classes="empty" IsVisible="{Binding TrashEmpty}"
-                         Text="휴지통이 비어 있습니다" />
-            </StackPanel>
-          </Panel>
-        </ScrollViewer>
-
-        <Button Grid.Row="3" Classes="link" Classes.open="{Binding IsTrashView}"
-                Margin="0,6,0,0" Command="{Binding ToggleTrashCommand}">
-          <StackPanel Orientation="Horizontal" Spacing="7">
-            <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform"
-                  Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.3"
-                  StrokeLineCap="Round" StrokeJoin="Round" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding TrashLabel}" VerticalAlignment="Center" />
-          </StackPanel>
-        </Button>
-      </Grid>
-    </Border>
-
-    <!-- ════════ 오른쪽: 도구 줄 · 띠 · 본문 ════════ -->
-    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
-
-      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="22,12,16,4" MinHeight="30">
-        <TextBlock Classes="meta" Text="휴지통 · 읽기 전용" IsVisible="{Binding ShowRestore}" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-          <Button Classes="chip" Content="되살리기" Padding="12,5"
-                  IsVisible="{Binding ShowRestore}" Command="{Binding RestoreCommand}" />
-          <Button Classes="chip" Content="{Binding ModeText}" Padding="12,5"
-                  IsVisible="{Binding ShowToolbar}" Command="{Binding ToggleEditCommand}"
-                  ToolTip.Tip="Ctrl+E" />
-          <Button Classes="icon" Classes.pinned="{Binding IsPinned}"
-                  IsVisible="{Binding ShowToolbar}" Command="{Binding TogglePinCommand}"
-                  ToolTip.Tip="고정">
-            <Path Data="{StaticResource PinIcon}" Width="13" Height="13" Stretch="Uniform" />
-          </Button>
-          <Button Classes="icon danger"
-                  IsVisible="{Binding ShowToolbar}" Command="{Binding DeleteCommand}"
-                  ToolTip.Tip="삭제 (휴지통으로)">
-            <Path Data="{StaticResource TrashIcon}" Width="14" Height="14" Stretch="Uniform" />
-          </Button>
-        </StackPanel>
-      </Grid>
-
-      <!-- 충돌·지워짐·저장 실패 띠 -->
-      <Border Grid.Row="1" IsVisible="{Binding HasBanner}"
-              Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
-              CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
-        <Grid ColumnDefinitions="*,Auto">
-          <TextBlock Text="{Binding Banner}" FontSize="13" TextWrapping="Wrap"
-                     Foreground="#F3D48B" VerticalAlignment="Center" />
-          <Button Grid.Column="1" Classes="icon" Width="22" Height="22" Margin="8,0,0,0"
-                  Command="{Binding DismissBannerCommand}" ToolTip.Tip="닫기">
-            <Path Data="{StaticResource CloseIcon}" Width="9" Height="9" Stretch="Uniform" />
-          </Button>
-        </Grid>
-      </Border>
-
-      <Panel Grid.Row="2">
-
-        <TextBlock Classes="empty" IsVisible="{Binding ShowEmptyPane}"
-                   Text="{Binding EmptyPaneText}" Margin="0,60,0,0" />
-
-        <!-- 읽기 모드. 글 자리를 누르면 쓰기 모드로 간다(체크 칸은 제외). -->
-        <Panel Name="ReadArea" Background="Transparent" IsVisible="{Binding ShowReader}">
-          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="28,6,28,28">
-              <TextBlock Text="{Binding ReadTitle}" FontSize="22" FontWeight="SemiBold"
-                         TextWrapping="Wrap" Foreground="{StaticResource TextPrimaryBrush}" />
-
-              <ItemsControl ItemsSource="{Binding ReadTags}" IsVisible="{Binding HasReadTags}"
-                            Margin="0,10,0,0">
+              <!-- 적는 동안 맞는 기존 태그 -->
+              <ItemsControl ItemsSource="{Binding TagSuggestions}" IsVisible="{Binding HasTagSuggestions}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
                     <WrapPanel Orientation="Horizontal" />
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate DataType="vm:MemoTagView">
-                    <Border Classes="tagchip">
-                      <TextBlock Text="{Binding Text}" FontSize="12"
-                                 Foreground="{StaticResource AccentBrush}" />
-                    </Border>
+                  <DataTemplate DataType="vm:MemoTagSuggestion">
+                    <Button Classes="chip" Content="{Binding Text}" Command="{Binding AddCommand}"
+                            HorizontalAlignment="Left" Padding="9,4" Margin="0,0,4,4"
+                            ToolTip.Tip="이 태그 붙이기" />
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
 
-              <ItemsControl ItemsSource="{Binding ReadLines}" Margin="0,12,0,0">
-                <ItemsControl.ItemTemplate>
-                  <views:MemoLineTemplates>
-
-                    <DataTemplate x:Key="Blank" DataType="vm:MemoLineView">
-                      <Border Height="11" />
-                    </DataTemplate>
-
-                    <DataTemplate x:Key="Text" DataType="vm:MemoLineView">
-                      <TextBlock Classes="memotext" Text="{Binding Text}" Margin="0,1" />
-                    </DataTemplate>
-
-                    <DataTemplate x:Key="Heading1" DataType="vm:MemoLineView">
-                      <TextBlock Text="{Binding Text}" FontSize="18" FontWeight="Bold"
-                                 TextWrapping="Wrap" Margin="0,10,0,4"
-                                 Foreground="{StaticResource TextPrimaryBrush}" />
-                    </DataTemplate>
-
-                    <DataTemplate x:Key="Heading2" DataType="vm:MemoLineView">
-                      <TextBlock Text="{Binding Text}" FontSize="15" FontWeight="Bold"
-                                 TextWrapping="Wrap" Margin="0,8,0,3"
-                                 Foreground="{StaticResource TextPrimaryBrush}" />
-                    </DataTemplate>
-
-                    <DataTemplate x:Key="Numbered" DataType="vm:MemoLineView">
-                      <Grid ColumnDefinitions="Auto,*" Margin="0,1">
-                        <TextBlock Classes="memomarker" Text="{Binding Marker}" Margin="0,0,6,0" />
-                        <TextBlock Grid.Column="1" Classes="memotext" Text="{Binding Text}" />
-                      </Grid>
-                    </DataTemplate>
-
-                    <DataTemplate x:Key="Bullet" DataType="vm:MemoLineView">
-                      <Grid ColumnDefinitions="Auto,*" Margin="0,1">
-                        <TextBlock Classes="memomarker" Text="•" MinWidth="16" Margin="4,0,4,0" />
-                        <TextBlock Grid.Column="1" Classes="memotext" Text="{Binding Text}" />
-                      </Grid>
-                    </DataTemplate>
-
-                    <DataTemplate x:Key="Check" DataType="vm:MemoLineView">
-                      <Button Classes="row memocheck" Classes.done="{Binding Checked}"
-                              Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}">
-                        <Grid ColumnDefinitions="Auto,*">
-                          <Border Classes="ring">
-                            <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
-                          </Border>
-                          <TextBlock Grid.Column="1" Classes="title" Text="{Binding Text}"
-                                     Margin="10,0,0,0" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-
-                  </views:MemoLineTemplates>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+              <TextBlock Text="{Binding TagHint}" IsVisible="{Binding HasTagHint}"
+                         FontSize="11" Foreground="#F3D48B" Margin="0,0,0,4" />
             </StackPanel>
-          </ScrollViewer>
-        </Panel>
 
-        <!-- 쓰기 모드. 적은 글 그대로. -->
-        <TextBox Name="Writer" Classes="memoeditor" IsVisible="{Binding ShowWriter}"
-                 Text="{Binding EditText}" Margin="28,6,20,16" />
+            <Panel Grid.Row="4">
 
-      </Panel>
-    </Grid>
-  </Grid>
+              <TextBlock Classes="empty" IsVisible="{Binding ShowEmptyPane}"
+                         Text="{Binding EmptyPaneText}" Margin="0,60,0,0" />
+
+              <!-- 읽기 모드. 글 자리를 누르면 쓰기 모드로 간다(체크 칸은 제외). -->
+              <Panel Name="ReadArea" Background="Transparent" IsVisible="{Binding ShowReader}">
+                <!-- 오른쪽 크기 조절 띠(5px)를 비켜 스크롤바를 둔다 -->
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" Margin="0,0,6,0">
+                  <StackPanel Margin="28,6,28,28">
+                    <ItemsControl ItemsSource="{Binding ReadLines}">
+                  <ItemsControl.ItemTemplate>
+                    <views:MemoLineTemplates>
+
+                      <DataTemplate x:Key="Blank" DataType="vm:MemoLineView">
+                        <Border Height="11" />
+                      </DataTemplate>
+
+                      <DataTemplate x:Key="Text" DataType="vm:MemoLineView">
+                        <TextBlock Classes="memotext" Text="{Binding Text}" Margin="0,1" />
+                      </DataTemplate>
+
+                      <DataTemplate x:Key="Heading1" DataType="vm:MemoLineView">
+                        <TextBlock Text="{Binding Text}" FontSize="18" FontWeight="Bold"
+                                   TextWrapping="Wrap" Margin="0,10,0,4"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                      </DataTemplate>
+
+                      <DataTemplate x:Key="Heading2" DataType="vm:MemoLineView">
+                        <TextBlock Text="{Binding Text}" FontSize="15" FontWeight="Bold"
+                                   TextWrapping="Wrap" Margin="0,8,0,3"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                      </DataTemplate>
+
+                      <DataTemplate x:Key="Numbered" DataType="vm:MemoLineView">
+                        <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                          <TextBlock Classes="memomarker" Text="{Binding Marker}" Margin="0,0,6,0" />
+                          <TextBlock Grid.Column="1" Classes="memotext" Text="{Binding Text}" />
+                        </Grid>
+                      </DataTemplate>
+
+                      <DataTemplate x:Key="Bullet" DataType="vm:MemoLineView">
+                        <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                          <TextBlock Classes="memomarker" Text="•" MinWidth="16" Margin="4,0,4,0" />
+                          <TextBlock Grid.Column="1" Classes="memotext" Text="{Binding Text}" />
+                        </Grid>
+                      </DataTemplate>
+
+                      <DataTemplate x:Key="Check" DataType="vm:MemoLineView">
+                        <Button Classes="row memocheck" Classes.done="{Binding Checked}"
+                                Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}">
+                          <Grid ColumnDefinitions="Auto,*">
+                            <Border Classes="ring">
+                              <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Grid.Column="1" Classes="title" Text="{Binding Text}"
+                                       Margin="10,0,0,0" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+
+                    </views:MemoLineTemplates>
+                  </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </ScrollViewer>
+              </Panel>
+
+              <!-- 쓰기 모드. 적은 글 그대로. -->
+              <TextBox Name="Writer" Classes="memoeditor" IsVisible="{Binding ShowWriter}"
+                       Text="{Binding EditText}" Margin="28,8,20,16" />
+
+            </Panel>
+          </Grid>
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- ════════ 크기 조절 손잡이: 네 변과 네 모서리. 최대화하면 숨긴다. ════════ -->
+    <Panel Name="Grips">
+      <Border Name="GripTop" Classes="grip" Height="5" VerticalAlignment="Top"
+              Margin="14,0,14,0" Cursor="SizeNorthSouth" />
+      <Border Name="GripBottom" Classes="grip" Height="5" VerticalAlignment="Bottom"
+              Margin="14,0,14,0" Cursor="SizeNorthSouth" />
+      <Border Name="GripLeft" Classes="grip" Width="5" HorizontalAlignment="Left"
+              Margin="0,14,0,14" Cursor="SizeWestEast" />
+      <Border Name="GripRight" Classes="grip" Width="5" HorizontalAlignment="Right"
+              Margin="0,14,0,14" Cursor="SizeWestEast" />
+      <Border Name="GripTopLeft" Classes="grip" Width="12" Height="12"
+              HorizontalAlignment="Left" VerticalAlignment="Top" Cursor="TopLeftCorner" />
+      <Border Name="GripTopRight" Classes="grip" Width="12" Height="12"
+              HorizontalAlignment="Right" VerticalAlignment="Top" Cursor="TopRightCorner" />
+      <Border Name="GripBottomLeft" Classes="grip" Width="14" Height="14"
+              HorizontalAlignment="Left" VerticalAlignment="Bottom" Cursor="BottomLeftCorner" />
+      <Border Name="GripBottomRight" Classes="grip" Width="18" Height="18"
+              HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="BottomRightCorner">
+        <Path Data="{StaticResource GripIcon}" Width="11" Height="11"
+              Stretch="Uniform" Margin="0,0,4,4"
+              HorizontalAlignment="Right" VerticalAlignment="Bottom" />
+      </Border>
+    </Panel>
+  </Panel>
 </Window>

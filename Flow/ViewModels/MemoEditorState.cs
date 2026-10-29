@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Flow.Models;
 using Flow.Services;
@@ -34,6 +35,9 @@ public sealed class MemoEditorState
     public bool IsEditing { get; set; }
     public bool Pinned { get; private set; }
 
+    /// <summary>머리말 tags(# 없이). 본문 #태그는 들어 있지 않다.</summary>
+    public IReadOnlyList<string> Tags { get; private set; } = Array.Empty<string>();
+
     /// <summary>충돌·지워짐·저장 실패 안내. null 이면 띠를 숨긴다.</summary>
     public string? Banner { get; private set; }
 
@@ -62,6 +66,7 @@ public sealed class MemoEditorState
             CurrentId = null;
             Body = "";
             Pinned = false;
+            Tags = Array.Empty<string>();
             _baseRev = null;
             // 잠겼거나 덜 받아진 파일은 목록에 남아 있다. 지워졌다고 하면 안 된다.
             Banner = _store.Memos.Any(m => m.Id == id) ? UnreadableBanner : DeletedBanner;
@@ -71,6 +76,7 @@ public sealed class MemoEditorState
         CurrentId = id;
         Body = Normalize(file.Doc.Body);
         Pinned = file.Doc.Pinned;
+        Tags = file.Doc.Tags ?? Array.Empty<string>();
         _baseRev = file.Rev;
         return pre;
     }
@@ -84,6 +90,7 @@ public sealed class MemoEditorState
         CurrentId = null;
         Body = "";
         Pinned = false;
+        Tags = Array.Empty<string>();
         _baseRev = null;
         Banner = null;
     }
@@ -127,6 +134,7 @@ public sealed class MemoEditorState
                 CurrentId = result.CopyId;
                 _baseRev = MemoFormat.RevOf(Body);
                 Pinned = false;
+                Tags = Array.Empty<string>();
                 IsDirty = false;
                 Banner = MissingBanner;
                 break;
@@ -169,6 +177,16 @@ public sealed class MemoEditorState
         return true;
     }
 
+    /// <summary>머리말 tags 를 바꾼다. 본문 판은 그대로라 저장 안 한 글과 다투지 않는다(저장은 머리말을 지킨다).</summary>
+    public bool SetTags(IReadOnlyList<string> tags)
+    {
+        if (CurrentId is not { } id) return false;
+        if (!_store.SetTags(id, tags)) return false;
+        Tags = tags.Select(MemoFormat.NormalizeTag).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return true;
+    }
+
     /// <summary>
     /// 휴지통으로 보낸다. 쓰던 글을 먼저 저장해 휴지통에 마지막 글이 남게 한다.
     /// 그 저장이 충돌이었으면 원본을 지우되 충돌 띠는 남긴다(내 글은 사본에 있다).
@@ -184,6 +202,7 @@ public sealed class MemoEditorState
         CurrentId = null;
         Body = "";
         Pinned = false;
+        Tags = Array.Empty<string>();
         _baseRev = null;
         Banner = pre?.Outcome == SaveOutcome.Conflict ? ConflictBanner : null;
         return true;
@@ -212,6 +231,7 @@ public sealed class MemoEditorState
 
         Body = Normalize(file.Doc.Body);
         Pinned = file.Doc.Pinned;
+        Tags = file.Doc.Tags ?? Array.Empty<string>();
         _baseRev = file.Rev;
         if (Banner == DeletedBanner) Banner = null;
     }

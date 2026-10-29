@@ -21,6 +21,7 @@
     <Compile Include="../../Flow/Services/ReminderEngine.cs" />
     <Compile Include="../../Flow/Services/QuickAddParser.cs" />
     <Compile Include="../../Flow/Services/HotKeyCombo.cs" />
+    <Compile Include="../../Flow/Services/UpdatePolicy.cs" />
     <Compile Include="PhoneLinkTests.cs" />
     <Compile Include="../../Flow/Models/PhoneLink.cs" />
     <Compile Include="../../Flow/Services/ItemFactory.cs" />
@@ -31,6 +32,7 @@
     <Compile Include="../../Flow/Services/MemoFormat.cs" />
     <Compile Include="../../Flow/Services/MemoStore.cs" />
     <Compile Include="../../Flow/Services/MemoQuery.cs" />
+    <Compile Include="../../Flow/Services/MemoEditing.cs" />
     <Compile Include="../../Flow/ViewModels/MemoEditorState.cs" />
   </ItemGroup>
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.IO;
@@ -23,11 +24,21 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>저장에 실패하면 이 간격으로 다시 해 본다.</summary>
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
 
+    /// <summary>태그 칸 아래 짧은 안내가 떠 있는 시간.</summary>
+    private static readonly TimeSpan TagHintDelay = TimeSpan.FromSeconds(4);
+
+    /// <summary>태그를 적는 동안 보여 줄 기존 태그 수.</summary>
+    private const int MaxTagSuggestions = 6;
+
     private const string AppTitle = "Flow 메모";
 
     private readonly MemoEditorState _state;
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _retryTimer;
+    private readonly DispatcherTimer _tagHintTimer;
+
+    /// <summary>태그 칩을 마지막으로 그린 내용. 같으면 다시 만들지 않는다.</summary>
+    private string? _renderedTags;
 
     /// <summary>코드가 EditText 를 맞추는 동안에는 그것을 '입력'으로 치지 않는다.</summary>
     private bool _syncing;
@@ -44,7 +55,15 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _windowTitle = AppTitle;
 
     [ObservableProperty] private string _readTitle = "";
-    [ObservableProperty] private bool _hasReadTags;
+    [ObservableProperty] private string _barTitle = "";
+    [ObservableProperty] private bool _hasBarTitle;
+
+    [ObservableProperty] private bool _showTagField;
+    [ObservableProperty] private bool _canEditTags;
+    [ObservableProperty] private string _tagInput = "";
+    [ObservableProperty] private bool _hasTagSuggestions;
+    [ObservableProperty] private string? _tagHint;
+    [ObservableProperty] private bool _hasTagHint;
 
     [ObservableProperty] private bool _isTrashView;
     [ObservableProperty] private string _trashLabel = "휴지통";
@@ -83,6 +102,14 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
             Flush();
         };
 
+        _tagHintTimer = new DispatcherTimer { Interval = TagHintDelay };
+        _tagHintTimer.Tick += (_, _) =>
+        {
+            _tagHintTimer.Stop();
+            TagHint = null;
+            HasTagHint = false;
+        };
+
         Main.MemoRows.CollectionChanged += OnRowsChanged;
         RefreshTrash();
         Sync();
@@ -93,7 +120,14 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>읽기 모드 줄들. 제목 줄은 빼고 ReadTitle 로 따로 보인다.</summary>
     public ObservableCollection<MemoLineView> ReadLines { get; } = [];
 
-    public ObservableCollection<MemoTagView> ReadTags { get; } = [];
+    /// <summary>제목 아래 태그 칸의 칩. 머리말 태그(✕ 로 뺄 수 있음)와 본문에만 있는 #태그.</summary>
+    public ObservableCollection<MemoTagChipView> TagChips { get; } = [];
+
+    /// <summary>태그를 적는 동안 보여 주는 기존 태그들.</summary>
+    public ObservableCollection<MemoTagSuggestion> TagSuggestions { get; } = [];
+
+    /// <summary>열린 메모의 지금 본문(쓰던 글 포함). 읽기 모드 서식 단추가 쓴다.</summary>
+    public string Body => _state.Body;
     public ObservableCollection<MemoTrashRow> TrashRows { get; } = [];
 
     /// <summary>저장하지 못한 글이 남아 있는지. 창을 닫을 때 본다.</summary>
@@ -126,6 +160,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         }
 
         _saveTimer.Stop();
+        TagInput = "";
         // 앞 메모를 저장한 결과(충돌 사본·새 메모)가 목록에 바로 보이도록 AfterSave 로 넘긴다.
         var pre = _state.Open(id);
         if (_state.CurrentId == id || !_state.IsDirty)
@@ -318,6 +353,118 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         Sync();
     }
 
+    // ───────────────────────── 태그 칸
+
+    /// <summary>태그 입력칸에서 Enter.</summary>
+    public void CommitTagInput() => AddTag(TagInput);
+
+    /// <summary>
+    /// 머리말 태그를 하나 더한다. 저장 안 한 본문이 있으면 먼저 저장해, 머리말 쓰기와 본문 쓰기가 엇갈리지 않게 한다.
+    /// 이름이 잘못됐으면 붙이지 않고 짧게 알린다.
+    /// </summary>
+    public void AddTag(string raw)
+    {
+        if (!CanEditTags || string.IsNullOrWhiteSpace(raw)) return;
+
+        var name = MemoFormat.NormalizeTag(raw);
+        if (name is null)
+        {
+            ShowTagHint("태그에는 띄어쓰기·#·쉼표를 넣을 수 없습니다");
+            return;
+        }
+
+        if (_state.Tags.Any(t => string.Equals(t, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            TagInput = "";
+            return;
+        }
+
+        if (!FlushForTags()) return;
+        if (_state.SetTags(_state.Tags.Append(name).ToList())) TagInput = "";
+        else ShowTagHint("태그를 저장하지 못했습니다");
+        AfterTagsChanged();
+    }
+
+    public void RemoveTag(string name)
+    {
+        if (!CanEditTags) return;
+        if (!FlushForTags()) return;
+
+        var rest = _state.Tags.Where(t => !string.Equals(t, name, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (!_state.SetTags(rest)) ShowTagHint("태그를 저장하지 못했습니다");
+        AfterTagsChanged();
+    }
+
+    /// <summary>쓰던 글을 먼저 저장한다. 못 했으면 태그는 건드리지 않는다.</summary>
+    private bool FlushForTags()
+    {
+        if (!_state.IsDirty) return true;
+        Flush();
+        if (!_state.IsDirty && _state.CurrentId is not null) return true;
+        ShowTagHint("글을 저장하지 못해 태그를 바꾸지 않았습니다");
+        return false;
+    }
+
+    private void AfterTagsChanged()
+    {
+        Main.RefreshMemoList();
+        Sync();
+        UpdateTagSuggestions();
+    }
+
+    private void ShowTagHint(string message)
+    {
+        TagHint = message;
+        HasTagHint = true;
+        _tagHintTimer.Stop();
+        _tagHintTimer.Start();
+    }
+
+    partial void OnTagInputChanged(string value) => UpdateTagSuggestions();
+
+    /// <summary>적는 글로 시작하는 기존 태그를 먼저, 그다음 글이 들어 있는 것. 이 메모에 이미 있는 것은 뺀다.</summary>
+    private void UpdateTagSuggestions()
+    {
+        TagSuggestions.Clear();
+        var typed = (TagInput ?? "").Trim().TrimStart('#').Trim();
+        if (CanEditTags && typed.Length > 0)
+        {
+            var have = new HashSet<string>(_state.Tags.Concat(MemoFormat.TagsOf(_state.Body)), StringComparer.OrdinalIgnoreCase);
+            var all = MemoQuery.AllTags(Main.Memos.Memos).Where(t => !have.Contains(t)).ToList();
+            var picks = all.Where(t => t.StartsWith(typed, StringComparison.CurrentCultureIgnoreCase))
+                .Concat(all.Where(t => !t.StartsWith(typed, StringComparison.CurrentCultureIgnoreCase)
+                                       && t.Contains(typed, StringComparison.CurrentCultureIgnoreCase)))
+                .Take(MaxTagSuggestions);
+            foreach (var tag in picks) TagSuggestions.Add(new MemoTagSuggestion(tag, this));
+        }
+        HasTagSuggestions = TagSuggestions.Count > 0;
+    }
+
+    /// <summary>제목 아래 칩을 다시 그린다. 쓰는 중에는 저장(1초)마다 본문 #태그를 따라간다.</summary>
+    private void RefreshTagChips()
+    {
+        var chips = new List<(string Name, bool Removable, bool BodyOnly)>();
+        if (IsTrashView)
+        {
+            if (SelectedTrash is { } trash) chips.AddRange(trash.Tags.Select(t => (t, false, false)));
+        }
+        else if (HasMemo)
+        {
+            chips.AddRange(_state.Tags.Select(t => (t, true, false)));
+            var header = new HashSet<string>(_state.Tags, StringComparer.OrdinalIgnoreCase);
+            chips.AddRange(MemoFormat.TagsOf(_state.Body)
+                .Where(t => header.Add(t))
+                .Select(t => (t, false, true)));
+        }
+
+        var key = string.Join("\n", chips.Select(c => (c.Removable ? "h:" : c.BodyOnly ? "b:" : "t:") + c.Name));
+        if (key == _renderedTags) return;
+        _renderedTags = key;
+
+        TagChips.Clear();
+        foreach (var (name, removable, bodyOnly) in chips) TagChips.Add(new MemoTagChipView(name, removable, bodyOnly, this));
+    }
+
     public void ToggleCheck(int lineIndex)
     {
         if (IsTrashView || IsEditing) return;
@@ -350,10 +497,15 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
             _renderedBody = _state.Body;
         }
 
-        WindowTitle = HasMemo ? MemoFormat.TitleOf(_state.Body) + " — " + AppTitle : AppTitle;
+        WindowTitle = HasMemo ? DisplayTitle(_state.Body) + " — " + AppTitle : AppTitle;
+        BarTitle = IsTrashView
+            ? (SelectedTrash is { } shown ? StripHeading(shown.Title) + " · 휴지통" : "휴지통")
+            : HasMemo ? DisplayTitle(_state.Body) : "";
+        HasBarTitle = BarTitle.Length > 0;
         ModeText = IsEditing ? "읽기" : "쓰기";
 
         MarkCurrentRows();
+        RefreshTagChips();
         UpdatePane();
     }
 
@@ -364,10 +516,23 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         ShowWriter = !IsTrashView && HasMemo && IsEditing;
         ShowReader = IsTrashView ? SelectedTrash is not null : HasMemo && !IsEditing;
         ShowEmptyPane = !ShowReader && !ShowWriter;
+        CanEditTags = !IsTrashView && HasMemo;
+        ShowTagField = IsTrashView ? SelectedTrash is not null && TagChips.Count > 0 : HasMemo;
         EmptyPaneText = IsTrashView
             ? (TrashRows.Count == 0 ? "휴지통이 비어 있습니다" : "왼쪽에서 되살릴 메모를 고르세요")
             : "왼쪽에서 메모를 고르세요";
         ListEmptyText = Main.Memos.Memos.Count == 0 ? "아직 메모가 없습니다" : "찾는 메모가 없습니다";
+    }
+
+    /// <summary>제목 줄이 소제목(# · ##)이면 기호를 뗀 글. 읽기 모드 제목과 같다.</summary>
+    private static string DisplayTitle(string body) => StripHeading(MemoFormat.TitleOf(body));
+
+    private static string StripHeading(string title)
+    {
+        var line = MemoFormat.Classify(0, title);
+        return line.Kind is MemoLineKind.Heading1 or MemoLineKind.Heading2 && line.Text.Trim().Length > 0
+            ? line.Text.Trim()
+            : title;
     }
 
     /// <summary>읽기 모드 화면을 본문으로 다시 만든다. 첫 비어 있지 않은 줄은 제목으로 따로 보인다.</summary>
@@ -382,10 +547,6 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
             { Kind: MemoLineKind.Heading1 or MemoLineKind.Heading2 } => titleLine.Text.Trim(),
             _ => MemoFormat.TitleOf(body),
         };
-
-        ReadTags.Clear();
-        foreach (var tag in MemoFormat.TagsOf(body)) ReadTags.Add(new MemoTagView("#" + tag));
-        HasReadTags = ReadTags.Count > 0;
 
         ReadLines.Clear();
         var started = false;
@@ -443,6 +604,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     {
         _saveTimer.Stop();
         _retryTimer.Stop();
+        _tagHintTimer.Stop();
         Main.MemoRows.CollectionChanged -= OnRowsChanged;
         foreach (var row in Main.MemoRows) row.IsCurrent = false;
     }
@@ -480,10 +642,30 @@ public sealed partial class MemoLineView : ObservableObject
     }
 }
 
-/// <summary>제목 아래 태그 칩 하나.</summary>
-public sealed class MemoTagView(string text)
+/// <summary>
+/// 태그 칸의 칩 하나. 머리말 태그는 ✕ 로 뺄 수 있다.
+/// 본문에만 적힌 #태그는 본문을 고쳐야 빠지므로 ✕ 없이 흐리게 보인다.
+/// </summary>
+public sealed partial class MemoTagChipView(string name, bool removable, bool bodyOnly, MemoEditorViewModel owner)
+    : ObservableObject
 {
-    public string Text { get; } = text;
+    public string Name { get; } = name;
+    public string Text { get; } = "#" + name;
+    public bool Removable { get; } = removable;
+    public bool IsBodyOnly { get; } = bodyOnly;
+    public string? Tip { get; } = bodyOnly ? "본문에 적힌 태그" : null;
+
+    [RelayCommand]
+    private void Remove() => owner.RemoveTag(Name);
+}
+
+/// <summary>태그를 적는 동안 보이는 기존 태그. 누르면 이 메모에 붙는다.</summary>
+public sealed partial class MemoTagSuggestion(string name, MemoEditorViewModel owner) : ObservableObject
+{
+    public string Text { get; } = "#" + name;
+
+    [RelayCommand]
+    private void Add() => owner.AddTag(name);
 }
 
 /// <summary>휴지통 목록의 한 줄. 누르면 오른쪽에 읽기 전용으로 보인다.</summary>
@@ -501,10 +683,14 @@ public sealed partial class MemoTrashRow : ObservableObject
         Id = summary.Id;
         Title = summary.Title;
         Preview = summary.Unreadable ? "읽지 못함" : summary.Preview;
+        Tags = summary.Tags;
     }
 
     public Guid Id { get; }
     public string Title { get; }
+
+    /// <summary>머리말 태그와 본문 #태그를 합친 것(보기만).</summary>
+    public IReadOnlyList<string> Tags { get; }
     public string Preview { get; }
 
     /// <summary>휴지통 파일의 본문. 읽지 못하면 빈 글.</summary>
