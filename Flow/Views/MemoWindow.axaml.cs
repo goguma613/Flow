@@ -1,11 +1,16 @@
 using System;
 using System.ComponentModel;
 using Avalonia;
+using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Flow.Models;
+using Flow.Services;
 using Flow.ViewModels;
 
 namespace Flow.Views;
@@ -13,6 +18,7 @@ namespace Flow.Views;
 /// <summary>
 /// 메모 창. 위젯이 처음 메모를 열 때 만들고, 닫으면 통째로 버린다(다시 열면 새로 만든다).
 /// 목록과 훑기는 위젯 것을 같이 쓰므로, 닫을 때 위젯 이벤트에서 반드시 떼어 내야 창이 풀려난다.
+/// 위젯처럼 테두리 없는 둥근 판이라, 옮기기·크기 조절·최소화·최대화·닫기를 직접 단다.
 /// </summary>
 public partial class MemoWindow : Window
 {
@@ -23,6 +29,11 @@ public partial class MemoWindow : Window
     private readonly MemoEditorViewModel _vm;
     private readonly DispatcherTimer _placementSaveTimer;
     private readonly TextBox? _writer;
+    private readonly TextBox? _tagBox;
+    private readonly Border? _frame;
+    private readonly Control? _titleBar;
+    private readonly Control? _grips;
+    private readonly Button? _maximizeButton;
     private bool _placementRestored;
 
     /// <summary>위젯이 끝나며 닫는 중. 이때만은 저장하지 못한 글이 있어도 닫는다(한 번 저장은 해 본다).</summary>
@@ -52,10 +63,21 @@ public partial class MemoWindow : Window
         if (settings.MemoWindowHeight >= MinHeight) Height = settings.MemoWindowHeight;
 
         _writer = this.FindControl<TextBox>("Writer");
+        _tagBox = this.FindControl<TextBox>("TagBox");
+        _frame = this.FindControl<Border>("Frame");
+        _titleBar = this.FindControl<Control>("TitleBar");
+        _grips = this.FindControl<Control>("Grips");
+        _maximizeButton = this.FindControl<Button>("MaximizeButton");
 
         var readArea = this.FindControl<Panel>("ReadArea");
         // 체크 칸(버튼)은 눌림을 스스로 처리하므로 여기까지 오지 않는다. 나머지 글 자리는 쓰기 모드로.
         if (readArea is not null) readArea.PointerPressed += OnReadAreaPressed;
+        var readTitle = this.FindControl<Control>("ReadTitleText");
+        if (readTitle is not null) readTitle.PointerPressed += OnReadAreaPressed;
+
+        if (_tagBox is not null) _tagBox.KeyDown += OnTagBoxKeyDown;
+
+        HookChrome();
 
         _placementSaveTimer = new DispatcherTimer { Interval = PlacementSaveDelay };
         _placementSaveTimer.Tick += (_, _) =>
@@ -120,10 +142,193 @@ public partial class MemoWindow : Window
             return;
         }
 
-        if (e.Key == Key.Escape && _vm.IsEditing)
+        // 태그 칸의 Esc 는 적던 태그를 지운다(아래 OnTagBoxKeyDown). 쓰기 모드를 빠지지 않는다.
+        if (e.Key == Key.Escape && _vm.IsEditing && !IsInTagBox(e.Source))
         {
             LeaveEditingSoon();
             e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None) ContinueListOnEnter(e);
+    }
+
+    // ───────────────────────── 서식 단추 · Enter 이어 쓰기
+
+    /// <summary>
+    /// 서식 단추. 쓰는 중이면 커서 줄(고른 줄들)의 기호를 켜고 끈다.
+    /// 읽는 중이면 쓰기 모드로 바꾸고 본문 끝에 그 기호로 시작하는 새 줄을 붙인다.
+    /// 단추는 포커스를 가져가지 않아(Focusable=False) 쓰기 칸의 선택이 그대로 남는다.
+    /// </summary>
+    private void OnFormatClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name } || !Enum.TryParse<MemoLineKind>(name, out var kind)) return;
+        if (_vm is null || _writer is null || _vm.IsTrashView || !_vm.HasMemo) return;
+
+        if (!_vm.IsEditing)
+        {
+            var appended = MemoEditing.Append(_vm.Body, kind);
+            _vm.EnterEditing();
+            if (!_vm.IsEditing) return;
+            ApplyWriterEdit(appended);
+            FocusWriterSoon(appended);
+            return;
+        }
+
+        var text = _writer.Text ?? "";
+        var edit = MemoEditing.Toggle(text, _writer.SelectionStart, _writer.SelectionEnd, kind);
+        ApplyWriterEdit(edit);
+        _writer.Focus();
+    }
+
+    /// <summary>
+    /// 체크·번호·점 줄에서 Enter: 다음 줄에 같은 기호를 붙인다. 기호만 있는 줄이면 기호를 지워 목록을 끝낸다.
+    /// 한글 조합 중(쓰기 칸에 조합 글자가 떠 있음)에는 건드리지 않는다. Shift+Enter 는 보통 줄바꿈이다.
+    /// </summary>
+    private void ContinueListOnEnter(KeyEventArgs e)
+    {
+        if (_vm is null || _writer is null || !_vm.IsEditing || !_writer.IsKeyboardFocusWithin) return;
+        if (IsComposing(_writer) || _writer.SelectionStart != _writer.SelectionEnd) return;
+
+        if (MemoEditing.ContinueList(_writer.Text ?? "", _writer.CaretIndex) is not { } edit) return;
+        ApplyWriterEdit(edit);
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 고친 글을 쓰기 칸에 넣는다. 바인딩을 거쳐 EditText → 저장 규칙(자동 저장)으로 그대로 간다.
+    /// </summary>
+    private void ApplyWriterEdit(MemoEdit edit)
+    {
+        if (_writer is null) return;
+        _writer.SetCurrentValue(TextBox.TextProperty, edit.Text);
+        _writer.CaretIndex = edit.SelectionEnd;
+        if (edit.SelectionStart != edit.SelectionEnd)
+        {
+            _writer.SelectionStart = edit.SelectionStart;
+            _writer.SelectionEnd = edit.SelectionEnd;
+        }
+    }
+
+    /// <summary>쓰기 칸이 보이게 된 뒤 포커스를 주고 커서를 다시 맞춘다(보이기 전엔 포커스가 가지 않는다).</summary>
+    private void FocusWriterSoon(MemoEdit edit)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_writer is null || !_writer.IsVisible) return;
+            _writer.Focus();
+            var length = (_writer.Text ?? "").Length;
+            _writer.CaretIndex = Math.Min(edit.Caret, length);
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>입력기가 아직 글자를 조합하고 있는지. TextBox 도 이때는 키를 처리하지 않는다.</summary>
+    private static bool IsComposing(TextBox box)
+    {
+        var presenter = box.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault();
+        return presenter is not null && !string.IsNullOrEmpty(presenter.PreeditText);
+    }
+
+    // ───────────────────────── 태그 칸
+
+    private bool IsInTagBox(object? source)
+    {
+        for (var node = source as Visual; node is not null; node = node.GetVisualParent())
+            if (node == _tagBox) return true;
+        return false;
+    }
+
+    private void OnTagBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_tagBox is null || IsComposing(_tagBox)) return;
+
+        if (e.Key == Key.Enter)
+        {
+            _vm.CommitTagInput();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            _vm.TagInput = "";
+            e.Handled = true;
+        }
+    }
+
+    // ───────────────────────── 창 테두리: 옮기기 · 크기 · 최소화 · 최대화 · 닫기
+
+    private void HookChrome()
+    {
+        if (_titleBar is not null) _titleBar.PointerPressed += OnTitleBarPressed;
+
+        var minimize = this.FindControl<Button>("MinimizeButton");
+        if (minimize is not null) minimize.Click += (_, _) => WindowState = WindowState.Minimized;
+        if (_maximizeButton is not null) _maximizeButton.Click += (_, _) => ToggleMaximize();
+        var close = this.FindControl<Button>("CloseButton");
+        // 닫기는 OnClosing 을 거친다: 저장 못 한 글이 있으면 닫지 않고 띠로 알린다.
+        if (close is not null) close.Click += (_, _) => Close();
+
+        HookResizeGrip("GripTop", WindowEdge.North);
+        HookResizeGrip("GripBottom", WindowEdge.South);
+        HookResizeGrip("GripLeft", WindowEdge.West);
+        HookResizeGrip("GripRight", WindowEdge.East);
+        HookResizeGrip("GripTopLeft", WindowEdge.NorthWest);
+        HookResizeGrip("GripTopRight", WindowEdge.NorthEast);
+        HookResizeGrip("GripBottomLeft", WindowEdge.SouthWest);
+        HookResizeGrip("GripBottomRight", WindowEdge.SouthEast);
+    }
+
+    private void HookResizeGrip(string name, WindowEdge edge)
+    {
+        var grip = this.FindControl<Border>(name);
+        if (grip is null) return;
+
+        grip.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+            if (WindowState != WindowState.Normal) return;
+            BeginResizeDrag(edge, e);
+            e.Handled = true;
+        };
+    }
+
+    /// <summary>제목 줄을 끌면 창을 옮기고, 두 번 누르면 최대화·되돌리기. 단추 위에서는 하지 않는다.</summary>
+    private void OnTitleBarPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        for (var node = e.Source as Visual; node is not null && node != _titleBar; node = node.GetVisualParent())
+        {
+            if (node is Button) return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            e.Handled = true;
+            return;
+        }
+
+        BeginMoveDrag(e);
+    }
+
+    private void ToggleMaximize()
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == WindowStateProperty) UpdateChromeForState();
+    }
+
+    /// <summary>최대화하면 모서리를 펴고 손잡이를 숨기며, 단추 그림을 '되돌리기'로 바꾼다.</summary>
+    private void UpdateChromeForState()
+    {
+        var maximized = WindowState == WindowState.Maximized;
+        _frame?.Classes.Set("maximized", maximized);
+        if (_grips is not null) _grips.IsVisible = WindowState == WindowState.Normal;
+        if (_maximizeButton is not null)
+        {
+            _maximizeButton.Classes.Set("restore", maximized);
+            ToolTip.SetTip(_maximizeButton, maximized ? "이전 크기로" : "최대화");
         }
     }
 

@@ -31,6 +31,7 @@
     <Compile Include="../../Flow/Services/MemoFormat.cs" />
     <Compile Include="../../Flow/Services/MemoStore.cs" />
     <Compile Include="../../Flow/Services/MemoQuery.cs" />
+    <Compile Include="../../Flow/Services/MemoEditing.cs" />
     <Compile Include="../../Flow/ViewModels/MemoEditorState.cs" />
   </ItemGroup>
 

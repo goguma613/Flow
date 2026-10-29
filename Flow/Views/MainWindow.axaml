@@ -810,7 +810,9 @@
               <TextBlock Classes="helpbody"
                          Text="메모 창은 읽기 모드로 열립니다. 본문을 누르거나 Ctrl+E 로 쓰기, Esc 로 읽기로 돌아옵니다. 저장은 알아서 합니다. [ ] 와 [x] 는 읽기 모드에서 눌러 체크합니다." />
               <TextBlock Classes="helpbody"
-                         Text="#태그 로 묶고, 검색칸이나 태그 칩으로 찾고, 📌 로 맨 위에 고정합니다. 지우면 휴지통에 30일 있다가 사라집니다." />
+                         Text="본문 위 단추(큰 소제목 · 소제목 · 번호 · 점 · 체크)로 커서 줄에 기호를 붙이고 뗍니다. 읽기 모드에서 누르면 끝에 새 줄이 생깁니다. 체크 · 번호 · 점 줄에서 Enter 를 치면 다음 줄에 같은 기호가 붙고, 빈 항목에서 Enter 를 치면 목록이 끝납니다. Shift+Enter 는 그냥 줄바꿈." />
+              <TextBlock Classes="helpbody"
+                         Text="#태그 로 묶고, 검색칸이나 태그 칩으로 찾고, 📌 로 맨 위에 고정합니다. 제목 아래 '+ 태그 추가' 에 적고 Enter 하면 본문을 고치지 않고 태그가 붙고, 칩의 ✕ 로 뗍니다. 지우면 휴지통에 30일 있다가 사라집니다." />
               <TextBlock Classes="helpbody"
                          Text="메모는 데이터 폴더의 memos 에 .md 파일로 저장되어 메모장으로도 열립니다. 자세한 것은 사용법.txt 를 보세요. 할 일·루틴과 연결하기, 휴대폰 메모는 다음 업데이트에서 더합니다." />
             </StackPanel>
@@ -1099,7 +1101,7 @@
                     <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
                   </Grid>
                   <TextBlock Classes="settinghint"
-                             Text="앱을 켤 때마다 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
+                             Text="앱을 켤 때, 그리고 켜 두는 동안 30분마다 GitHub에서 새 버전을 확인합니다. 끄면 인터넷을 전혀 쓰지 않습니다." />
                   <Grid ColumnDefinitions="Auto,*,Auto">
                     <TextBlock Classes="settinghint" Text="{Binding AppVersionText}" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Classes="settinghint" Text="{Binding UpdateStatus}"

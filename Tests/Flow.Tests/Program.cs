@@ -80,6 +80,9 @@ internal static partial class Program
         Section("메모 · 편집");
         MemoEditorTests();
 
+        Section("메모 · 줄 고치기");
+        MemoEditingTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

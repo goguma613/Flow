@@ -49,8 +49,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private const int HeatmapDays = 28;
 
-    /// <summary>켜 둔 채로 며칠 지나는 경우를 위한 재확인 주기. 시작할 때는 이와 무관하게 한 번 본다.</summary>
-    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(20);
+    /// <summary>켜 둔 동안 다시 확인하는 주기. 시작할 때는 이와 무관하게 한 번 본다.</summary>
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromMinutes(30);
 
     /// <summary>
     /// 창이 뜨고 자리를 잡을 때까지만 기다린다.
@@ -1008,26 +1008,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         };
         startup.Start();
 
-        // 껐다 켜지 않고 며칠씩 두는 경우를 위해 하루에 한 번 더 본다.
+        // 켜 둔 동안에는 30분마다 다시 본다. 이때는 내려받을 것이 있을 때만 화면에 드러낸다.
         _updateTimer = new DispatcherTimer { Interval = UpdateCheckInterval };
-        _updateTimer.Tick += (_, _) => _ = RunUpdateCheckAsync(manual: false);
+        _updateTimer.Tick += (_, _) => _ = RunUpdateCheckAsync(manual: false, periodic: true);
         _updateTimer.Start();
     }
 
     [RelayCommand]
     private Task CheckForUpdates() => RunUpdateCheckAsync(manual: true);
 
-    private async Task RunUpdateCheckAsync(bool manual)
+    private async Task RunUpdateCheckAsync(bool manual, bool periodic = false)
     {
         // 자동 확인을 꺼 뒀으면 아무 것도 하지 않는다. 직접 누른 경우는 그래도 확인한다.
         if (!manual && !_data.Settings.AutoUpdate) return;
         if (IsCheckingUpdate) return;
 
+        // 이미 받아 둔 새 버전이 있으면 주기 확인은 다시 받지 않는다(재시작만 기다린다).
+        if (periodic && UpdateReady) return;
+
         IsCheckingUpdate = true;
         UpdateStatus = "확인 중…";
 
         _busyTimer.Stop();
-        IsUpdateBusy = true;
+        IsUpdateBusy = !periodic;
         _busyStartedAt = DateTime.Now;
         IsUpdateDownloading = false;
         UpdateProgress = 0;
@@ -1037,6 +1040,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var progress = new Progress<double>(value =>
         {
             // 내려받기가 시작된 순간부터 진행 줄을 보여준다.
+            IsUpdateBusy = true;
             IsUpdateDownloading = true;
             UpdateProgress = value;
             UpdatePercentText = $"{Math.Round(value * 100)}%";
@@ -1044,11 +1048,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         });
 
         var found = await _updates.CheckAndStageAsync(progress).ConfigureAwait(true);
-        await HoldBusyDisplayAsync().ConfigureAwait(true);
+        if (IsUpdateBusy) await HoldBusyDisplayAsync().ConfigureAwait(true);
 
         _data.Settings.LastUpdateCheck = DateTime.Now;
         PersistDevice();
-        Persist();
+        // 확인 시각은 이 PC 파일에만 남는다. 30분마다 data.json 을 다시 쓰지 않는다.
+        if (!periodic) Persist();
 
         IsCheckingUpdate = false;
         IsUpdateDownloading = false;
@@ -1062,6 +1067,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             // 준비되면 아래쪽 초록 막대가 대신 알려준다.
             IsUpdateBusy = false;
             Announce(UpdateText);
+            return;
+        }
+
+        // 주기 확인에서 받을 것이 없었으면 조용히 끝낸다. 설정의 상태 글만 맞춘다.
+        if (periodic && !IsUpdateBusy)
+        {
+            UpdateStatus = _updates.LastError is { Length: > 0 } ? "확인하지 못했습니다" : "최신 버전입니다";
             return;
         }
 
