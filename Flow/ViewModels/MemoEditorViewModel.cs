@@ -50,6 +50,12 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private bool _hasMemo;
     [ObservableProperty] private bool _isPinned;
+    [ObservableProperty] private bool _isDaily;
+    [ObservableProperty] private bool _hasChecked;
+
+    /// <summary>태그 줄 아래 "연결: 루틴 · …, 할 일 · …". 이 메모를 가리키는 것이 없으면 숨긴다.</summary>
+    [ObservableProperty] private string _linkText = "";
+    [ObservableProperty] private bool _hasLinks;
     [ObservableProperty] private string? _banner;
     [ObservableProperty] private bool _hasBanner;
     [ObservableProperty] private string _windowTitle = AppTitle;
@@ -120,6 +126,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         };
 
         Main.MemoRows.CollectionChanged += OnRowsChanged;
+        Main.MemoLinksChanged += RefreshLinks;
         RefreshTrash();
         Sync();
     }
@@ -141,6 +148,15 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
     /// <summary>저장하지 못한 글이 남아 있는지. 창을 닫을 때 본다.</summary>
     public bool HasUnsavedText => _state.IsDirty;
+
+    /// <summary>
+    /// 그 메모를 쓰는 중으로 들고 있는지(저장 못 한 글이 있거나 쓰기 모드). 매일 초기화가 이 메모를 건너뛴다 —
+    /// 쓰기 모드에서 파일만 풀리면 다음 저장이 충돌 사본이 된다.
+    /// </summary>
+    public bool HoldsForWriting(Guid id) => _state.CurrentId == id && (_state.IsDirty || _state.IsEditing);
+
+    /// <summary>열린 메모(없으면 null).</summary>
+    public Guid? OpenMemoId => _state.CurrentId;
 
     /// <summary>저장 못 한 글이 있어 닫기를 거절했다. 띠로 알리고 다시 시도는 계속한다.</summary>
     public void RefuseClose()
@@ -223,6 +239,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     {
         if (_syncing || !IsEditing) return;
         _state.Edit(value);
+        // '모두 풀기'가 쓰던 글 기준으로 켜지고 꺼지게.
+        HasChecked = _state.HasChecked;
         if (!_state.IsDirty) return;
 
         _saveTimer.Stop();
@@ -276,6 +294,41 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         if (!HasMemo || IsTrashView) return;
         if (_state.SetPinned(!_state.Pinned)) Main.RefreshMemoList();
         Sync();
+    }
+
+    /// <summary>
+    /// ↻ 매일 초기화를 켜고 끈다. 쓰던 글을 먼저 저장하고(못 하면 띠가 남고 바꾸지 않음), 켤 때는 오늘을 reset 으로 적는다.
+    /// 창이 한글 조합을 끝내고 쓰기 칸의 글을 넘긴 뒤 부른다.
+    /// </summary>
+    public void ToggleDaily()
+    {
+        if (!HasMemo || IsTrashView) return;
+        _saveTimer.Stop();
+        // 하루가 막 바뀌어 위젯이 아직 롤오버를 하지 않았어도 지금의 논리적 날짜를 적는다.
+        var today = DayEngine.LogicalDate(DateTime.Now, Main.DayStartHour);
+        var done = _state.SetDaily(!_state.IsDaily, today);
+        AfterHeaderAction(done, "매일 초기화를 바꾸지 못했습니다");
+    }
+
+    /// <summary>'모두 풀기'. 쓰던 글을 먼저 저장하고 체크를 지금 모두 푼다(날짜와 상관없이).</summary>
+    public void UncheckAll()
+    {
+        if (!HasMemo || IsTrashView || !_state.HasChecked) return;
+        _saveTimer.Stop();
+        var done = _state.UncheckAll();
+        // 저장하고 보니 풀 체크가 없었으면(다른 곳에서 이미 풂) 실패가 아니다.
+        AfterHeaderAction(done, _state.HasChecked ? "체크를 풀지 못했습니다" : null);
+    }
+
+    /// <summary>
+    /// ↻·모두 풀기 뒤. 앞선 저장(충돌 사본·새 메모 포함)과 바뀐 표시가 위젯 목록에 보이게 한다.
+    /// 저장하지 못해 멈춘 것이면 띠가 이미 알리고, 그 밖의 실패(폴더를 기다리는 중 등)만 짧게 알린다.
+    /// </summary>
+    private void AfterHeaderAction(bool done, string? failure)
+    {
+        Main.RefreshMemoList();
+        if (!done && failure is not null && !_state.IsDirty && _state.Banner is null) ShowTagHint(failure);
+        AfterSave(null);
     }
 
     /// <summary>휴지통으로 보내고, 목록에서 그 자리의 다음 메모를 연다. 없으면 빈 화면.</summary>
@@ -493,6 +546,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     {
         HasMemo = _state.CurrentId is not null;
         IsPinned = _state.Pinned;
+        IsDaily = _state.IsDaily;
+        HasChecked = _state.HasChecked;
         Banner = _state.Banner;
         HasBanner = !string.IsNullOrEmpty(Banner);
 
@@ -519,7 +574,16 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
         MarkCurrentRows();
         RefreshTagChips();
+        RefreshLinks();
         UpdatePane();
+    }
+
+    /// <summary>이 메모를 가리키는 루틴·할 일을 "연결: …" 한 줄로. 위젯에서 연결을 바꾸면 MemoLinksChanged 로도 온다.</summary>
+    private void RefreshLinks()
+    {
+        var items = !IsTrashView && _state.CurrentId is { } id ? Main.LinkedItems(id) : Array.Empty<string>();
+        LinkText = items.Count > 0 ? "연결: " + string.Join(", ", items) : "";
+        HasLinks = items.Count > 0;
     }
 
     private void UpdatePane()
@@ -607,6 +671,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         _retryTimer.Stop();
         _tagHintTimer.Stop();
         Main.MemoRows.CollectionChanged -= OnRowsChanged;
+        Main.MemoLinksChanged -= RefreshLinks;
         foreach (var row in Main.MemoRows) row.IsCurrent = false;
     }
 }

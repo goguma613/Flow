@@ -22,6 +22,19 @@ public enum SaveOutcome { Saved, Unchanged, Conflict, Missing, Failed }
 public sealed record SaveResult(SaveOutcome Outcome, string? Rev, Guid? CopyId);
 
 /// <summary>
+/// 매일 초기화 한 번의 결과. Written 은 쓴 파일 수(풀 체크가 없던 것도 날짜를 적으므로 센다).
+/// Pending 은 이번에 건너뛰었거나(열린 메모·읽지 못함·쓰기 실패) 아직 모르는 메모 — 같은 날 다시 해 본다.
+/// Blocked 는 폴더를 기다리느라 아무것도 보지 못한 것.
+/// </summary>
+public sealed record DailyResetResult(int Written, IReadOnlyList<Guid> Pending, bool IsBlocked)
+{
+    public static readonly DailyResetResult Blocked = new(0, Array.Empty<Guid>(), true);
+
+    /// <summary>오늘 몫을 다 끝냈는지. 거짓이면 같은 날 다시 해 본다.</summary>
+    public bool Complete => !IsBlocked && Pending.Count == 0;
+}
+
+/// <summary>
 /// 데이터 폴더의 memos 폴더. 훑기·저장(충돌 사본)·이름 바꾸기·휴지통을 맡는다.
 /// 쓰기는 늘 이름.tmp 에 쓴 뒤 바꿔치기한다. canWrite 가 거짓이면 아무것도 쓰지 않는다.
 /// </summary>
@@ -46,6 +59,10 @@ public sealed class MemoStore
     private readonly Func<DateTime> _now;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private bool _scanned;
+
+    /// <summary>매일 초기화를 끝낸(풀었거나 풀 것이 없던) 메모와 그 날. 같은 날 다시 해 볼 때 남은 것만 보려고.</summary>
+    private DateOnly? _resetDay;
+    private readonly HashSet<Guid> _resetDone = new();
 
     /// <summary>안쪽 훑기(찾다가 다시 훑기)가 찾은 바뀜. 다음 Scan() 이 대신 알린다.</summary>
     private bool _changedSinceReport;
@@ -290,6 +307,134 @@ public sealed class MemoStore
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (doc.HasHeader && (doc.Tags ?? Array.Empty<string>()).SequenceEqual(clean)) return true;
             doc = doc with { Id = id, HasHeader = true, Tags = clean };
+            WriteDoc(e.Path, doc);
+            Remember(e.Path, doc);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>머리말 daily 만 고친다(판 그대로). 켤 때 reset 을 today 로 적어 켠 날 바로 풀리지 않게 한다. 끌 때 reset 은 둔다.</summary>
+    public bool SetDaily(Guid id, bool daily, DateOnly today)
+    {
+        if (!_canWrite()) return false;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return false;
+            if (doc.HasHeader && doc.Daily == daily && (!daily || doc.Reset == today)) return true;
+            doc = doc with { Id = id, HasHeader = true, Daily = daily, Reset = daily ? today : doc.Reset };
+            WriteDoc(e.Path, doc);
+            Remember(e.Path, doc);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// daily 이고 reset 이 없거나 today 보다 이전인 메모의 체크를 풀고 reset 을 today 로 적는다(풀 것이 없어도 날짜는 적는다).
+    /// skip(id) 가 참이거나 읽지·쓰지 못한 메모는 이번에 건너뛰고 Pending 으로 알린다. 휴지통은 보지 않는다.
+    /// 같은 날 다시 부르면 이미 끝낸 메모는 읽지도 않고 남은 것만 해 본다.
+    /// 체크를 풀 것이 없어 머리말 reset 만 바뀐 파일은 고친 시각을 되돌린다 — 매일 아침 '최근'의 맨 위로 뛰지 않게.
+    /// </summary>
+    public DailyResetResult ResetDaily(DateOnly today, Func<Guid, bool>? skip = null)
+    {
+        if (!_canWrite()) return DailyResetResult.Blocked;
+        try
+        {
+            if (!_scanned && ScanFolder()) _changedSinceReport = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return DailyResetResult.Blocked;
+        }
+
+        if (_resetDay != today)
+        {
+            _resetDay = today;
+            _resetDone.Clear();
+        }
+
+        var count = 0;
+        var pending = new List<Guid>();
+        var tried = new HashSet<Guid>();
+        // 찾다가 다시 훑으면 새로 보이는 메모가 생길 수 있어, 새 것이 없을 때까지 돈다.
+        for (;;)
+        {
+            var batch = _entries.Values
+                .Where(en => !en.Hidden && (en.Summary.Daily || en.Unreadable))
+                .Select(en => en.Summary.Id)
+                .Where(id => !_resetDone.Contains(id) && !tried.Contains(id))
+                .Distinct().ToList();
+            if (batch.Count == 0) break;
+
+            foreach (var id in batch)
+            {
+                tried.Add(id);
+                try
+                {
+                    if (Locate(id) is not (var e, var doc)) continue;   // 사라졌으면 할 것이 없다
+                    if (!doc.Daily || (doc.Reset is { } last && last >= today))
+                    {
+                        _resetDone.Add(id);
+                        continue;
+                    }
+                    if (skip?.Invoke(id) == true)
+                    {
+                        pending.Add(id);
+                        continue;
+                    }
+
+                    var body = MemoFormat.UncheckAll(doc.Body);
+                    DateTime? keepTime = body == doc.Body ? File.GetLastWriteTimeUtc(e.Path) : null;
+                    doc = doc with { Id = id, HasHeader = true, Reset = today, Body = body };
+                    WriteDoc(e.Path, doc);
+                    if (keepTime is { } time)
+                    {
+                        try { File.SetLastWriteTimeUtc(e.Path, time); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* 시각만 못 되돌림 */ }
+                    }
+                    Remember(e.Path, doc);
+                    _resetDone.Add(id);
+                    count++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    pending.Add(id);   // 다음 기회에
+                }
+            }
+        }
+        return new DailyResetResult(count, pending, false);
+    }
+
+    /// <summary>그 메모가 daily 이고 오늘 아직 풀지 않았는지(롤오버에서 열린 메모를 먼저 저장할지). 읽지 못하면 false.</summary>
+    public bool IsDailyDue(Guid id, DateOnly today)
+    {
+        try
+        {
+            return Locate(id) is (_, var doc) && doc.Daily && (doc.Reset is not { } last || last < today);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>본문 체크를 지금 모두 풀고 저장한다(판이 바뀐다). 풀 것이 없거나 메모가 없거나 쓸 수 없으면 false.</summary>
+    public bool UncheckAll(Guid id)
+    {
+        if (!_canWrite()) return false;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return false;
+            var body = MemoFormat.UncheckAll(doc.Body);
+            if (body == doc.Body) return false;
+            doc = doc with { Id = id, HasHeader = true, Body = body };
             WriteDoc(e.Path, doc);
             Remember(e.Path, doc);
             return true;

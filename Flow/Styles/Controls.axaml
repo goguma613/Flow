@@ -56,7 +56,7 @@
        Fluent 기본 테마도 :pointerover 에서 ContentPresenter 배경을 흰색으로 칠한다.
        같은 속성을 두 스타일이 다투면 흰색이 번쩍했다가 우리 색으로 넘어가며 깜빡인다.
        템플릿을 통째로 우리 것으로 바꿔 경쟁 자체를 없앤다. -->
-  <Style Selector="Button.icon, Button.tab, Button.row, Button.rowaction, Button.link, Button.chip, Button.step, Button.updatebar">
+  <Style Selector="Button.icon, Button.tab, Button.row, Button.rowaction, Button.memolink, Button.link, Button.chip, Button.step, Button.updatebar">
     <Setter Property="Template">
       <ControlTemplate>
         <Border Name="bg"
@@ -270,6 +270,33 @@
   </Style>
   <Style Selector="Button.rowaction:pointerover Path">
     <Setter Property="Stroke" Value="{StaticResource HighBrush}" />
+  </Style>
+
+  <!-- ===== 행 안의 📝 (연결한 메모 열기) =====
+       삭제 단추와 달리 늘 보인다. 메모가 붙어 있다는 것 자체가 알려 줄 거리다.
+       줄 안의 단추라 눌러도 줄 체크로 번지지 않는다. -->
+  <Style Selector="Button.memolink">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{StaticResource FadeFromBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Opacity" Value="0.8" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.memolink:pointerover">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Button.memolink:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <Style Selector="Button.memolink TextBlock">
+    <Setter Property="FontFamily" Value="Segoe UI Emoji, Inter" />
+    <Setter Property="FontSize" Value="12" />
   </Style>
 
   <!-- ===== 이름 바꾸기 입력칸 ===== -->
@@ -743,6 +770,15 @@
   <!-- 삭제·중요도 버튼은 접는다. 삭제는 우클릭 메뉴에 그대로 있다. -->
   <Style Selector="Button.row.compact Button.rowaction">
     <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <!-- 📝 는 남기되 줄 높이를 늘리지 않게 줄인다. -->
+  <Style Selector="Button.row.compact Button.memolink">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="CornerRadius" Value="5" />
+  </Style>
+  <Style Selector="Button.row.compact Button.memolink TextBlock">
+    <Setter Property="FontSize" Value="11" />
   </Style>
 
 </Styles>

@@ -113,6 +113,12 @@ public partial class MemoWindow : Window
 
     public void OpenMemo(Guid id) => _vm?.Open(id);
 
+    /// <summary>이 창이 그 메모를 쓰는 중으로(저장 못 한 글·쓰기 모드) 들고 있는지. 매일 초기화가 그 메모를 이번에 건너뛴다.</summary>
+    public bool HoldsForWriting(Guid id) => _vm is not null && _vm.HoldsForWriting(id);
+
+    /// <summary>이 창에 열린 메모. 롤오버가 그 메모를 풀 차례일 때만 먼저 저장하게 한다.</summary>
+    public Guid? OpenMemoId() => _vm?.OpenMemoId;
+
     /// <summary>위젯이 끝날 때. 저장을 시도하고 막지 않고 닫는다.</summary>
     public void CloseForExit()
     {
@@ -200,6 +206,35 @@ public partial class MemoWindow : Window
             return;
         }
         _vm.ToggleHelpCommand.Execute(null);
+    }
+
+    // ───────────────────────── ↻ 매일 초기화 · 모두 풀기
+
+    /// <summary>↻ 단추. 쓰던 글(조합 중인 글자 포함)을 먼저 넘긴 뒤 켜고 끈다. 저장은 상태가 먼저 한다.</summary>
+    private void OnDailyClick(object? sender, RoutedEventArgs e) => AfterComposition(() =>
+    {
+        _vm.TakeWriterText(_writer?.Text);
+        _vm.ToggleDaily();
+    });
+
+    /// <summary>'모두 풀기' 단추. 쓰던 글을 먼저 넘겨, 저장한 뒤 푼다(쓰던 글이 사라지지 않게).</summary>
+    private void OnUncheckAllClick(object? sender, RoutedEventArgs e) => AfterComposition(() =>
+    {
+        _vm.TakeWriterText(_writer?.Text);
+        _vm.UncheckAll();
+    });
+
+    /// <summary>한글을 조합하던 중이면 조합을 먼저 확정하고, 그 글자가 쓰기 칸에 들어온 뒤에 한다(? 단추와 같다).</summary>
+    private void AfterComposition(Action action)
+    {
+        if (_vm is null) return;
+        if (_writer is not null && _vm.IsEditing && IsComposing(_writer))
+        {
+            CompleteComposition();
+            Dispatcher.UIThread.Post(action, DispatcherPriority.Background);
+            return;
+        }
+        action();
     }
 
     /// <summary>쓰기 칸이 보이면 포커스만 돌려준다. 커서 자리는 쓰기 칸이 기억한 그대로.</summary>

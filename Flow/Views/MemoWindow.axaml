@@ -57,7 +57,7 @@
       <Setter Property="LineHeight" Value="22" />
       <Setter Property="VerticalAlignment" Value="Top" />
     </Style>
-    <!-- 체크 원: 14px 에 가는 선. 한글은 줄 칸 안에서 아래쪽에 앉으므로 산술적 가운데(4)보다 2px 내려 글자 가운데에 맞춘다. -->
+    <!-- 체크 원: 14px 에 가는 선. 한글은 줄 칸 안에서 아래쪽에 앉으므로 산술적 가운데(4)보다 1px 내려 글자 가운데에 맞춘다. -->
     <Style Selector="Button.row.memocheck Border.ring">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
@@ -65,7 +65,7 @@
       <Setter Property="BorderThickness" Value="1.2" />
       <Setter Property="BorderBrush" Value="{StaticResource TextSecondaryBrush}" />
       <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="Margin" Value="0,6,0,0" />
+      <Setter Property="Margin" Value="0,5,0,0" />
     </Style>
     <Style Selector="Button.row.memocheck:pointerover Border.ring">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
@@ -214,6 +214,15 @@
     </Style>
     <Style Selector="Border.tagchip.body TextBlock">
       <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    </Style>
+
+    <!-- ↻ 매일 초기화: 켜지면 강조색 -->
+    <Style Selector="Button.icon.daily.on">
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    </Style>
+    <!-- 풀 체크가 없으면 흐리게 -->
+    <Style Selector="Button.uncheckall:disabled">
+      <Setter Property="Opacity" Value="0.4" />
     </Style>
 
     <!-- 태그 더하기 칸 -->
@@ -390,6 +399,14 @@
                         ToolTip.Tip="고정">
                   <Path Data="{StaticResource PinIcon}" Width="13" Height="13" Stretch="Uniform" />
                 </Button>
+                <!-- 매일 초기화(켜지면 강조색) · 모두 풀기(체크된 칸이 있을 때만). 한글 조합을 먼저 끝내도록 Click 으로 받는다. -->
+                <Button Classes="icon daily" Classes.on="{Binding IsDaily}" Content="↻" FontSize="15"
+                        Focusable="False" IsVisible="{Binding ShowToolbar}" Click="OnDailyClick"
+                        ToolTip.Tip="매일 초기화 — 하루가 바뀌면 체크가 풀려요" />
+                <Button Classes="chip uncheckall" Content="모두 풀기" Padding="10,5"
+                        Focusable="False" IsVisible="{Binding ShowToolbar}" IsEnabled="{Binding HasChecked}"
+                        Click="OnUncheckAllClick" ToolTip.Tip="체크를 모두 풀어요"
+                        ToolTip.ShowOnDisabled="True" />
                 <Button Classes="icon danger"
                         IsVisible="{Binding ShowToolbar}" Command="{Binding DeleteCommand}"
                         ToolTip.Tip="삭제 (휴지통으로)">
@@ -508,6 +525,11 @@
 
               <TextBlock Text="{Binding TagHint}" IsVisible="{Binding HasTagHint}"
                          FontSize="11" Foreground="#F3D48B" Margin="0,0,0,4" />
+
+              <!-- 이 메모를 가리키는 루틴·할 일. 위젯에서 우클릭 → 메모 연결로 만든다. -->
+              <TextBlock Text="{Binding LinkText}" IsVisible="{Binding HasLinks}"
+                         FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,2"
+                         Foreground="{StaticResource TextMutedBrush}" />
             </StackPanel>
 
             <Panel Grid.Row="4">
@@ -658,6 +680,16 @@
                     <TextBlock Classes="helphead" Text="태그와 찾기" />
                     <TextBlock Classes="helpline" Text="제목 아래 '+ 태그 추가'에 적고 Enter." />
                     <TextBlock Classes="helpline" Text="왼쪽 검색칸에 #태그를 치면 그 태그 메모만 보여요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="할 일과 연결" />
+                    <TextBlock Classes="helpline" Text="위젯에서 할 일을 우클릭 → 메모 연결." />
+                    <TextBlock Classes="helpline" Text="연결되면 📝 를 눌러 바로 열 수 있어요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="매일 하는 절차라면" />
+                    <TextBlock Classes="helpline" Text="↻ 를 켜 두면 하루가 바뀔 때 체크가 저절로 풀려요." />
+                    <TextBlock Classes="helpline" Text="지금 다 풀고 싶으면 '모두 풀기'." />
                   </StackPanel>
                   <StackPanel Spacing="1">
                     <TextBlock Classes="helphead" Text="고정과 삭제" />

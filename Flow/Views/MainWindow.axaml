@@ -22,17 +22,18 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                         <Border Classes="ring"
                                 Classes.high="{Binding IsHigh}"
                                 Classes.medium="{Binding IsMedium}"
@@ -47,16 +48,21 @@
                                    KeyDown="OnRenameKeyDown"
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
-                        <TextBlock Grid.Column="2" Text="{Binding RingText}"
+                        <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
+                                IsVisible="{Binding HasMemo}"
+                                Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
+                          <TextBlock Text="📝" />
+                        </Button>
+                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
                                    IsVisible="{Binding IsRinging}"
                                    FontSize="11" FontWeight="Medium"
                                    Foreground="{StaticResource AccentBrush}"
                                    VerticalAlignment="Center" />
-                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding ShowDue}">
+                        <Border Grid.Column="3" Classes="badge" IsVisible="{Binding ShowDue}">
                           <TextBlock Text="{Binding DueText}" FontSize="11"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
-                        <Button Grid.Column="3" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -169,16 +175,17 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -190,17 +197,22 @@
                                    KeyDown="OnRenameKeyDown"
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
-                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding ShowTime}"
+                        <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
+                                IsVisible="{Binding HasMemo}"
+                                Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
+                          <TextBlock Text="📝" />
+                        </Button>
+                        <Border Grid.Column="3" Classes="badge" IsVisible="{Binding ShowTime}"
                                 Margin="0,0,6,0" Padding="5,2">
                           <TextBlock Text="{Binding TimeText}" FontSize="10"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
-                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
+                        <TextBlock Grid.Column="4" Text="{Binding RingText}"
                                    IsVisible="{Binding IsRinging}"
                                    FontSize="11" FontWeight="Medium"
                                    Foreground="{StaticResource AccentBrush}"
                                    VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3"
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="3"
                                     VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
@@ -208,7 +220,7 @@
                           <TextBlock Text="{Binding Streak}" FontSize="11"
                                      Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="5" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -228,17 +240,18 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                         <Border Classes="ring"
                                 Classes.high="{Binding IsHigh}"
                                 Classes.medium="{Binding IsMedium}"
@@ -253,20 +266,25 @@
                                    KeyDown="OnRenameKeyDown"
                                    LostFocus="OnRenameLostFocus" />
                         </Panel>
-                        <TextBlock Grid.Column="2" Classes="meta" Text="{Binding CarryOverText}"
+                        <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
+                                IsVisible="{Binding HasMemo}"
+                                Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
+                          <TextBlock Text="📝" />
+                        </Button>
+                        <TextBlock Grid.Column="3" Classes="meta" Text="{Binding CarryOverText}"
                                    Foreground="{StaticResource TextDisabledBrush}"
                                    Margin="0,0,6,0" IsVisible="{Binding HasCarryOver}" />
-                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
+                        <TextBlock Grid.Column="4" Text="{Binding RingText}"
                                    IsVisible="{Binding IsRinging}"
                                    FontSize="11" FontWeight="Medium"
                                    Foreground="{StaticResource AccentBrush}"
                                    VerticalAlignment="Center" />
-                        <Border Grid.Column="3" Classes="badge" Classes.overdue="{Binding IsOverdue}"
+                        <Border Grid.Column="4" Classes="badge" Classes.overdue="{Binding IsOverdue}"
                                 IsVisible="{Binding ShowDue}">
                           <TextBlock Text="{Binding DueText}" FontSize="11"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
-                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="5" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -309,13 +327,18 @@
                   <DataTemplate DataType="vm:TaskRow">
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
-                      <Grid ColumnDefinitions="Auto,*,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <TextBlock Grid.Column="1" Classes="title" Text="{Binding Title}" Margin="10,0,8,0" />
-                        <Button Grid.Column="2" Classes="rowaction"
+                        <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
+                                IsVisible="{Binding HasMemo}"
+                                Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
+                          <TextBlock Text="📝" />
+                        </Button>
+                        <Button Grid.Column="3" Classes="rowaction"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -371,16 +394,17 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                         <Panel>
                           <Border Classes="ring" IsVisible="{Binding IsScheduledToday}">
                             <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
@@ -401,17 +425,22 @@
                           <TextBlock Classes="meta" Text="{Binding DaysText}"
                                      Foreground="{StaticResource TextMutedBrush}" />
                         </StackPanel>
-                        <Border Grid.Column="2" Classes="badge" IsVisible="{Binding ShowTime}"
+                        <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
+                                IsVisible="{Binding HasMemo}"
+                                Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
+                          <TextBlock Text="📝" />
+                        </Button>
+                        <Border Grid.Column="3" Classes="badge" IsVisible="{Binding ShowTime}"
                                 Margin="0,0,6,0" Padding="5,2">
                           <TextBlock Text="{Binding TimeText}" FontSize="10"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
-                        <TextBlock Grid.Column="3" Text="{Binding RingText}"
+                        <TextBlock Grid.Column="4" Text="{Binding RingText}"
                                    IsVisible="{Binding IsRinging}"
                                    FontSize="11" FontWeight="Medium"
                                    Foreground="{StaticResource AccentBrush}"
                                    VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3"
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="3"
                                     VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
@@ -419,7 +448,7 @@
                           <TextBlock Text="{Binding Streak}" FontSize="11"
                                      Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button Grid.Column="4" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="5" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -817,7 +846,9 @@
               <TextBlock Classes="helpbody"
                          Text="#태그 로 묶고, 검색칸이나 태그 칩으로 찾고, 📌 로 맨 위에 고정합니다. 제목 아래 '+ 태그 추가' 에 적고 Enter 하면 본문을 고치지 않고 태그가 붙고, 칩의 ✕ 로 뗍니다. 지우면 휴지통에 30일 있다가 사라집니다." />
               <TextBlock Classes="helpbody"
-                         Text="메모는 데이터 폴더의 memos 에 .md 파일로 저장되어 메모장으로도 열립니다. 자세한 것은 사용법.txt 를 보세요. 할 일·루틴과 연결하기, 휴대폰 메모는 다음 업데이트에서 더합니다." />
+                         Text="할 일·루틴을 오른쪽 클릭 → 메모 연결 로 메모를 붙이면 줄 오른쪽에 📝 가 생기고, 누르면 그 메모가 바로 열립니다. 메모 창의 ↻ 를 켜 두면 하루가 바뀔 때 체크가 풀리고, '모두 풀기'는 지금 바로 풉니다." />
+              <TextBlock Classes="helpbody"
+                         Text="메모는 데이터 폴더의 memos 에 .md 파일로 저장되어 메모장으로도 열립니다. 자세한 것은 사용법.txt 를 보세요. 휴대폰 메모는 다음 업데이트에서 더합니다." />
             </StackPanel>
 
           </StackPanel>

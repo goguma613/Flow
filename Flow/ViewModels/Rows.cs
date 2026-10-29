@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -53,6 +54,35 @@ public abstract partial class RowBase : ObservableObject
 
     /// <summary>편집을 취소하고 원래 이름으로 되돌린다. (Esc)</summary>
     public abstract void CancelRename();
+
+    // ── 메모 연결 ──
+
+    /// <summary>📝 를 그릴지. 연결이 있고 그 메모가 지금 목록에 있을 때만. 없거나 휴지통이면 연결 값은 두고 숨긴다.</summary>
+    [ObservableProperty] private bool _hasMemo;
+
+    /// <summary>연결한 메모 id. 모델 값을 그대로 읽고 쓴다.</summary>
+    public abstract Guid? MemoId { get; set; }
+
+    /// <summary>'새 메모 만들기'의 본문이 될 제목.</summary>
+    public abstract string ItemTitle { get; }
+
+    protected abstract MainViewModel Owner { get; }
+
+    /// <summary>메모 목록이나 연결이 바뀐 뒤 📝 를 다시 맞춘다.</summary>
+    public void RefreshMemo(ISet<Guid> liveIds) => HasMemo = MemoLinks.IsAlive(MemoId, liveIds);
+
+    /// <summary>📝. 줄 안의 단추라 눌러도 줄 체크로 번지지 않는다.</summary>
+    [RelayCommand]
+    private void OpenMemo() => Owner.OpenLinkedMemo(this);
+
+    [RelayCommand]
+    private void LinkNewMemo() => Owner.LinkNewMemo(this);
+
+    [RelayCommand]
+    private void LinkMemo(Guid id) => Owner.LinkMemo(this, id);
+
+    [RelayCommand]
+    private void UnlinkMemo() => Owner.UnlinkMemo(this);
 }
 
 public sealed partial class RoutineRow : RowBase
@@ -69,8 +99,19 @@ public sealed partial class RoutineRow : RowBase
         Model = model;
         _owner = owner;
         IsCompact = owner.IsCompact;
+        HasMemo = owner.IsMemoAlive(model.MemoId);
         Sync();
     }
+
+    protected override MainViewModel Owner => _owner;
+
+    public override Guid? MemoId
+    {
+        get => Model.MemoId;
+        set => Model.MemoId = value;
+    }
+
+    public override string ItemTitle => Model.Title;
 
     protected override void OnCompactChanged()
     {
@@ -205,9 +246,20 @@ public sealed partial class TaskRow : RowBase
         Model = model;
         _owner = owner;
         IsCompact = owner.IsCompact;
+        HasMemo = owner.IsMemoAlive(model.MemoId);
         Today = today;
         Sync(today);
     }
+
+    protected override MainViewModel Owner => _owner;
+
+    public override Guid? MemoId
+    {
+        get => Model.MemoId;
+        set => Model.MemoId = value;
+    }
+
+    public override string ItemTitle => Model.Title;
 
     public TaskItem Model { get; }
     public DateOnly Today { get; private set; }

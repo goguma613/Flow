@@ -247,6 +247,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Memos.Scan();
         Memos.PurgeTrash(_today);
 
+        // 하루가 바뀐 뒤 처음 켰으면 '매일 초기화' 메모의 체크를 푼다. 그 전에 하루치 백업을 남겨
+        // 어제 마지막 체크가 백업에 담기게 한다(CheckRollover 와 같은 순서).
+        // 아직 메모 창이 없으니 먼저 저장할 글도, 건너뛸 메모도 없다. 못 푼 것은 매 분 다시 해 본다.
+        BackUpIfDue();
+        _memoResetTried = _today;
+        MarkMemoReset(Memos.ResetDaily(_today));
+
         // MemoStore 는 스레드 안전하지 않으므로 UI 스레드 타이머로만 훑는다.
         _memoScanTimer = new DispatcherTimer { Interval = MemoScanInterval };
         _memoScanTimer.Tick += (_, _) =>
@@ -301,7 +308,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         UpdateService.CleanUpAfterUpdate();
         ScheduleUpdateCheck();
-        BackUpIfDue();
         RefreshBackupSummary();
 
         RebuildAll();
@@ -357,6 +363,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>열려 있는 메모 창이 쓰던 글을 지금 저장하게 한다.</summary>
     public void FlushMemos() => MemoFlushRequested?.Invoke();
+
+    /// <summary>할 일·루틴의 메모 연결이나 그 목록이 바뀌었을 때. 메모 창이 '연결:' 줄을 다시 맞춘다.</summary>
+    public event Action? MemoLinksChanged;
+
+    /// <summary>
+    /// 열린 메모 창이 그 메모를 저장 안 된 글과 함께(또는 쓰기 모드로) 들고 있는지. 메모 창을 만들 때 MainWindow 가 꽂고 닫힐 때 뺀다.
+    /// 매일 초기화가 이 메모를 이번에는 건너뛰고 매 분 다시 해 본다 — 풀어 버리면 쓰던 글과 엇갈린다.
+    /// </summary>
+    public Func<Guid, bool>? IsMemoDirty { get; set; }
+
+    /// <summary>메모 창에 열린 메모(없으면 null). 롤오버에서 그 메모가 풀 차례일 때만 먼저 저장하게 한다. IsMemoDirty 와 함께 꽂고 뺀다.</summary>
+    public Func<Guid?>? OpenMemoId { get; set; }
+
+    /// <summary>지금 목록에 있는 메모 id. 📝 를 그릴지 정한다. RefreshMemos 가 맞춘다.</summary>
+    private HashSet<Guid> _liveMemoIds = [];
+
+    /// <summary>매일 초기화를 마지막으로 끝낸 논리적 날짜. 날짜를 다른 길(동기화·되돌리기)로 바꿔도 놓치지 않게.
+    /// 건너뛴 메모가 남아 있으면 적지 않고, 매 분 남은 것만 다시 해 본다.</summary>
+    private DateOnly? _memoResetDay;
+
+    /// <summary>그 날 첫 매일 초기화(열린 메모 저장 포함)를 해 본 날. 같은 날 다시 할 때는 열린 메모를 건드리지 않는다.</summary>
+    private DateOnly? _memoResetTried;
 
     /// <summary>
     /// 울렸는데 아직 처리되지 않은 항목들. 파일에 남기지 않는다 —
@@ -794,6 +822,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (current == _today)
         {
             DayEngine.SyncToday(_data, _today);
+            // 다른 PC 의 변경을 읽으며 날짜가 먼저 넘어갔으면 메모는 여기서 푼다.
+            // 이미 해 봤는데 건너뛴 메모가 남았으면 그것만 다시 해 본다.
+            if (_memoResetDay != _today)
+            {
+                if (_memoResetTried == _today) RetryDailyMemos();
+                else ResetDailyMemos();
+            }
             return;
         }
 
@@ -808,6 +843,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         BackUpIfDue();
         RefreshBackupSummary();
         RebuildAll();
+        ResetDailyMemos();
 
         if (result.Changed)
         {
@@ -840,6 +876,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RaiseSettingsChanged();
         RebuildAll();
         RefreshBackupSummary();
+        // 기다리는 동안은 메모를 훑지도 풀지도 못했다. 이제 훑어 연결(📝)도 맞추고 오늘 몫을 푼다.
+        ResetDailyMemos(rescan: true);
         Announce("저장 폴더를 찾았습니다");
     }
 
@@ -1530,6 +1568,132 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         MemoOpenRequested?.Invoke(id);
     }
 
+    // ── 할 일·루틴에 메모 연결 ──
+
+    /// <summary>연결 메뉴에 놓을 메모들. 메모 탭과 같은 순서(고정 먼저, 그다음 최근).</summary>
+    public IReadOnlyList<MemoChoice> MemoChoices => MemoLinks.Choices(Memos.Memos);
+
+    /// <summary>그 메모를 가리키는 루틴·할 일. "루틴 · 제목" / "할 일 · 제목".</summary>
+    public IReadOnlyList<string> LinkedItems(Guid memoId) => MemoLinks.LinkedItems(_data, memoId);
+
+    /// <summary>연결이 있고 그 메모가 지금 목록에 있는지. 줄을 만들 때 📝 를 정한다.</summary>
+    public bool IsMemoAlive(Guid? memoId) => MemoLinks.IsAlive(memoId, _liveMemoIds);
+
+    /// <summary>메모 목록이나 연결이 바뀌었다. 모든 줄의 📝 를 다시 맞춘다(같은 루틴이 오늘·전체 두 줄에 있다).</summary>
+    private void RefreshMemoLinks(IEnumerable<MemoSummary>? all = null)
+    {
+        _liveMemoIds = (all ?? Memos.Memos).Select(m => m.Id).ToHashSet();
+
+        foreach (var row in TodayRoutines) row.RefreshMemo(_liveMemoIds);
+        foreach (var row in AllRoutines) row.RefreshMemo(_liveMemoIds);
+        foreach (var row in TodayTasks) row.RefreshMemo(_liveMemoIds);
+        foreach (var row in CompletedTasks) row.RefreshMemo(_liveMemoIds);
+        foreach (var row in UpcomingTasks) row.RefreshMemo(_liveMemoIds);
+        MemoLinksChanged?.Invoke();
+    }
+
+    /// <summary>📝 를 눌렀다. 그사이 지워졌을 수 있어 파일을 한 번 더 보고 연다.</summary>
+    public void OpenLinkedMemo(RowBase row)
+    {
+        if (row.MemoId is { } id)
+        {
+            // Load 는 사라진 파일을 목록에서도 뺀다. 잠긴 파일은 목록에 남으니 열면 메모 창이 띠로 알린다.
+            Memos.Load(id);
+            if (Memos.Memos.Any(m => m.Id == id))
+            {
+                MemoOpenRequested?.Invoke(id);
+                return;
+            }
+        }
+
+        RefreshMemos();
+        Announce("연결된 메모를 찾지 못했습니다");
+    }
+
+    /// <summary>그 항목 제목으로 새 메모를 만들어 연결하고 연다.</summary>
+    public void LinkNewMemo(RowBase row)
+    {
+        var file = Memos.Create(row.ItemTitle);
+        if (file is null)
+        {
+            Announce(_store.WaitingForFolder
+                ? "저장 폴더를 기다리는 중이라 메모를 만들 수 없습니다"
+                : "메모를 만들지 못했습니다");
+            return;
+        }
+
+        row.MemoId = file.Doc.Id;
+        Persist();
+        RefreshMemos();
+        MemoOpenRequested?.Invoke(file.Doc.Id);
+    }
+
+    /// <summary>이미 있는 메모에 연결한다. 그 항목 하나만 바꾼다.</summary>
+    public void LinkMemo(RowBase row, Guid memoId)
+    {
+        if (row.MemoId == memoId) return;
+        if (!Memos.Memos.Any(m => m.Id == memoId))
+        {
+            Announce("연결된 메모를 찾지 못했습니다");
+            return;
+        }
+
+        row.MemoId = memoId;
+        Persist();
+        RefreshMemoLinks();
+        Announce("메모를 연결했습니다");
+    }
+
+    /// <summary>그 항목의 연결만 끊는다. 같은 메모를 가리키는 다른 항목과 메모 자체는 그대로.</summary>
+    public void UnlinkMemo(RowBase row)
+    {
+        if (row.MemoId is null) return;
+
+        row.MemoId = null;
+        Persist();
+        RefreshMemoLinks();
+        Announce("메모 연결을 끊었습니다");
+    }
+
+    /// <summary>
+    /// 하루가 바뀐 자리(롤오버·저장 폴더가 돌아옴)에서 '매일 초기화' 메모의 체크를 푼다.
+    /// 메모 창에 열린 메모가 오늘 풀 매일 초기화 메모일 때만 먼저 저장하게 한다(저장하며 쓰기 모드를 빠지게 되므로).
+    /// 그래도 쓰는 중인 메모·읽지 못한 메모는 건너뛰고, 매 분 RetryDailyMemos 가 남은 것만 다시 해 본다.
+    /// </summary>
+    private void ResetDailyMemos(bool rescan = false)
+    {
+        _memoResetTried = _today;
+
+        var changed = rescan && Memos.Scan();
+        var result = MemoLinks.ResetAtRollover(Memos, _today, MemoFlushRequested, OpenMemoId, IsMemoDirty);
+        MarkMemoReset(result);
+        if (result.Written > 0) changed = true;
+        if (!changed) return;
+
+        RefreshMemos();
+        MemosChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 같은 날 건너뛴 매일 초기화 메모를 다시 해 본다(매 분). 메모 창은 건드리지 않고(쓰기 모드를 빼지 않음),
+    /// 아직 쓰는 중인 메모는 또 건너뛴다 — 저장되거나 닫히면 그때 푼다.
+    /// </summary>
+    private void RetryDailyMemos()
+    {
+        var result = Memos.ResetDaily(_today, IsMemoDirty);
+        MarkMemoReset(result);
+        if (result.Written == 0) return;
+
+        RefreshMemos();
+        MemosChanged?.Invoke();
+    }
+
+    /// <summary>남은 것이 없을 때만 오늘 몫을 끝낸 것으로 적는다.</summary>
+    private void MarkMemoReset(DailyResetResult result)
+    {
+        if (result.Complete) _memoResetDay = _today;
+    }
+
     public void ToggleMemoTag(string tag)
         => MemoTag = string.Equals(MemoTag, tag, StringComparison.CurrentCultureIgnoreCase) ? null : tag;
 
@@ -1552,6 +1716,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void RefreshMemos()
     {
         var all = Memos.Memos;
+        RefreshMemoLinks(all);
 
         // 눌러 둔 태그가 다른 곳에서 사라졌으면 풀어 준다. 풀면 이 함수가 다시 불린다.
         var tags = MemoQuery.AllTags(all);
@@ -1724,6 +1889,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         HasRoutines = AllRoutines.Count > 0;
         HasTodayRoutines = TodayRoutines.Count > 0;
         RefreshStreakSummary();
+        // 지우거나 다른 PC 에서 받아 연결 항목이 바뀌었을 수 있다.
+        MemoLinksChanged?.Invoke();
     }
 
     private void RebuildTasks()
@@ -1770,6 +1937,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             : $"예정 {UpcomingTasks.Count}개";
         UpcomingIsEmpty = UpcomingTasks.Count == 0;
         TodayIsEmpty = TodayRoutines.Count == 0 && TodayTasks.Count == 0 && CompletedTasks.Count == 0;
+        MemoLinksChanged?.Invoke();
     }
 
     private void RefreshStreakSummary()
