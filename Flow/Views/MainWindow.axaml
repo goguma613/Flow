@@ -803,6 +803,18 @@
                          Text="클라우드가 아직 안 켜져 저장 폴더가 안 보이면, 아무것도 저장하지 않고 기다립니다. 그 사이에 적은 내용은 폴더가 붙기 전까지 저장되지 않으니 주의하세요." />
             </StackPanel>
 
+            <StackPanel Spacing="7">
+              <TextBlock Classes="helpsection" Text="7 · 메모" />
+              <TextBlock Classes="helpbody"
+                         Text="메모 탭 맨 아래 칸에 적고 Enter 를 누르면 새 메모가 열립니다. 첫 줄이 제목입니다. 업무 절차처럼 긴 글을 적어 두는 곳입니다." />
+              <TextBlock Classes="helpbody"
+                         Text="메모 창은 읽기 모드로 열립니다. 본문을 누르거나 Ctrl+E 로 쓰기, Esc 로 읽기로 돌아옵니다. 저장은 알아서 합니다. [ ] 와 [x] 는 읽기 모드에서 눌러 체크합니다." />
+              <TextBlock Classes="helpbody"
+                         Text="#태그 로 묶고, 검색칸이나 태그 칩으로 찾고, 📌 로 맨 위에 고정합니다. 지우면 휴지통에 30일 있다가 사라집니다." />
+              <TextBlock Classes="helpbody"
+                         Text="메모는 데이터 폴더의 memos 에 .md 파일로 저장되어 메모장으로도 열립니다. 자세한 것은 사용법.txt 를 보세요. 할 일·루틴과 연결하기, 휴대폰 메모는 다음 업데이트에서 더합니다." />
+            </StackPanel>
+
           </StackPanel>
         </ScrollViewer>
 
