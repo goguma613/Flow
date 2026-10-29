@@ -25,9 +25,10 @@ public enum SaveOutcome { Saved, Unchanged, Conflict, Missing, Failed }
 
 /// <summary>
 /// 휴대폰에서 온 메모 체크 하나의 결과. Applied = 고쳐 씀, Skipped = 할 것이 없음(맞는 줄 없음·이미 그 상태·메모 없음),
-/// Deferred = 지금은 못 함(쓸 수 없음·읽지 못함·쓰는 중) — 처리했다고 적지 않아 다음에 다시 해 본다.
+/// Deferred = 지금은 못 함(쓸 수 없음·읽지 못함) — 처리했다고 적지 않아 다음에 다시 해 본다.
+/// Held = PC 메모 창이 그 메모를 쓰는 중으로 들고 있어 못 함. Deferred 와 같이 남기되, 쓰기를 마치면 들어간다고 알릴 수 있게 따로 둔다.
 /// </summary>
-public enum MemoCheckResult { Applied, Skipped, Deferred }
+public enum MemoCheckResult { Applied, Skipped, Deferred, Held }
 
 public sealed record SaveResult(SaveOutcome Outcome, string? Rev, Guid? CopyId);
 

@@ -169,4 +169,10 @@ public sealed class PhoneView
     /// 이 필드를 모르는 옛 폰은 그냥 건너뛴다.
     /// </summary>
     public List<PhoneMemo> Memos { get; set; } = new();
+
+    /// <summary>
+    /// 지금 PC 메모 창이 쓰는 중으로 들고 있는 메모 id(쓰기 모드·저장 안 된 글). 그 메모에 온 폰 체크는 쓰기를 마칠 때까지 남는다 —
+    /// 폰은 이걸 보고 '1분 안에' 대신 'PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다'라고 알린다. 모르는 옛 폰은 건너뛴다.
+    /// </summary>
+    public List<Guid> HeldMemos { get; set; } = new();
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using Flow.Models;
 using Flow.Services;
@@ -335,8 +336,14 @@ internal static partial class Program
         view.GeneratedAt = view.GeneratedAt.AddMinutes(5);
         Check("시각만 다르면 다시 쓰지 않음 — 업로드를 아낀다", store.WriteView(view), false);
 
-        view.Tasks.Add(new PhoneViewItem { Id = Guid.NewGuid(), Title = "새 일" });
+        view.Tasks.Add(new PhoneViewItem { Id = Guid.NewGuid(), Title = "새 일", Priority = Priority.High });
         Check("내용이 바뀌면 씀", store.WriteView(view), true);
+        var compact = File.ReadAllText(viewPath);
+        Check("파일은 한글을 그대로 (\\u 로 바꾸지 않음)", (compact.Contains("\"Title\":\"새 일\""), compact.Contains("\\u")), (true, false));
+        Check("파일은 들여쓰기 없이 한 줄", compact.Contains('\n'), false);
+        Check("파일의 중요도는 이름 그대로", compact.Contains("\"Priority\":\"High\""), true);
+        view.GeneratedAt = view.GeneratedAt.AddMinutes(5);
+        Check("한 줄로 써도 시각만 다르면 다시 쓰지 않음", store.WriteView(view), false);
 
         // 내용이 짧아졌을 때 뒤에 옛 글자가 남으면 JSON 이 깨진다
         view.Tasks.Clear();
@@ -381,6 +388,34 @@ internal static partial class Program
         {
             Calls.Add((id, text, line, isChecked, day));
             return Answer;
+        }
+    }
+
+    /// <summary>
+    /// 시험용: 체크 줄 하나를 가진 메모(Memo). 처음 LockedCalls 번은 잠겨 미루고, 그다음부터 그 줄을 맞춘다.
+    /// History 는 실제로 바꾼 순서(+ 체크, - 해제). 다른 메모의 체크는 그냥 들어간 것으로 한다.
+    /// </summary>
+    private sealed class LineTarget : IPhoneMemoTarget
+    {
+        public Guid Memo { get; init; }
+        public int LockedCalls { get; set; }
+        public int Calls { get; private set; }
+        public bool Checked { get; private set; }
+        public string History { get; private set; } = "";
+
+        public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
+        {
+            Calls++;
+            if (id != Memo) return MemoCheckResult.Applied;
+            if (LockedCalls > 0)
+            {
+                LockedCalls--;
+                return MemoCheckResult.Deferred;
+            }
+            if (Checked == isChecked) return MemoCheckResult.Skipped;
+            Checked = isChecked;
+            History += isChecked ? "+" : "-";
+            return MemoCheckResult.Applied;
         }
     }
 
@@ -447,6 +482,46 @@ internal static partial class Program
             Check("PC 가 아직 그 날에 안 왔으면 손대지 않음", (target.Calls.Count, data.PhoneOpsApplied.Any(a => a.Id == tomorrow.Id)), (3, false));
         }
 
+        // ── PC 가 쓰는 중이라 남긴 체크는 메모마다 세어 알린다(잠김 같은 다른 까닭은 세지 않음)
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var target = new FakeMemoTarget(MemoCheckResult.Held);
+            var c1 = MemoCheckOp(memoA, "엑셀 받기", 1, true, Mon, 9);
+            var c2 = MemoCheckOp(memoA, "단가표 확인", 2, true, Mon, 9, 1);
+            var heldResult = PhoneLinkEngine.Apply(data, [c1, c2], target);
+            Check("쓰는 중이라 남긴 체크 수 (메모마다)", (heldResult.HeldFor(memoA), heldResult.HeldFor(memoB)), (2, 0));
+            Check("쓰는 중이면 처리했다고 적지 않음", (data.PhoneOpsApplied.Count, heldResult.NeedsSave), (0, false));
+
+            target.Answer = MemoCheckResult.Deferred;
+            var locked = PhoneLinkEngine.Apply(data, [c1], target);
+            Check("잠김으로 미룬 것은 쓰는 중으로 세지 않음", (locked.Held, data.PhoneOpsApplied.Count), ((IReadOnlyDictionary<Guid, int>?)null, 0));
+
+            target.Answer = MemoCheckResult.Applied;
+            var released = PhoneLinkEngine.Apply(data, [c1, c2], target);
+            Check("놓으면 들어가고 남은 것 없음", (released.MemoChecked, released.Held), (2, (IReadOnlyDictionary<Guid, int>?)null));
+
+            var sum = new PhoneApplyResult(0, 0, 0, 0, Held: new Dictionary<Guid, int> { [memoA] = 1 })
+                      + new PhoneApplyResult(0, 0, 0, 0, Held: new Dictionary<Guid, int> { [memoA] = 2, [memoB] = 1 });
+            Check("결과를 더하면 남긴 수도 더함", (sum.HeldFor(memoA), sum.HeldFor(memoB)), (3, 1));
+        }
+
+        // ── 한 메모의 체크를 하나 남기면 그 메모의 뒤 체크도 남긴다 — 체크 → 해제가 거꾸로 끝나지 않게
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var line = new LineTarget { Memo = memoA, LockedCalls = 1 };   // 첫 시도만 잠김(잠깐 잡혔다 풀림)
+            var check = MemoCheckOp(memoA, "단가표 확인", 2, true, Mon, 9);
+            var uncheck = MemoCheckOp(memoA, "단가표 확인", 2, false, Mon, 9, 1);
+            var other = MemoCheckOp(memoB, "아침 점검", 0, true, Mon, 9, 2);
+
+            var first = PhoneLinkEngine.Apply(data, [uncheck, check, other], line);
+            Check("첫 체크가 잠겨 미뤄지면 같은 메모의 해제도 남김", (line.Calls, line.Checked, first.MemoChecked), (2, false, 1));
+            Check("다른 메모의 체크는 그대로 들어감", data.PhoneOpsApplied.Select(a => a.Id).SingleOrDefault(), other.Id);
+
+            PhoneLinkEngine.Apply(data, [uncheck, check, other], line);
+            Check("풀린 뒤: 체크 → 해제 순으로 들어가 마지막은 해제", (line.History, line.Checked), ("+-", false));
+            Check("둘 다 처리했다고 적음", data.PhoneOpsApplied.Count, 3);
+        }
+
         // ── 폰 화면의 메모: 순서, 기호 뗀 제목, \n 본문, 살아 있는 메모만 연결
         {
             MemoSummary Summary(Guid id, bool pinned, int day, string rev, bool unreadable = false)
@@ -501,9 +576,20 @@ internal static partial class Program
             cache.Build(summaries, Load);
             Check("사라진 메모는 잊음 (돌아오면 다시 읽음)", loads, 4);
 
+            var lastText = changed.Single(m => m.Id == memoA).Text;
             bodies.Remove(memoA);
             summaries[0] = Summary(memoA, false, 12, "다른 판");
-            Check("읽다 실패하면 이번에는 뺌", cache.Build(summaries, Load).Any(m => m.Id == memoA), false);
+            var failed = cache.Build(summaries, Load).SingleOrDefault(m => m.Id == memoA);
+            Check("잠깐 읽다 실패해도 기억한 본문으로 그대로 보냄", failed?.Text, lastText);
+            Check("…머리말 값은 새 요약에서", failed?.Updated, (DateTime?)new DateTime(2026, 10, 12, 9, 0, 0));
+            bodies[memoA] = "# 배포 절차\n[ ] 다시 읽음";
+            cache.Build(summaries, Load);
+            Check("다음에는 다시 읽어 봄", loads, 6);
+
+            summaries[0] = Summary(memoA, false, 13, "", unreadable: true);
+            var unreadable = cache.Build(summaries, Load).SingleOrDefault(m => m.Id == memoA);
+            Check("잠깐 읽지 못하는 메모도 기억한 것을 그대로 보냄", (unreadable?.Text, unreadable?.Title), ((string?)"# 배포 절차\n[ ] 다시 읽음", (string?)"배포 절차"));
+            Check("…읽지 못한 요약은 다시 읽지 않음", loads, 6);
 
             // 폰 화면에 얹기
             var list = new List<PhoneMemo>
@@ -525,6 +611,10 @@ internal static partial class Program
             Check("목록에 없는 메모(휴지통·지움)는 연결하지 않음", view.Tasks.Single(t => t.Title == "지운 메모").MemoId, (Guid?)null);
             Check("예정의 메모 연결", view.Upcoming.Single().MemoId, (Guid?)memoA);
 
+            Check("쓰는 중인 메모가 없으면 HeldMemos 비어 있음", view.HeldMemos.Count, 0);
+            var heldView = PhoneLinkEngine.BuildView(data, Mon, Mon.ToDateTime(new TimeOnly(9, 0)), list, [memoB, Guid.NewGuid()]);
+            Check("HeldMemos: 폰에 보이는 메모 중 PC 가 쓰는 중인 것만", string.Join(",", heldView.HeldMemos), memoB.ToString());
+
             var old = PhoneLinkEngine.BuildView(data, Mon, Mon.ToDateTime(new TimeOnly(9, 0)));
             Check("메모 없이 만든 화면: 메모 없음, 연결 없음",
                 (old.Memos.Count, old.Routines.Single().MemoId), (0, (Guid?)null));
@@ -538,6 +628,18 @@ internal static partial class Program
                 Check($"phone-view.json 에 {field}", json.Contains($"\"{field}\":"), true);
             Check("Reset 은 yyyy-MM-dd", json.Contains("\"Reset\": \"2026-10-05\""), true);
             Check("초기화 날이 없으면 null", json.Contains("\"Reset\": null"), true);
+            view.HeldMemos = [memoB];
+            var compactJson = PhoneLinkStore.SerializeView(view);
+            Check("폰 화면 파일: 한글 그대로", (compactJson.Contains("\"Text\":\"고정\\n[ ] 하나\""), compactJson.Contains("\\u")), (true, false));
+            Check("폰 화면 파일: 한 줄", compactJson.Contains('\n'), false);
+            Check("폰 화면 파일: HeldMemos", compactJson.Contains($"\"HeldMemos\":[\"{memoB}\"]"), true);
+            Check("폰 화면 파일: Reset 은 yyyy-MM-dd", compactJson.Contains("\"Reset\":\"2026-10-05\""), true);
+            Check("폰 화면 파일이 더 작음", Encoding.UTF8.GetByteCount(compactJson) < Encoding.UTF8.GetByteCount(json), true);
+            var compactBack = JsonSerializer.Deserialize(compactJson, AppJsonContext.Default.PhoneView);
+            Check("한 줄 파일도 다시 읽힘", (compactBack?.Memos[0].Text, compactBack?.HeldMemos.SingleOrDefault()), ((string?)"고정\n[ ] 하나", (Guid?)memoB));
+            Check("data.json 꼴은 그대로(들여쓰기)", JsonSerializer.Serialize(new AppData(), AppJsonContext.Default.AppData).Contains("\n"), true);
+            view.HeldMemos = [];
+
             var back = JsonSerializer.Deserialize(json, AppJsonContext.Default.PhoneView);
             Check("메모가 오감", (back?.Memos.Count, back?.Memos[0].Text, back?.Memos[0].Reset), ((int?)3, "고정\n[ ] 하나", (DateOnly?)Mon));
             Check("연결이 오감", back?.Routines[0].MemoId, (Guid?)memoB);
@@ -641,6 +743,7 @@ internal static partial class Program
             var first = PhoneLinkEngine.Apply(data, [op], target);
             Check("쓰기 모드면 미룸 (처리했다고 적지 않음)", (first.MemoChecked, data.PhoneOpsApplied.Count), (0, 0));
             Check("쓰기 모드면 파일 그대로", store.Load(id)!.Rev, rev);
+            Check("쓰기 모드라 남긴 체크로 셈 (메모 창 띠)", first.HeldFor(id), 1);
 
             editor.Edit(editor.Body + "\n새로 쓴 줄");
             Check("저장 안 된 글이 있어도 미룸", PhoneLinkEngine.Apply(data, [op], target).MemoChecked, 0);
@@ -667,6 +770,8 @@ internal static partial class Program
     /// <summary>파일이 디스크에서 같은 파일인지 가르는 번호(볼륨 + 파일 인덱스).</summary>
     private static string FileIdentity(string path)
     {
+        // 윈도 밖(로컬에서 돌려 볼 때)에는 이 번호를 얻을 길이 없다. CI(윈도)에서 제대로 본다.
+        if (!OperatingSystem.IsWindows()) return "?";
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         if (!GetFileInformationByHandle(stream.SafeFileHandle.DangerousGetHandle(), out var info)) return "?";
         return $"{info.VolumeSerialNumber:X}-{info.FileIndexHigh:X}-{info.FileIndexLow:X}";

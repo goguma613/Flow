@@ -58,6 +58,13 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _hasLinks;
     [ObservableProperty] private string? _banner;
     [ObservableProperty] private bool _hasBanner;
+
+    /// <summary>쓰는 중이라 이 메모에 못 들어간 휴대폰 체크를 알리는 띠. 충돌·저장 실패 띠 아래에 따로 선다.</summary>
+    [ObservableProperty] private string? _phoneWait;
+    [ObservableProperty] private bool _hasPhoneWait;
+
+    /// <summary>지난번 Sync 때 쓰는 중으로 들고 있던 메모. 바뀌면 위젯에 알려 폰 화면과 기다리던 체크를 맞춘다.</summary>
+    private Guid? _holding;
     [ObservableProperty] private string _windowTitle = AppTitle;
 
     [ObservableProperty] private string _readTitle = "";
@@ -127,6 +134,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
         Main.MemoRows.CollectionChanged += OnRowsChanged;
         Main.MemoLinksChanged += RefreshLinks;
+        Main.PhoneHeldChanged += RefreshPhoneWait;
         RefreshTrash();
         Sync();
     }
@@ -576,6 +584,25 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         RefreshTagChips();
         RefreshLinks();
         UpdatePane();
+        TrackHolding();
+        RefreshPhoneWait();
+    }
+
+    /// <summary>쓰는 중으로 잡은 메모가 바뀌었으면(쓰기 시작·Esc·저장됨·다른 메모) 위젯에 알린다.</summary>
+    private void TrackHolding()
+    {
+        Guid? holding = _state.CurrentId is { } id && HoldsForWriting(id) ? id : null;
+        if (holding == _holding) return;
+        _holding = holding;
+        Main.MemoHoldChanged();
+    }
+
+    /// <summary>열린 메모에 기다리는 휴대폰 체크가 있으면 한 줄로 알린다. 들어가면 위젯이 알려 와 사라진다.</summary>
+    private void RefreshPhoneWait()
+    {
+        var count = !IsTrashView && _state.CurrentId is { } id ? Main.PhoneChecksWaiting(id) : 0;
+        PhoneWait = count > 0 ? $"휴대폰 체크 {count}개가 기다립니다 · Esc 로 쓰기를 마치면 들어갑니다" : null;
+        HasPhoneWait = count > 0;
     }
 
     /// <summary>이 메모를 가리키는 루틴·할 일을 "연결: …" 한 줄로. 위젯에서 연결을 바꾸면 MemoLinksChanged 로도 온다.</summary>
@@ -672,7 +699,10 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         _tagHintTimer.Stop();
         Main.MemoRows.CollectionChanged -= OnRowsChanged;
         Main.MemoLinksChanged -= RefreshLinks;
+        Main.PhoneHeldChanged -= RefreshPhoneWait;
         foreach (var row in Main.MemoRows) row.IsCurrent = false;
+        // 창이 닫히며 쓰던 메모를 놓았다. 기다리던 폰 체크를 바로 넣게 한다.
+        if (_holding is not null) Main.MemoHoldChanged();
     }
 }
 

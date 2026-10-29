@@ -5,18 +5,34 @@ using Flow.Models;
 
 namespace Flow.Services;
 
-/// <summary>폰에서 온 일을 반영한 결과. MemoChecked 는 고쳐 쓴 메모 체크 줄 수.</summary>
+/// <summary>
+/// 폰에서 온 일을 반영한 결과. MemoChecked 는 고쳐 쓴 메모 체크 줄 수.
+/// Held 는 PC 메모 창이 쓰는 중이라 이번에 못 넣고 남긴 메모 체크 수(메모 id → 개수). 없으면 null.
+/// </summary>
 public readonly record struct PhoneApplyResult(int Added, int Checked, int Unchecked, int Skipped, int Edited = 0, int Deleted = 0,
-    int MemoChecked = 0)
+    int MemoChecked = 0, IReadOnlyDictionary<Guid, int>? Held = null)
 {
     public static readonly PhoneApplyResult None = new(0, 0, 0, 0);
+
+    /// <summary>쓰는 중이라 남긴 그 메모의 체크 수.</summary>
+    public int HeldFor(Guid memoId) => Held is not null && Held.TryGetValue(memoId, out var count) ? count : 0;
 
     /// <summary>화면에 보이는 것이 바뀌었는지.</summary>
     public int Changed => Added + Checked + Unchecked + Edited + Deleted + MemoChecked;
 
     public static PhoneApplyResult operator +(PhoneApplyResult a, PhoneApplyResult b) => new(
         a.Added + b.Added, a.Checked + b.Checked, a.Unchecked + b.Unchecked,
-        a.Skipped + b.Skipped, a.Edited + b.Edited, a.Deleted + b.Deleted, a.MemoChecked + b.MemoChecked);
+        a.Skipped + b.Skipped, a.Edited + b.Edited, a.Deleted + b.Deleted, a.MemoChecked + b.MemoChecked,
+        MergeHeld(a.Held, b.Held));
+
+    private static IReadOnlyDictionary<Guid, int>? MergeHeld(IReadOnlyDictionary<Guid, int>? a, IReadOnlyDictionary<Guid, int>? b)
+    {
+        if (a is null || a.Count == 0) return b;
+        if (b is null || b.Count == 0) return a;
+        var merged = new Dictionary<Guid, int>(a);
+        foreach (var (id, count) in b) merged[id] = merged.GetValueOrDefault(id) + count;
+        return merged;
+    }
 
     /// <summary>
     /// 저장할 것이 생겼는지. 건너뛴 것도 '처리했음'을 적어 둬야 하므로 저장 대상이다 —
@@ -35,7 +51,7 @@ public interface IPhoneMemoTarget
 }
 
 /// <summary>
-/// 메모 창이 쓰는 중으로 들고 있는 메모(쓰기 모드·저장 안 된 글)는 Deferred 로 돌려주고, 나머지는 MemoStore 에 맡긴다.
+/// 메모 창이 쓰는 중으로 들고 있는 메모(쓰기 모드·저장 안 된 글)는 Held 로 돌려주고, 나머지는 MemoStore 에 맡긴다.
 /// 쓰는 중인 파일을 고치면 다음 저장이 충돌 사본이 되므로, 놓은 뒤에 다시 해 본다.
 /// held 는 부를 때마다 묻는다 — 메모 창이 열리고 닫히며 바뀐다.
 /// </summary>
@@ -43,39 +59,55 @@ public sealed class PhoneMemoTarget(MemoStore store, Func<Func<Guid, bool>?> hel
 {
     public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
         => held()?.Invoke(id) == true
-            ? MemoCheckResult.Deferred
+            ? MemoCheckResult.Held
             : store.SetLineChecked(id, text, line, isChecked, day);
 }
 
 /// <summary>
-/// 폰 화면에 넣을 메모 본문을 기억해 둔다(id → 판·본문). 판이 바뀐 메모만 다시 읽고, 사라진 메모는 잊는다.
+/// 폰 화면에 넣을 메모 본문을 기억해 둔다(id → 판·본문·마지막으로 보낸 것). 판이 바뀐 메모만 다시 읽고, 사라진 메모는 잊는다.
 /// 머리말 값(고정·매일·초기화 날·태그·고친 시각)은 요약에서 그대로 가져온다 — 판은 본문만 보므로.
 /// </summary>
 public sealed class PhoneMemoCache
 {
-    private readonly Dictionary<Guid, (string Rev, string Body)> _bodies = new();
+    private readonly Dictionary<Guid, (string Rev, string Body, PhoneMemo Sent)> _bodies = new();
 
-    /// <summary>읽지 못한 메모는 빼고, 판이 같으면 기억한 본문을 쓴다. 읽다 실패한 메모는 이번에는 뺀다.</summary>
+    /// <summary>
+    /// 판이 같으면 기억한 본문을 쓴다. 잠깐 읽지 못하는 메모(동기화 중·잠김)는 기억한 것이 있으면 그대로 보낸다 —
+    /// 빼 버리면 폰에서 메모가 사라졌다 돌아오고, 열어 보던 화면이 "이제 PC에 없습니다"가 된다.
+    /// 한 번도 읽지 못한 메모만 뺀다.
+    /// </summary>
     public IReadOnlyList<PhoneMemo> Build(IEnumerable<MemoSummary> memos, Func<Guid, MemoFile?> load)
     {
         var result = new List<PhoneMemo>();
         var live = new HashSet<Guid>();
         foreach (var summary in memos)
         {
-            if (summary.Unreadable || !live.Add(summary.Id)) continue;
+            if (!live.Add(summary.Id)) continue;
 
-            if (!_bodies.TryGetValue(summary.Id, out var known) || known.Rev != summary.Rev)
+            var cached = _bodies.TryGetValue(summary.Id, out var known);
+            if (summary.Unreadable)
+            {
+                // 요약의 머리말 값도 믿을 수 없다. 마지막으로 보낸 것을 그대로.
+                if (cached) result.Add(known.Sent);
+                continue;
+            }
+
+            if (!cached || known.Rev != summary.Rev)
             {
                 if (load(summary.Id) is not { } file)
                 {
-                    _bodies.Remove(summary.Id);
-                    continue;
+                    // 기억한 본문으로 보내고, 판은 옛것으로 두어 다음에 다시 읽게 한다.
+                    if (!cached) continue;
                 }
-                known = (file.Rev, file.Doc.Body);
-                _bodies[summary.Id] = known;
+                else
+                {
+                    known = (file.Rev, file.Doc.Body, known.Sent);
+                }
             }
 
-            result.Add(PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body));
+            var memo = PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body);
+            _bodies[summary.Id] = (known.Rev, known.Body, memo);
+            result.Add(memo);
         }
 
         foreach (var gone in _bodies.Keys.Where(id => !live.Contains(id)).ToList()) _bodies.Remove(gone);
@@ -109,7 +141,10 @@ public static class PhoneLinkEngine
     /// 월요일 결산과 연속 기록에 잡힌다. 화요일에 한 일은 롤오버 뒤에 들어간다.
     ///
     /// 메모 체크는 memos 가 있을 때만 넣는다. 없으면 모르는 갈래처럼 손대지도 적지도 않는다.
-    /// 지금 못 하는 메모 체크(Deferred)도 적지 않는다 — inbox 에 남아 다음에 다시 온다.
+    /// 지금 못 하는 메모 체크(Deferred · Held)도 적지 않는다 — inbox 에 남아 다음에 다시 온다.
+    /// 한 메모의 체크를 하나 남겼으면 이번에 그 메모에 온 뒤의 체크도 모두 남긴다 — 체크 뒤 해제가
+    /// 해제만 먼저 들어갔다가 다음에 체크가 들어가 거꾸로 끝나지 않게(순서는 At 순).
+    /// PC 가 쓰는 중이라 남긴 것(Held)은 메모마다 세어 결과의 Held 로 돌려준다.
     /// </summary>
     public static PhoneApplyResult Apply(AppData data, IEnumerable<PhoneOp>? ops, IPhoneMemoTarget? memos = null)
     {
@@ -119,6 +154,17 @@ public static class PhoneLinkEngine
         var applied = new HashSet<Guid>(data.PhoneOpsApplied.Select(a => a.Id));
 
         int added = 0, checkedCount = 0, uncheckedCount = 0, skipped = 0, edited = 0, deleted = 0, memoChecked = 0;
+
+        // 이번에 체크를 남긴 메모 → 쓰는 중이라 남겼는지(Held). 그 메모의 뒤 체크도 같은 까닭으로 남긴다.
+        var waitingMemos = new Dictionary<Guid, bool>();
+        Dictionary<Guid, int>? held = null;
+        void Wait(Guid memo, bool isHeld)
+        {
+            waitingMemos[memo] = isHeld;
+            if (!isHeld) return;
+            held ??= new Dictionary<Guid, int>();
+            held[memo] = held.GetValueOrDefault(memo) + 1;
+        }
 
         foreach (var op in ops.Where(o => !applied.Contains(o.Id)).OrderBy(o => o.At).ThenBy(o => o.Id))
         {
@@ -137,8 +183,19 @@ public static class PhoneLinkEngine
 
                 case PhoneOp.MemoCheck:
                     if (memos is null) continue;
-                    if (ApplyMemoCheck(memos, op) is not { } memoOutcome) continue;   // 지금은 못 함 — 적지 않는다
-                    outcome = memoOutcome;
+                    if (op.Target is { } memoId && waitingMemos.TryGetValue(memoId, out var wasHeld))
+                    {
+                        // 앞의 체크가 남았다. 이것만 먼저 넣으면 순서가 뒤바뀐다.
+                        Wait(memoId, wasHeld);
+                        continue;
+                    }
+                    var memoResult = ApplyMemoCheck(memos, op);
+                    if (memoResult is MemoCheckResult.Deferred or MemoCheckResult.Held)
+                    {
+                        Wait(op.Target!.Value, memoResult == MemoCheckResult.Held);   // 지금은 못 함 — 적지 않는다
+                        continue;
+                    }
+                    outcome = memoResult == MemoCheckResult.Applied ? Outcome.MemoChecked : Outcome.Skipped;
                     break;
 
                 // 새 버전 폰이 보낸, 이 PC가 모르는 일. 손대지도 적지도 않는다 —
@@ -164,22 +221,16 @@ public static class PhoneLinkEngine
         var cutoff = openDay.AddDays(-AppliedRetentionDays);
         data.PhoneOpsApplied.RemoveAll(a => a.Day < cutoff);
 
-        return new PhoneApplyResult(added, checkedCount, uncheckedCount, skipped, edited, deleted, memoChecked);
+        return new PhoneApplyResult(added, checkedCount, uncheckedCount, skipped, edited, deleted, memoChecked, held);
     }
 
     private enum Outcome { Added, Checked, Unchecked, Edited, Deleted, MemoChecked, Skipped }
 
-    /// <summary>메모 체크. null 이면 지금은 못 한 것(쓰는 중·폴더 기다림·파일 잠김)이라 적지 않는다.</summary>
-    private static Outcome? ApplyMemoCheck(IPhoneMemoTarget memos, PhoneOp op)
+    /// <summary>메모 체크. Deferred · Held 면 지금은 못 한 것(쓰는 중·폴더 기다림·파일 잠김)이라 적지 않는다. 메모 id 가 없으면 Skipped.</summary>
+    private static MemoCheckResult ApplyMemoCheck(IPhoneMemoTarget memos, PhoneOp op)
     {
-        if (op.Target is not { } target || op.Checked is not { } isChecked) return Outcome.Skipped;
-
-        return memos.SetLineChecked(target, op.Text ?? "", op.Line, isChecked, op.Day) switch
-        {
-            MemoCheckResult.Applied => Outcome.MemoChecked,
-            MemoCheckResult.Deferred => null,
-            _ => Outcome.Skipped
-        };
+        if (op.Target is not { } target || op.Checked is not { } isChecked) return MemoCheckResult.Skipped;
+        return memos.SetLineChecked(target, op.Text ?? "", op.Line, isChecked, op.Day);
     }
 
     private static Outcome ApplyAdd(AppData data, PhoneOp op)
@@ -291,8 +342,10 @@ public static class PhoneLinkEngine
     /// 폰이 보여줄 오늘 화면. PC의 '오늘' 탭과 같은 항목, 같은 순서.
     /// memos 는 폰에 보일 메모(PhoneMemoCache 가 만든다). 고정 먼저, 최근에 고친 순으로 늘어놓고,
     /// 루틴·할 일의 MemoId 는 그 메모가 여기 있을 때만 채운다.
+    /// heldMemos 는 PC 메모 창이 쓰는 중으로 들고 있는 메모 — 여기 있는 메모만 HeldMemos 로 알린다.
     /// </summary>
-    public static PhoneView BuildView(AppData data, DateOnly today, DateTime now, IReadOnlyList<PhoneMemo>? memos = null)
+    public static PhoneView BuildView(AppData data, DateOnly today, DateTime now, IReadOnlyList<PhoneMemo>? memos = null,
+        IEnumerable<Guid>? heldMemos = null)
     {
         var view = new PhoneView
         {
@@ -310,6 +363,7 @@ public static class PhoneLinkEngine
                 .ToList();
         var memoIds = new HashSet<Guid>(view.Memos.Select(m => m.Id));
         Guid? LinkOf(Guid? memoId) => memoId is { } id && memoIds.Contains(id) ? id : null;
+        if (heldMemos is not null) view.HeldMemos = heldMemos.Where(memoIds.Contains).Distinct().ToList();
 
         foreach (var routine in data.Routines.OrderBy(r => r.Order))
         {

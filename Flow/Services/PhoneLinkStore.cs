@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Flow.Models;
 
 namespace Flow.Services;
@@ -28,6 +30,18 @@ public sealed class PhoneLinkStore
     private const int SearchDepth = 3;
 
     private static readonly UTF8Encoding Utf8NoBom = new(false);
+
+    /// <summary>
+    /// phone-view.json 만의 꼴: 들여쓰기 없이, 한글을 \uXXXX 로 바꾸지 않고 그대로.
+    /// 메모 본문이 다 들어가 30초마다 받는 양이 크다 — 한글 한 자가 6바이트에서 3바이트로, 들여쓰기 공백도 빠진다.
+    /// 폰과 중계는 JSON.parse 로 읽으므로 어느 꼴이든 같다. data.json 은 사람이 열어 보므로 그대로 둔다.
+    /// </summary>
+    private static readonly JsonTypeInfo<PhoneView> CompactView = (JsonTypeInfo<PhoneView>)new JsonSerializerOptions(
+        AppJsonContext.Default.Options)
+    {
+        WriteIndented = false,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    }.GetTypeInfo(typeof(PhoneView));
 
     private readonly string _dataDirectory;
     private (DateTime WrittenAt, long Length)? _inboxStamp;
@@ -127,12 +141,12 @@ public sealed class PhoneLinkStore
         {
             var generatedAt = view.GeneratedAt;
             view.GeneratedAt = default;
-            var body = JsonSerializer.Serialize(view, AppJsonContext.Default.PhoneView);
+            var body = SerializeView(view);
             view.GeneratedAt = generatedAt;
 
             if (body == _lastViewBody) return false;
 
-            var bytes = Utf8NoBom.GetBytes(JsonSerializer.Serialize(view, AppJsonContext.Default.PhoneView));
+            var bytes = Utf8NoBom.GetBytes(SerializeView(view));
 
             // FileMode.Open — 있는 파일을 연다. Create 나 '임시 파일 후 교체'를 쓰면
             // 드라이브에서 다른 파일이 되어 폰 앱이 권한을 잃는다.
@@ -151,6 +165,9 @@ public sealed class PhoneLinkStore
             return false;
         }
     }
+
+    /// <summary>phone-view.json 에 쓰는 글 그대로(<see cref="CompactView"/>).</summary>
+    public static string SerializeView(PhoneView view) => JsonSerializer.Serialize(view, CompactView);
 
     public static PhoneInbox? ParseInbox(string json)
     {

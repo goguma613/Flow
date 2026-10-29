@@ -1372,8 +1372,47 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (_store.WaitingForFolder || _phoneOps is null) return PhoneApplyResult.None;
 
         var memos = withMemos ? (_phoneMemoTarget ??= new PhoneMemoTarget(Memos, () => IsMemoDirty)) : null;
-        return PhoneLinkEngine.Apply(_data, _phoneOps, memos);
+        var result = PhoneLinkEngine.Apply(_data, _phoneOps, memos);
+        if (withMemos) SetPhoneHeld(result.Held);
+        return result;
     }
+
+    /// <summary>쓰는 중이라 마지막으로 남긴 폰 메모 체크(메모 id → 개수). 메모 창이 띠로 알린다.</summary>
+    private IReadOnlyDictionary<Guid, int> _phoneHeld = new Dictionary<Guid, int>();
+
+    /// <summary>쓰는 중이라 남긴 폰 메모 체크 수가 바뀌었을 때. 메모 창이 띠를 맞춘다.</summary>
+    public event Action? PhoneHeldChanged;
+
+    /// <summary>그 메모를 쓰는 중이라 기다리고 있는 폰 체크 수.</summary>
+    public int PhoneChecksWaiting(Guid memoId) => _phoneHeld.GetValueOrDefault(memoId);
+
+    private void SetPhoneHeld(IReadOnlyDictionary<Guid, int>? held)
+    {
+        held ??= new Dictionary<Guid, int>();
+        if (held.Count == _phoneHeld.Count && held.All(h => _phoneHeld.GetValueOrDefault(h.Key) == h.Value)) return;
+        _phoneHeld = held;
+        PhoneHeldChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 메모 창이 메모를 쓰는 중으로 잡거나 놓았다. 폰 화면의 HeldMemos 를 곧 맞추고(2초 뒤),
+    /// 놓은 메모에 기다리던 폰 체크가 있으면 분 단위 확인을 기다리지 않고 바로 넣는다.
+    /// </summary>
+    public void MemoHoldChanged()
+    {
+        _phoneViewTimer.Stop();
+        _phoneViewTimer.Start();
+
+        if (_phoneHeld.Count == 0) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_phoneHeld.Keys.Any(id => IsMemoDirty?.Invoke(id) != true)) ApplyFromPhone();
+        });
+    }
+
+    /// <summary>지금 메모 창이 쓰는 중으로 들고 있는 메모. 폰 화면의 HeldMemos.</summary>
+    private Guid[] HeldForWriting()
+        => OpenMemoId?.Invoke() is { } open && IsMemoDirty?.Invoke(open) == true ? [open] : [];
 
     /// <summary>분마다 한 번. 폰이 남긴 일을 받아 넣고, 폰이 볼 화면을 맞춰 둔다.</summary>
     private void SyncWithPhone()
@@ -1433,7 +1472,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (_store.WaitingForFolder || !_phone.HasView()) return;
 
         var memos = _phoneMemos.Build(Memos.Memos, Memos.Load);
-        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos));
+        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos, HeldForWriting()));
     }
 
     private static string DescribePhone(PhoneApplyResult result)
