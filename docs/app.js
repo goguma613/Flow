@@ -78,9 +78,11 @@ const state = {
   fetchedAt: local.get('fetchedAt', 0),
   tab: local.get('tab', 'today') === 'memo' ? 'memo' : 'today', // 위 탭(오늘 · 메모). 연 메모는 기억하지 않는다
   memoOpen: null,                      // 읽기 화면에 띄운 메모의 Id
+  memoFrom: 'memo',                    // 메모를 연 탭(오늘의 📝 · 메모 목록). ‹ 가 그리로 돌아간다
+  draft: '',                           // 빠른 추가 칸에 적던 글. 탭을 바꾸거나 메모를 열었다 와도 남는다
   memoSearch: '',                      // 메모 탭 검색칸
   memoTag: null,                       // 메모 탭에서 고른 태그 칩
-  memoListScroll: 0                    // 메모를 열 때 목록이 내려가 있던 자리. 돌아오면 그 자리로
+  memoListScroll: 0                    // 메모를 열 때 연 화면이 내려가 있던 자리. 돌아오면 그 자리로
 };
 
 // ───────── 날짜
@@ -765,6 +767,18 @@ function findMemo(id) {
   return memosOfView()?.find(m => m.Id === id) ?? null;
 }
 
+/** PC 메모 창이 지금 쓰는 중으로 들고 있는 메모인지. 그 메모의 체크는 PC 에서 쓰기를 마쳐야 들어간다. */
+function isHeldMemo(id) {
+  return Array.isArray(state.view?.HeldMemos) && state.view.HeldMemos.includes(id);
+}
+
+/** 대기 표시. PC 가 쓰는 중인 메모면 '1분 안에'가 아니라 쓰기를 마치면 들어간다고 알린다. */
+function waitBadge(memoId) {
+  return isHeldMemo(memoId)
+    ? '<span class="badge wait held">PC에서 쓰는 중</span>'
+    : '<span class="badge wait">PC 반영 대기</span>';
+}
+
 // ───────── 그리기
 
 const ICON = {
@@ -853,7 +867,12 @@ function statusLine() {
     return `<button class="status" data-act="refresh"><span class="dot"></span>${generated ? generated + ' · ' : ''}눌러서 최신으로</button>`;
   }
   if (waiting > 0) {
-    return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개 · PC가 켜져 있으면 1분 안에</div>`;
+    // PC 가 그 메모를 쓰는 중이면(쓰기 모드) 1분이 지나도 안 들어간다. 왜 기다리는지 말해 준다.
+    const held = open.filter(op => state.sent.has(op.Id) && op.Kind === 'memo-check' && isHeldMemo(op.Target)).length;
+    const when = held === waiting ? 'PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다'
+      : held > 0 ? `PC가 켜져 있으면 1분 안에 · ${held}개는 PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다`
+      : 'PC가 켜져 있으면 1분 안에';
+    return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개 · ${when}</div>`;
   }
   return `<div class="status live"><span class="dot"></span>${generated || '최신'}</div>`;
 }
@@ -863,7 +882,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v8',
+    'v9',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -954,7 +973,7 @@ function renderToday() {
   const finished = routines.filter(r => r.Done).length + done.length;
   const percent = total ? Math.round(finished / total * 100) : 0;
 
-  const draft = document.getElementById('compose')?.value ?? '';
+  const draft = state.draft;
   const hadFocus = document.activeElement?.id === 'compose';
 
   app.innerHTML = `
@@ -1009,7 +1028,7 @@ function renderToday() {
 
 /** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
 function memoDiag() {
-  const parts = ['v8', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
+  const parts = ['v9', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
   return `<div class="diag">${parts.join(' · ')}</div>`;
 }
 
@@ -1067,7 +1086,7 @@ function updateMemoList() {
           ${m.Pinned ? '<span class="pin" aria-label="고정">📌</span>' : ''}
           <span class="memo-row-title">${esc(m.Title)}</span>
           ${m.Daily ? '<span class="daily" title="매일 초기화">↻</span>' : ''}
-          ${shown.waiting ? '<span class="badge wait">PC 반영 대기</span>' : ''}
+          ${shown.waiting ? waitBadge(m.Id) : ''}
         </span>
         ${preview ? `<span class="memo-row-preview">${esc(preview)}</span>` : ''}
       </button>`;
@@ -1082,7 +1101,7 @@ function updateMemoList() {
 }
 
 /** 읽기 화면 한 줄. PC 읽기 모드와 같은 모양: 소제목 · 번호 · 점 · 체크 · 보통 글, 들여쓰기. */
-function memoLineHtml(line) {
+function memoLineHtml(line, memoId) {
   const indent = line.indent ? ` style="--indent:${line.indent}"` : '';
   switch (line.kind) {
     case 'blank': return '<div class="m-blank"></div>';
@@ -1098,7 +1117,7 @@ function memoLineHtml(line) {
           role="checkbox" aria-checked="${line.checked}" data-act="memo-check" data-line="${line.index}">
           <span class="m-mark"><span class="m-box">${ICON.check}</span></span>
           <span class="m-body">${esc(line.text)}</span>
-          ${line.waiting ? '<span class="badge wait">PC 반영 대기</span>' : ''}
+          ${line.waiting ? waitBadge(memoId) : ''}
         </button>`;
     default: return `<div class="m-text">${esc(line.text)}</div>`;
   }
@@ -1128,14 +1147,14 @@ function renderMemoView() {
     main = `
       <h1 class="memo-title">${esc(memo.Title)}</h1>
       ${meta.length ? `<div class="chips memo-meta">${meta.join('')}</div>` : ''}
-      <div class="memo-lines">${lines.map(memoLineHtml).join('')}</div>
+      <div class="memo-lines">${lines.map(l => memoLineHtml(l, memo.Id)).join('')}</div>
       <div class="memo-foot">고치기는 다음 업데이트에서 됩니다</div>`;
   }
 
   app.innerHTML = `
     <header class="head memo-head">
       <div class="head-row">
-        <button class="back-btn" data-act="memo-back">‹ 메모</button>
+        <button class="back-btn" data-act="memo-back">‹ ${state.memoFrom === 'today' ? '오늘' : '메모'}</button>
         <span class="grow"></span>
         <button class="icon-btn${state.busy ? ' spinning' : ''}" data-act="refresh" aria-label="새로고침">${ICON.refresh}</button>
       </div>
@@ -1147,12 +1166,17 @@ function renderMemoView() {
   window.scrollTo(0, y);
 }
 
-/** 메모를 연다. 안드로이드 뒤로 단추로도 닫히게 기록을 하나 쌓는다. */
+/**
+ * 메모를 연다. 안드로이드 뒤로 단추로도 닫히게 기록을 하나 쌓는다.
+ * 연 탭(오늘의 📝 · 메모 목록)을 기억해 ‹ 와 뒤로 단추가 그리로 돌아간다. 다시 열 때 볼 탭도 연 탭 그대로 둔다.
+ */
 function openMemo(id, fromList) {
-  state.memoListScroll = fromList ? window.scrollY : 0;
+  if (!state.memoOpen) {
+    state.memoFrom = fromList || state.tab === 'memo' ? 'memo' : 'today';
+    state.memoListScroll = window.scrollY;
+  }
   state.memoOpen = id;
   state.tab = 'memo';
-  local.set('tab', 'memo');
   closeEditor();
   if (history.state?.memo == null) history.pushState({ memo: id }, '');
   else history.replaceState({ memo: id }, '');
@@ -1164,6 +1188,8 @@ function openMemo(id, fromList) {
 function closeMemo() {
   if (!state.memoOpen) return;
   state.memoOpen = null;
+  state.tab = state.memoFrom;
+  local.set('tab', state.tab);
   app.innerHTML = '';
   render();
   window.scrollTo(0, state.memoListScroll);
@@ -1276,7 +1302,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=8', { cache: 'no-store' })
+  fetch('relay.gs?v=9', { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -1641,6 +1667,7 @@ app.addEventListener('submit', async event => {
   if (!text) return;
 
   input.value = '';
+  state.draft = '';
   pushOp('add', null, text);
   toast('적어 뒀습니다 · PC가 받아 넣습니다');
   if (!hasToken()) await requestToken();
@@ -1654,6 +1681,7 @@ app.addEventListener('input', event => {
     return;
   }
   if (event.target.id !== 'compose') return;
+  state.draft = event.target.value;
   const send = app.querySelector('.send');
   if (send) send.disabled = !event.target.value.trim();
 });
