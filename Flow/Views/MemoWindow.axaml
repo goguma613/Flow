@@ -57,7 +57,7 @@
       <Setter Property="LineHeight" Value="22" />
       <Setter Property="VerticalAlignment" Value="Top" />
     </Style>
-    <!-- 체크 원: 14px 에 가는 선. 한글은 줄 칸 안에서 아래쪽에 앉으므로 산술적 가운데(4)보다 2px 내려 글자 가운데에 맞춘다. -->
+    <!-- 체크 원: 14px 에 가는 선. 한글은 줄 칸 안에서 아래쪽에 앉으므로 산술적 가운데(4)보다 1px 내려 글자 가운데에 맞춘다. -->
     <Style Selector="Button.row.memocheck Border.ring">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
@@ -65,7 +65,7 @@
       <Setter Property="BorderThickness" Value="1.2" />
       <Setter Property="BorderBrush" Value="{StaticResource TextSecondaryBrush}" />
       <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="Margin" Value="0,6,0,0" />
+      <Setter Property="Margin" Value="0,5,0,0" />
     </Style>
     <Style Selector="Button.row.memocheck:pointerover Border.ring">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
