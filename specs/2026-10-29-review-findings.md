@@ -1,0 +1,63 @@
+# 10-29 작업 재점검 결과 (v1.9.0 · 폰 v13 이후)
+
+세션이 끊겨도 이어 할 수 있게 남기는 목록. 줄 번호는 4de1865 기준. 끝낸 것은 `[x]`.
+
+## 이미 한 것
+
+- [x] PC 메모 창: 읽기 · 쓰기는 `고치기`/`완료` 단추와 Ctrl+E 로만(본문 클릭으로 쓰기 모드 안 감) — 7941aac. 서식 단추는 일부러 그대로 쓰기 모드로 들어감(앞서 "툴바처럼 바로 쓰기" 요청).
+
+## PC 코드 (Opus 점검)
+
+중요
+
+- [ ] 1. 백업 되살리기 뒤 그날 매일 초기화 메모가 안 풀림. 자동 백업이 초기화 전에 찍혀(`MainViewModel.cs:254→256`, `:849→852`) 어제 체크가 든 파일이 돌아오는데, `_memoResetDay == _today`·`MemoStore._resetDone` 때문에 다시 안 돈다. 휴대폰 memo-check/save 도 그날 내내 Deferred, 다음 날 Skipped. 고침: `MemoStore.ForgetDailyProgress()`(`_resetDay`·`_resetDone` 비움) → `RestoreFrom` 에서 `Memos.Scan()` 뒤 호출, `_memoResetDay = null`, `ResetDailyMemos()`.
+- [ ] 2. 날이 바뀔 때 클라우드 드라이브가 잠깐 안 보이면 `ScanFolder`(`MemoStore.cs:115-128`)가 메모를 다 지운 것으로 보고 `ResetDaily` 가 Complete → 그날 초기화 안 됨, 열린 메모에 '다른 곳에서 지워졌습니다' 띠. 고침: 폴더와 그 부모(데이터 폴더)가 없으면 `ScanFolder` 는 목록을 지우지 않고 false, `ResetDaily` 는 데이터 폴더가 없으면 `Blocked`.
+
+작은 버그
+
+- [ ] 6. 휴지통 되살리기(`MemoStore.cs:633-656`): 다른 휴지통 파일 하나가 안 읽히면 전부 실패, `WriteDoc` 뒤 휴지통 파일 지우기 실패 시 false 인데 이미 되살아남 → 다시 누르면 충돌 사본. 고침: 파일마다 try, 휴지통 삭제 실패는 성공으로.
+- [ ] 7. 휴지통 30일 비우기가 시작할 때만(`MainViewModel.cs:249`). 고침: `CheckRollover`(:852 옆)와 `TryRecoverDataFolder` 에서도 `Memos.PurgeTrash(_today)`.
+- [ ] 10. 매일 초기화가 수정 시각을 그대로 되돌려(`MemoStore.cs:484-491`) `reset:` 만 바뀐 파일(같은 길이)을 다른 PC 훑기가 못 알아챔. 고침: 옛 시각 + 2초. (PC 1대라 낮음)
+
+최적화
+
+- [ ] 3. 검색 글자마다 모든 메모 파일을 다시 읽음(`MainViewModel.cs:1763, 1792`, `MemoStore.cs:205-216`, `TryFind` 선형). 고침: `Entry` 에 Body 보관 + `BodyOf(id)`, `Dictionary<Guid, Entry>` 색인, 검색 150ms 늦추기.
+- [ ] 4. 자동 저장마다 메모 목록 두 곳을 처음부터 다시 만듦(`MemoEditorViewModel.cs:233-236`, `MainViewModel.cs:1794-1804`). 고침: 순서가 같으면 바뀐 줄만 바꿈, 태그 칩은 같으면 그대로.
+- [ ] 5. 글자마다 '모두 풀기' 가능 여부를 본문 전체 복사로 계산(`MemoEditorState.cs:42`). 고침: 체크된 줄 정규식 `IsMatch`.
+- [ ] 8. 폰 화면 쓸 때 모든 메모를 다시 요약 · 직렬화 두 번(`PhoneLinkEngine.cs:228-229`, `PhoneLinkStore.cs:142-149`). 고침: 같은 요약이면 재사용, 직렬화 한 번.
+- [ ] 9. 목록이 바뀔 때마다 휴지통 전체를 읽고 해시(`MemoEditorViewModel.cs:226-231`, `MemoStore.cs:242-257`). 고침: 휴지통 보기일 때만, 라벨은 파일 수.
+- [ ] 11. 저장 한 번에 같은 파일 판(Rev)을 여러 번 계산(`MemoStore.cs:297, 308, 319, 340`).
+
+정리
+
+- [ ] 12. `IsMemoFile` 3곳, 줄바꿈 맞추기 6곳 중복 → `MemoFormat` 으로.
+- [ ] 13. `SetPinned/SetTags/SetDaily/UncheckAll/Update/SetLineChecked` 같은 틀 → `Rewrite(id, edit)` 하나로. `MemoEditorState` 필드 비우기 3곳 → `ClearCurrent()`.
+
+## 디자인 (Sonnet 점검 — 폰은 화면을 찍어 봄, PC 는 AXAML 을 읽음)
+
+확실한 결함
+
+- [ ] D2. 폰: 길게 누르기 창 · 연결 고르기의 `취소`가 `삭제`/`저장`보다 5px 아래(`.ghost` 의 margin-top 12px 가 `.sheet-actions` 에도 걸림, `style.css:307`). 고침: `.sheet-actions .ghost { margin:0; height:auto }`.
+- [ ] D3. 폰: 누르는 자리가 44px 보다 작음 — 📝 31x27(`style.css:499`), 탭 64x32, 메모 체크 줄 36, 칩 30, 머리 단추 38. 고침: 📝 보이지 않는 누름 영역 넓히기, `.m-check` min-height 44, 머리 단추 44.
+- [ ] D4. 폰: 흐린 글 대비 부족 — 메모 미리보기 · `.sheet-note` 가 `--text-muted`(3.5:1), `.hint` 가 `--text-disabled`(2.0:1). 고침: 미리보기 · 안내는 `--text-secondary`, `.hint` 는 최소 `--text-muted`.
+- [ ] D5. 폰: `…` 메뉴 · 고르기 목록 글 시작 위치가 어긋남(📌 ↻ ○ 너비 다름, 머리글과 11px 차). 고침: 아이콘 20px 고정 칸, 머리글 왼쪽 14px, `삭제` 앞 간격.
+- [ ] D6. 폰: 메모 목록에서 고정 메모 제목만 오른쪽으로 밀림(앞의 📌). 고침: 📌 를 ↻ 옆 오른쪽으로(PC 와 같게). 미리보기가 태그 줄(`#…`)로 시작하면 그 줄 건너뛰기.
+- [ ] D8. PC: 빈 휴지통이면 "휴지통이 비어 있습니다"가 왼쪽 · 오른쪽 두 번(`MemoEditorViewModel.cs:627-629`). 오른쪽은 "지운 메모는 30일 동안 남아요".
+- [ ] D9. PC: 메모가 하나도 없을 때 왼쪽 "아직 메모가 없습니다" + 오른쪽 "왼쪽에서 메모를 고르세요"가 어긋남. 오른쪽을 "새 메모는 위젯 메모 탭 아래 입력칸에서 만들어요"로.
+
+고를 것(취향)
+
+- [ ] 폰 메모 목록 제목 줄 오른쪽에 "40분 전" 같은 고친 때.
+- [ ] 폰: 본문의 태그만 있는 줄은 읽기 화면에서 숨기기(칩과 겹침), 칩 줄은 한 줄 가로 넘기기.
+- [ ] PC 휴지통 보기에서 단추를 "← 메모로"로, `되살리기` 를 강조색으로.
+- [ ] PC 메모 창에 "+ 새 메모" 단추(지금은 위젯 메모 탭에서만 만듦).
+- [ ] PC `고치기`/`완료` 칩 색을 달리해 모드가 한눈에, 눌림 모양(`:pressed`) 추가.
+- [ ] PC 서식 단추 줄이 좁은 창에서 두 줄이 됨(추정, Windows 에서 확인 필요).
+- [ ] 폰 서식 줄 기호 밑에 작은 이름(큰 소제목 · 소제목 · 번호 · 점 · 체크), 들여쓰기 단추.
+- [ ] PC `##` 소제목 15 → 16, 고른 태그 칩을 강조색으로, 띠 · 사용법 판의 따로 쓴 색을 팔레트 색으로, 키보드 포커스 표시.
+
+화면 사진(이 세션 안에만 있음): `/tmp/claude-0/-home-user-Flow/09f00473-fd3b-59a3-9328-0c148481e771/scratchpad/design-review/`
+
+## 휴대폰 코드 (Opus 점검) — 진행 중
+
+## 동기화 (Opus 점검) — 진행 중
