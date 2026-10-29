@@ -149,6 +149,61 @@ internal static partial class Program
         File.Move(r2.Path, Path.Combine(store.Folder, "또 다른 이름.md"));
         Check("이름이 바뀐 메모에 저장", store.Save(r2.Doc.Id, "또 바뀔 메모\n본문 고침", r2.Rev).Outcome, SaveOutcome.Saved);
         Check("tmp·bak 가 남지 않음", Directory.EnumerateFiles(store.Folder).Any(f => f.EndsWith(".tmp") || f.EndsWith(".bak")), false);
+
+        // 찾다가 다시 훑으며 본 바뀜도 다음 Scan() 이 알린다(그래야 목록과 메모 창이 다시 읽는다)
+        var sc = store.Create("훑기 알림 메모\n본문")!;
+        store.Scan();
+        var scMoved = Path.Combine(store.Folder, "훑기 알림 다른 이름.md");
+        File.Move(sc.Path, scMoved);
+        Check("안쪽 훑기로 찾음", store.Load(sc.Doc.Id)?.Path, scMoved);
+        Check("다음 Scan 이 바뀜을 알림", store.Scan(), true);
+        Check("그다음 Scan 은 조용함", store.Scan(), false);
+
+        // 다른 PC 가 X 를 옮기고 그 자리에 다른 메모 Y 를 둠. 이 PC 는 아직 훑지 않았다.
+        (string Moved, Guid Other) Swap(MemoFile x, string movedName)
+        {
+            store.Scan();
+            var movedPath = Path.Combine(store.Folder, movedName);
+            File.Move(x.Path, movedPath);
+            var other = Guid.NewGuid();
+            File.WriteAllText(x.Path, "---\r\nid: " + other + "\r\n---\r\n남의 메모\r\n와이");
+            return (movedPath, other);
+        }
+        Guid IdAt(string p) => MemoFormat.Parse(File.ReadAllText(p), Guid.Empty).Id;
+
+        var lx = store.Create("자리 바뀔 메모\n엑스")!;
+        var (lxMoved, _) = Swap(lx, "옮겨진 엑스.md");
+        var lxLoaded = store.Load(lx.Doc.Id);
+        Check("그 자리의 남의 메모를 X 로 읽지 않음", (lxLoaded?.Path, lxLoaded?.Doc.Id), (lxMoved, (Guid?)lx.Doc.Id));
+
+        var px = store.Create("고정할 메모\n엑스")!;
+        var (pxMoved, pxOther) = Swap(px, "옮겨진 고정.md");
+        Check("고정은 옮겨진 X 에", store.SetPinned(px.Doc.Id, true), true);
+        Check("남의 메모 id 는 그대로", IdAt(px.Path), pxOther);
+        Check("X 가 고정됨", MemoFormat.Parse(File.ReadAllText(pxMoved), Guid.Empty).Pinned, true);
+
+        var dx = store.Create("지울 메모\n엑스")!;
+        var (dxMoved, dxOther) = Swap(dx, "옮겨진 지울.md");
+        Check("지우기는 옮겨진 X 를", store.Delete(dx.Doc.Id), true);
+        Check("남의 메모는 그대로", (File.Exists(dx.Path), IdAt(dx.Path)), (true, dxOther));
+        Check("X 가 휴지통에", (File.Exists(dxMoved), store.Trash().Any(m => m.Id == dx.Doc.Id)), (false, true));
+
+        var vx = store.Create("저장할 메모\n엑스")!;
+        var (_, vxOther) = Swap(vx, "옮겨진 저장.md");
+        Check("저장은 옮겨진 X 에", store.Save(vx.Doc.Id, "저장할 메모\n엑스 고침", vx.Rev).Outcome, SaveOutcome.Saved);
+        Check("남의 메모를 덮지 않음", IdAt(vx.Path), vxOther);
+
+        var gx = store.Create("사라질 메모\n엑스")!;
+        store.Scan();
+        File.Delete(gx.Path);
+        File.WriteAllText(gx.Path, "---\r\nid: " + Guid.NewGuid() + "\r\n---\r\n남의 메모\r\n와이");
+        Check("X 가 없으면 남의 메모를 X 로 안 봄", store.Load(gx.Doc.Id), (MemoFile?)null);
+
+        // 앱이 끝날 때 저장하지 못한 글은 머리말+본문 파일로 따로 남긴다
+        var rescue = MemoStore.WriteRecovery(Path.Combine(root, "unsaved"), "급한 메모 #태그\n못 쓴 글", clock);
+        Check("남긴 파일 이름", Path.GetFileName(rescue), "급한 메모 20261029-140300.md");
+        var rescued = MemoFormat.Parse(File.ReadAllText(rescue!), Guid.Empty);
+        Check("머리말+본문으로 남김", (rescued.HasHeader, rescued.Body.Replace("\r\n", "\n")), (true, "급한 메모 #태그\n못 쓴 글"));
     }
 
     private static void MemoQueryTests()

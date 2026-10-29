@@ -154,12 +154,17 @@ public partial class MemoWindow : Window
 
             // 저장 못 한 글은 버리지 않는다. 사람이 닫을 때는 창을 남기고 띠로 알린다.
             // 앱이 끝날 때(종료·업데이트·Windows 끄기)만은 한 번 저장해 보고 그대로 닫는다.
+            // 그래도 못 했으면 글을 이 PC 의 따로 둔 폴더에 남긴다. 끝내기는 막지 않는다.
             var exiting = _exiting
                           || e.CloseReason is WindowCloseReason.ApplicationShutdown or WindowCloseReason.OSShutdown;
-            if (_vm.HasUnsavedText && !exiting)
+            if (_vm.HasUnsavedText)
             {
-                e.Cancel = true;
-                _vm.RefuseClose();
+                if (exiting) _vm.SaveUnsavedCopy();
+                else
+                {
+                    e.Cancel = true;
+                    _vm.RefuseClose();
+                }
             }
         }
 

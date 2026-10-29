@@ -47,6 +47,9 @@ public sealed class MemoStore
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private bool _scanned;
 
+    /// <summary>안쪽 훑기(찾다가 다시 훑기)가 찾은 바뀜. 다음 Scan() 이 대신 알린다.</summary>
+    private bool _changedSinceReport;
+
     public MemoStore(string dataDirectory, Func<bool> canWrite, Func<DateTime> now)
     {
         Folder = System.IO.Path.Combine(dataDirectory, "memos");
@@ -64,7 +67,16 @@ public sealed class MemoStore
 
     // ───────────────────────── 훑기
 
+    /// <summary>폴더를 훑는다. 지난번 Scan() 뒤로 바뀐 것이 있으면(안쪽 훑기가 찾은 것 포함) true.</summary>
     public bool Scan()
+    {
+        var found = ScanFolder();
+        var report = found || _changedSinceReport;
+        _changedSinceReport = false;
+        return report;
+    }
+
+    private bool ScanFolder()
     {
         _scanned = true;
         var changed = false;
@@ -166,9 +178,7 @@ public sealed class MemoStore
     {
         try
         {
-            var e = Find(id);
-            if (e is null || !File.Exists(e.Path)) return null;
-            var doc = ReadDoc(e.Path);
+            if (Locate(id) is not (var e, var doc)) return null;
             return new MemoFile(doc, e.Path, MemoFormat.RevOf(doc.Body));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -201,17 +211,15 @@ public sealed class MemoStore
         if (!_canWrite()) return new SaveResult(SaveOutcome.Failed, null, null);
         try
         {
-            var e = Find(id);
-            if (e is null || !File.Exists(e.Path))
+            // 그 자리에 다른 메모가 와 있으면 덮지 않는다. 끝내 못 찾으면 지워진 것으로 본다.
+            if (Locate(id) is not (var e, var current))
             {
-                if (e is not null) _entries.Remove(e.Path);
                 var made = Create(body);
                 return made is null
                     ? new SaveResult(SaveOutcome.Failed, null, null)
                     : new SaveResult(SaveOutcome.Missing, null, made.Doc.Id);
             }
 
-            var current = ReadDoc(e.Path);
             var currentRev = MemoFormat.RevOf(current.Body);
             if (currentRev != baseRev)
             {
@@ -258,9 +266,7 @@ public sealed class MemoStore
         if (!_canWrite()) return false;
         try
         {
-            var e = Find(id);
-            if (e is null || !File.Exists(e.Path)) return false;
-            var doc = ReadDoc(e.Path);
+            if (Locate(id) is not (var e, var doc)) return false;
             if (doc.HasHeader && doc.Pinned == pinned) return true;
             doc = doc with { Id = id, HasHeader = true, Pinned = pinned };
             WriteDoc(e.Path, doc);
@@ -280,9 +286,8 @@ public sealed class MemoStore
         if (!_canWrite()) return false;
         try
         {
-            var e = Find(id);
-            if (e is null || !File.Exists(e.Path)) return false;
-            var doc = ReadDoc(e.Path) with
+            if (Locate(id) is not (var e, var found)) return false;
+            var doc = found with
             {
                 Id = id, HasHeader = true, Deleted = DateOnly.FromDateTime(_now()),
             };
@@ -373,6 +378,30 @@ public sealed class MemoStore
         return count;
     }
 
+    // ───────────────────────── 저장하지 못한 글
+
+    /// <summary>
+    /// 앱이 끝나는데 저장하지 못한 글을 folder 에 '제목 yyyyMMdd-HHmmss.md' 로 남긴다.
+    /// 머리말+본문 그대로라 memos 폴더로 옮기면 다시 보인다. 새 id 라 원래 메모와 겹치지 않는다.
+    /// </summary>
+    public static string? WriteRecovery(string folder, string body, DateTime now)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var doc = new MemoDocument(Guid.NewGuid(), true, false, false, null, null,
+                Array.Empty<KeyValuePair<string, string>>(), body);
+            var stem = StemOf(body) + " " + now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var path = UniquePath(folder, stem, null);
+            WriteDoc(path, doc);
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     // ───────────────────────── 안쪽 도구
 
     private IEnumerable<string> TrashFiles()
@@ -392,8 +421,35 @@ public sealed class MemoStore
     private Entry? Find(Guid id)
     {
         if (_scanned && TryFind(id, out var known) && File.Exists(known!.Path)) return known;
-        Scan();
+        if (ScanFolder()) _changedSinceReport = true;
         return TryFind(id, out var found) ? found : null;
+    }
+
+    /// <summary>
+    /// id 의 파일과 그 내용. 기억한 자리를 그대로 믿지 않고 읽은 id 를 견준다 —
+    /// 다른 PC 가 그 메모를 옮기고 같은 이름으로 다른 메모를 두었을 수 있다.
+    /// 어긋나면 그 자리를 잊고 다시 훑어 한 번 더 찾는다. 그래도 어긋나면 없는 것으로 친다.
+    /// </summary>
+    private (Entry Entry, MemoDocument Doc)? Locate(Guid id)
+    {
+        var e = Find(id);
+        for (var attempt = 0; e is not null; attempt++)
+        {
+            if (!File.Exists(e.Path))
+            {
+                _entries.Remove(e.Path);
+                return null;
+            }
+
+            var doc = ReadDoc(e.Path);
+            if (doc.Id == id) return (e, doc);
+            if (attempt > 0) return null;
+
+            _entries.Remove(e.Path);
+            if (ScanFolder()) _changedSinceReport = true;
+            e = TryFind(id, out var again) ? again : null;
+        }
+        return null;
     }
 
     private bool TryFind(Guid id, out Entry? entry)

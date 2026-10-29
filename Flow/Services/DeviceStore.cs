@@ -27,6 +27,10 @@ public static class DeviceStore
 
     public static string FilePath => Path_;
 
+    /// <summary>앱이 끝날 때 저장하지 못한 메모를 남기는 이 PC 의 폴더. 동기화 폴더 밖이다.</summary>
+    public static string UnsavedMemoFolder
+        => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path_) ?? "", "unsaved-memos");
+
     /// <summary>이 저장 위치에서 예전에 데이터를 읽은 적이 있는지.</summary>
     public static bool DataFolderInitialized => _dataFolderInitialized;
 

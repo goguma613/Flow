@@ -23,7 +23,7 @@ public sealed record BackupEntry(string Path, DateTime CreatedAt, int Routines, 
 /// </summary>
 public static class BackupService
 {
-    /// <summary>보관할 개수. 넘으면 오래된 것부터 지운다.</summary>
+    /// <summary>보관할 개수. zip 과 json 을 따로 센다. 넘으면 오래된 것부터 지운다.</summary>
     private const int KeepCount = 20;
 
     private const string Prefix = "data-";
@@ -183,10 +183,23 @@ public static class BackupService
 
             if (!IsZip(backupPath))
             {
+                // 먼저 읽어 둔다. 안전망을 만들며 정리하다 이 백업이 지워져도 되돌릴 수 있게.
+                var json = File.ReadAllBytes(backupPath);
+
                 // 되돌린 게 잘못이었을 때를 대비한 안전망. 없으면 되돌리지 않는다.
                 if (Create("before-restore") is null) return failed;
 
-                File.Copy(backupPath, DataStore.FilePath, overwrite: true);
+                var jsonTmp = DataStore.FilePath + ".restore.tmp";
+                try
+                {
+                    File.WriteAllBytes(jsonTmp, json);
+                    File.Move(jsonTmp, DataStore.FilePath, overwrite: true);
+                }
+                catch
+                {
+                    try { File.Delete(jsonTmp); } catch (Exception) { /* 남아도 무시한다 */ }
+                    throw;
+                }
                 return new RestoreResult(RestoreOutcome.Ok);
             }
 
@@ -402,9 +415,16 @@ public static class BackupService
             .ToArray();
     }
 
+    /// <summary>
+    /// zip 과 json 을 따로 KeepCount 개씩 남긴다. 같이 세면 PC 여러 대에서 잦은 before-sync json 이
+    /// 메모가 든 유일한 백업인 zip 을 밀어낸다.
+    /// </summary>
     private static void Prune()
     {
-        foreach (var stale in Files().Skip(KeepCount))
+        var files = Files();
+        var stales = files.Where(f => IsZip(f.Name)).Skip(KeepCount)
+            .Concat(files.Where(f => !IsZip(f.Name)).Skip(KeepCount));
+        foreach (var stale in stales)
         {
             try
             {

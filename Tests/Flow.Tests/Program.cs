@@ -566,6 +566,19 @@ internal static partial class Program
         memos.Scan();
         Check("없는 메모를 휴지통으로 안 보냄", memos.Trash().Any(m => m.Id == locked.Doc.Id), false);
         Check("잠겼던 메모는 그대로", memos.Load(locked.Doc.Id) is not null, true);
+
+        // zip 과 json 은 따로 센다. PC 여러 대에서 잦은 before-sync json 이 메모가 든 zip 을 밀어내면 안 된다.
+        var memoZip = BackupService.Create("keep")!;
+        var plain = JsonSerializer.Serialize(new AppData { LastLogicalDate = new DateOnly(2026, 9, 7) }, AppJsonContext.Default.AppData);
+        for (var i = 0; i < 25; i++) BackupService.CreateFromJson(plain, "before-sync");
+        Check("json 이 많아도 zip 은 남음", System.IO.File.Exists(memoZip), true);
+        Check("json 은 20개만 남김", BackupService.List().Count(b => b.Path.EndsWith(".json")), 20);
+
+        // json 이 가득 찼을 때 가장 오래된 것으로 되돌려도, 안전망을 만들며 그 백업을 지우지 않는다.
+        var oldest = BackupService.List().Last(b => b.Path.EndsWith(".json")).Path;
+        Check("가장 오래된 json 되돌리기", BackupService.Restore(oldest), true);
+        Check("되돌린 json 이 남음", System.IO.File.Exists(oldest), true);
+        Check("json 내용으로 돌아옴", store.Load().Routines.Count, 0);
     }
 
     private static void BucketTests()
@@ -966,17 +979,28 @@ internal static partial class Program
         // ── 빈 폴더를 고르면 지금 것을 복사해 넣는다.
         //    원본은 남겨 둔다 — 옮기다 잘못돼도 돌아갈 자리가 있어야 한다.
         var empty = System.IO.Path.Combine(root, "empty");
-        var hadSource = System.IO.File.Exists(DataStore.FilePath);
 
-        Check("빈 폴더에는 복사해 넣는다",
-            DataLocation.Prepare(empty),
-            hadSource ? MoveResult.CopiedHere : MoveResult.StartedEmpty);
+        // 지금 자리에 data.json 이 없으면 시험용으로 하나 두고, 끝나면 치운다.
+        var madeSource = !System.IO.File.Exists(DataStore.FilePath);
+        if (madeSource) System.IO.File.WriteAllText(DataStore.FilePath, "{\"Version\":2,\"Tasks\":[],\"Routines\":[],\"History\":[]}");
 
-        if (hadSource)
-        {
-            Check("새 자리에 파일이 생김", System.IO.File.Exists(System.IO.Path.Combine(empty, "data.json")), true);
-            Check("원본은 그대로 남는다", System.IO.File.Exists(DataStore.FilePath), true);
-        }
+        // 메모(휴지통 포함)도 따라가야 한다. 지금 자리에 메모 몇 개를 둔다.
+        var ourMemos = System.IO.Path.Combine(DataStore.Directory, "memos");
+        if (System.IO.Directory.Exists(ourMemos)) System.IO.Directory.Delete(ourMemos, true);
+        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(ourMemos, "휴지통"));
+        System.IO.File.WriteAllText(System.IO.Path.Combine(ourMemos, "가.md"), "가\r\n여기 것");
+        System.IO.File.WriteAllText(System.IO.Path.Combine(ourMemos, "라.md"), "라\r\n여기만");
+        System.IO.File.WriteAllText(System.IO.Path.Combine(ourMemos, "마.md"), "마\r\n같은 글");
+        System.IO.File.WriteAllText(System.IO.Path.Combine(ourMemos, "휴지통", "나.md"), "나\r\n지운 것");
+
+        Check("빈 폴더에는 복사해 넣는다", DataLocation.Prepare(empty), MoveResult.CopiedHere);
+        Check("새 자리에 파일이 생김", System.IO.File.Exists(System.IO.Path.Combine(empty, "data.json")), true);
+        Check("원본은 그대로 남는다", System.IO.File.Exists(DataStore.FilePath), true);
+
+        var copied = System.IO.Path.Combine(empty, "memos");
+        Check("메모가 따라옴", System.IO.File.ReadAllText(System.IO.Path.Combine(copied, "가.md")), "가\r\n여기 것");
+        Check("휴지통도 따라옴", System.IO.File.Exists(System.IO.Path.Combine(copied, "휴지통", "나.md")), true);
+        Check("원본 메모도 남는다", System.IO.File.Exists(System.IO.Path.Combine(ourMemos, "가.md")), true);
 
         // ── 이미 데이터가 있는 폴더(다른 PC가 먼저 올려 둔 경우)는 건드리지 않는다.
         //    여기서 덮어쓰면 그 PC의 최신 내용이 사라진다. 이 시험이 그것을 막는다.
@@ -989,6 +1013,24 @@ internal static partial class Program
 
         Check("이미 있으면 그것을 쓴다", DataLocation.Prepare(occupied), MoveResult.AdoptedExisting);
         Check("남의 파일을 덮어쓰지 않는다", System.IO.File.ReadAllText(theirs), mark);
+
+        // 그쪽 메모는 덮지 않고, 여기만 있는 메모는 넣고, 이름만 같고 글이 다르면 따로 넣는다.
+        var adopted = System.IO.Path.Combine(root, "adopted");
+        var theirMemos = System.IO.Path.Combine(adopted, "memos");
+        System.IO.Directory.CreateDirectory(theirMemos);
+        System.IO.File.WriteAllText(System.IO.Path.Combine(adopted, "data.json"), mark);
+        System.IO.File.WriteAllText(System.IO.Path.Combine(theirMemos, "가.md"), "가\r\n그쪽 것");
+        System.IO.File.WriteAllText(System.IO.Path.Combine(theirMemos, "마.md"), "마\r\n같은 글");
+        Check("메모가 있어도 그쪽을 쓴다", DataLocation.Prepare(adopted), MoveResult.AdoptedExisting);
+        Check("그쪽 메모를 덮지 않음", System.IO.File.ReadAllText(System.IO.Path.Combine(theirMemos, "가.md")), "가\r\n그쪽 것");
+        Check("글이 다르면 이전 폴더로 따로", System.IO.File.ReadAllText(System.IO.Path.Combine(theirMemos, "가 (이전 폴더).md")), "가\r\n여기 것");
+        Check("여기만 있던 메모는 넣음", System.IO.File.Exists(System.IO.Path.Combine(theirMemos, "라.md")), true);
+        Check("같은 글은 또 넣지 않음", System.IO.File.Exists(System.IO.Path.Combine(theirMemos, "마 (이전 폴더).md")), false);
+        Check("휴지통도 넣음", System.IO.File.Exists(System.IO.Path.Combine(theirMemos, "휴지통", "나.md")), true);
+        Check("다시 해도 겹쳐 넣지 않음", (DataLocation.Prepare(adopted), System.IO.Directory.GetFiles(theirMemos).Length), (MoveResult.AdoptedExisting, 4));
+
+        System.IO.Directory.Delete(ourMemos, true);
+        if (madeSource) System.IO.File.Delete(DataStore.FilePath);
 
         System.IO.Directory.Delete(root, true);
     }

@@ -70,6 +70,7 @@ public static class DataLocation
     ///   여기 것을 부어 넣으면 그 PC의 최신 내용을 덮어쓴다.
     /// - 그쪽이 비어 있으면 여기 것을 <b>복사</b>해 넣는다. 원본은 지우지 않는다 —
     ///   옮기다 잘못돼도 돌아갈 자리가 있어야 한다.
+    /// - 메모(휴지통 포함)는 어느 쪽이든 따라간다. 그쪽에 있는 파일은 덮지 않는다(MergeMemos).
     /// </summary>
     public static MoveResult Prepare(string target)
     {
@@ -82,12 +83,20 @@ public static class DataLocation
             File.Delete(probe);
 
             var targetData = Path.Combine(target, "data.json");
-            if (File.Exists(targetData)) return MoveResult.AdoptedExisting;
+            var memos = Path.Combine(DataStore.Directory, "memos");
+            var targetMemos = Path.Combine(target, "memos");
+
+            if (File.Exists(targetData))
+            {
+                MergeMemos(memos, targetMemos);
+                return MoveResult.AdoptedExisting;
+            }
 
             if (File.Exists(DataStore.FilePath))
             {
                 File.Copy(DataStore.FilePath, targetData, overwrite: false);
                 CopyFolder(Path.Combine(DataStore.Directory, "backup"), Path.Combine(target, "backup"));
+                MergeMemos(memos, targetMemos);
                 return MoveResult.CopiedHere;
             }
 
@@ -110,6 +119,53 @@ public static class DataLocation
             var destination = Path.Combine(to, Path.GetFileName(file));
             if (!File.Exists(destination)) File.Copy(file, destination);
         }
+    }
+
+    /// <summary>
+    /// 메모 폴더를 하위 폴더(휴지통)까지 새 자리로 복사한다. 새 자리에 있는 파일은 덮지 않는다 — 그쪽이 이긴다.
+    /// 이름은 같은데 내용이 다르면 '이름 (이전 폴더).md' 로 따로 넣어 어느 쪽 글도 잃지 않는다(같은 id 면 훑기가 충돌 사본으로 가른다).
+    /// 하나를 못 옮겨도 원본이 옛 폴더에 남아 있으니 나머지를 계속한다.
+    /// </summary>
+    private static void MergeMemos(string from, string to)
+    {
+        if (!Directory.Exists(from)) return;
+
+        foreach (var file in Directory.GetFiles(from))
+        {
+            if (!IsMemoFile(file)) continue;
+            try
+            {
+                Directory.CreateDirectory(to);
+
+                var stem = Path.GetFileNameWithoutExtension(file);
+                var ext = Path.GetExtension(file);
+                string? destination = Path.Combine(to, Path.GetFileName(file));
+                for (var n = 1; destination is not null && File.Exists(destination); n++)
+                {
+                    if (SameContent(file, destination)) destination = null;
+                    else destination = Path.Combine(to, n == 1 ? $"{stem} (이전 폴더){ext}" : $"{stem} (이전 폴더 {n}){ext}");
+                }
+
+                if (destination is not null) File.Copy(file, destination);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 원본은 옛 폴더에 그대로 있다.
+            }
+        }
+
+        foreach (var sub in Directory.GetDirectories(from))
+            MergeMemos(sub, Path.Combine(to, Path.GetFileName(sub)));
+    }
+
+    private static bool SameContent(string a, string b)
+        => File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b).AsSpan());
+
+    private static bool IsMemoFile(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
     }
 
     private static DataLocationPointer? Read()

@@ -258,7 +258,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 옮기기 전에 지금 것을 확실히 디스크에 내려놓는다.
+        // 옮기기 전에 지금 것을 확실히 디스크에 내려놓는다. 쓰던 메모도 옛 폴더에 저장돼야 같이 복사된다.
+        vm.FlushMemos();
         vm.FlushNow();
 
         var result = DataLocation.Prepare(target);

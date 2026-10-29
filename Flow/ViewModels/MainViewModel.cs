@@ -307,8 +307,26 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             ? "새 하루 시작 · 루틴을 초기화했습니다"
             : $"{result.DaysElapsed}일치를 정산하고 초기화했습니다");
         else if (fromPhone.Changed > 0) Announce(DescribePhone(fromPhone));
+        AnnounceUnsavedMemos();
 
         PushToPhone();
+    }
+
+    /// <summary>지난번 끝날 때 저장하지 못해 이 PC 에 따로 남긴 메모가 있으면 알린다. 다른 안내보다 앞선다.</summary>
+    private void AnnounceUnsavedMemos()
+    {
+        var folder = DeviceStore.UnsavedMemoFolder;
+        int count;
+        try
+        {
+            count = System.IO.Directory.Exists(folder) ? System.IO.Directory.EnumerateFiles(folder, "*.md").Count() : 0;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        if (count > 0) Announce($"저장하지 못한 메모 {count}개를 따로 남겨 두었습니다 · {folder} 의 파일을 데이터 폴더의 memos 로 옮기면 다시 보입니다");
     }
 
     public ObservableCollection<RoutineRow> TodayRoutines { get; } = [];
@@ -331,8 +349,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>훑기나 되돌리기로 메모 목록이 바뀌었을 때. 열려 있는 메모 창이 듣는다.</summary>
     public event Action? MemosChanged;
 
-    /// <summary>되돌리기가 메모 파일을 덮기 직전. 열려 있는 메모 창이 쓰던 글을 먼저 저장한다.</summary>
+    /// <summary>되돌리기·폴더 옮기기·업데이트 직전. 열려 있는 메모 창이 쓰던 글을 먼저 저장한다.</summary>
     public event Action? MemoFlushRequested;
+
+    /// <summary>열려 있는 메모 창이 쓰던 글을 지금 저장하게 한다.</summary>
+    public void FlushMemos() => MemoFlushRequested?.Invoke();
 
     /// <summary>
     /// 울렸는데 아직 처리되지 않은 항목들. 파일에 남기지 않는다 —
@@ -1069,6 +1090,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ApplyUpdate()
     {
+        // 쓰던 메모를 먼저 저장해야 업데이트 직전 백업에 담긴다.
+        FlushMemos();
         FlushNow();
 
         // 새 버전에 문제가 있어도 되돌릴 수 있게, 갈아타기 직전 상태를 남긴다.

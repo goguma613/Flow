@@ -106,6 +106,13 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         AfterSave(null);
     }
 
+    /// <summary>앱이 끝나는데 저장하지 못한 글. 버리지 않고 이 PC 의 따로 둔 폴더에 남긴다(다음에 켤 때 알린다).</summary>
+    public void SaveUnsavedCopy()
+    {
+        if (!_state.IsDirty) return;
+        MemoStore.WriteRecovery(DeviceStore.UnsavedMemoFolder, _state.Body, DateTime.Now);
+    }
+
     // ───────────────────────── 열기·저장
 
     public void Open(Guid id)
