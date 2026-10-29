@@ -30,6 +30,7 @@
     <Compile Include="../../Flow/Models/Memo.cs" />
     <Compile Include="../../Flow/Services/MemoFormat.cs" />
     <Compile Include="../../Flow/Services/MemoStore.cs" />
+    <Compile Include="../../Flow/Services/MemoQuery.cs" />
   </ItemGroup>
 
 </Project>

@@ -148,4 +148,33 @@ internal static partial class Program
         Check("이름이 바뀐 메모에 저장", store.Save(r2.Doc.Id, "또 바뀔 메모\n본문 고침", r2.Rev).Outcome, SaveOutcome.Saved);
         Check("tmp·bak 가 남지 않음", Directory.EnumerateFiles(store.Folder).Any(f => f.EndsWith(".tmp") || f.EndsWith(".bak")), false);
     }
+
+    private static void MemoQueryTests()
+    {
+        MemoSummary S(string title, bool pinned, int minutes, params string[] tags) =>
+            new(Guid.NewGuid(), "", title, "", tags, pinned, false, new DateTime(2026, 10, 29).AddMinutes(minutes), "", false);
+        var list = new[] { S("정산 절차", false, 10, "정산"), S("AK넷 배포", true, 1, "AK넷"), S("회의", false, 20), S("AK넷 정산", false, 5, "AK넷", "정산") };
+        var bodies = list.ToDictionary(m => m.Id, m => m.Title == "회의" ? "단가표 확인" : "");
+        string Titles(IEnumerable<MemoSummary> r) => string.Join(",", r.Select(m => m.Title));
+        Check("정렬: 고정 먼저, 최근 순", Titles(MemoQuery.Filter(list, null, null, id => bodies[id])), "AK넷 배포,회의,정산 절차,AK넷 정산");
+        Check("검색: 제목", Titles(MemoQuery.Filter(list, "정산", null, id => bodies[id])), "정산 절차,AK넷 정산");
+        Check("검색: 본문", Titles(MemoQuery.Filter(list, "단가표", null, id => bodies[id])), "회의");
+        Check("검색: 낱말 모두", Titles(MemoQuery.Filter(list, "ak넷 정산", null, id => bodies[id])), "AK넷 정산");
+        Check("검색칸의 #태그", Titles(MemoQuery.Filter(list, "#정산", null, id => bodies[id])), "정산 절차,AK넷 정산");
+        Check("태그 인자", Titles(MemoQuery.Filter(list, null, "AK넷", id => bodies[id])), "AK넷 배포,AK넷 정산");
+        Check("모든 태그", string.Join(",", MemoQuery.AllTags(list)), "AK넷,정산");
+
+        // 추가: 태그 대소문자, 본문 읽기 최소화, 같은 시각 정렬
+        Check("태그는 대소문자 무시", Titles(MemoQuery.Filter(list, "#ak넷", null, id => bodies[id])), "AK넷 배포,AK넷 정산");
+        Check("태그 인자의 # 는 뗌", Titles(MemoQuery.Filter(list, null, "#정산", id => bodies[id])), "정산 절차,AK넷 정산");
+        Check("검색칸 태그와 낱말", Titles(MemoQuery.Filter(list, "#ak넷 배포", null, id => bodies[id])), "AK넷 배포");
+        var reads = 0;
+        MemoQuery.Filter(list, "정산", null, id => { reads++; return ""; });
+        Check("제목에 다 있으면 본문을 안 읽음", reads, 2);   // 제목에 없는 두 메모만 읽는다
+        reads = 0;
+        MemoQuery.Filter(list, "#정산", null, id => { reads++; return ""; });
+        Check("태그만이면 본문을 안 읽음", reads, 0);
+        var same = new[] { S("나", false, 5), S("가", false, 5) };
+        Check("같은 시각이면 제목순", Titles(MemoQuery.Filter(same, null, null, _ => "")), "가,나");
+    }
 }
