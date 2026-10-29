@@ -26,6 +26,12 @@ public sealed class PhoneOp
     public const string Delete = "delete";
 
     /// <summary>
+    /// 메모의 체크 줄 하나를 맞춘다. <see cref="Target"/> 은 메모 id, <see cref="Text"/> 는 그 줄의 글(체크 기호·앞 들여쓰기 뺀 것),
+    /// <see cref="Line"/> 은 본문 몇째 줄(0부터), <see cref="Checked"/> 는 맞출 상태. 이 갈래를 모르는 옛 PC 는 손대지 않고 남긴다.
+    /// </summary>
+    public const string MemoCheck = "memo-check";
+
+    /// <summary>
     /// 이 일의 고유 번호. PC는 반영한 번호를 기억해 두 번 하지 않는다.
     /// '추가'라면 새로 생기는 항목의 Id 로도 쓴다 — 같은 추가가 두 번 와도 하나만 생긴다.
     /// </summary>
@@ -33,11 +39,11 @@ public sealed class PhoneOp
 
     /// <summary>
     /// <see cref="Add"/> · <see cref="Done"/> · <see cref="Undone"/> · <see cref="Rename"/> ·
-    /// <see cref="SetPriority"/> · <see cref="Delete"/>. 모르는 값은 건너뛴다.
+    /// <see cref="SetPriority"/> · <see cref="Delete"/> · <see cref="MemoCheck"/>. 모르는 값은 건너뛴다.
     /// </summary>
     public string Kind { get; set; } = "";
 
-    /// <summary>체크·체크 해제·고치기·지우기할 항목의 Id. 추가에는 쓰지 않는다.</summary>
+    /// <summary>체크·체크 해제·고치기·지우기할 항목의 Id(메모 체크라면 메모 id). 추가에는 쓰지 않는다.</summary>
     public Guid? Target { get; set; }
 
     /// <summary>
@@ -54,6 +60,12 @@ public sealed class PhoneOp
     /// 월요일 밤에 체크한 것을 PC가 화요일 아침에야 받아도 월요일 몫으로 넣을 수 있게 한다.
     /// </summary>
     public DateOnly Day { get; set; }
+
+    /// <summary>메모 체크에만: 폰이 본 본문의 몇째 줄(0부터). 그 사이 PC 에서 줄이 밀렸으면 같은 글을 찾는다.</summary>
+    public int? Line { get; set; }
+
+    /// <summary>메모 체크에만: 그 줄을 체크된 상태로 맞출지(true) 풀린 상태로 맞출지(false).</summary>
+    public bool? Checked { get; set; }
 }
 
 /// <summary>phone-inbox.json. 폰만 쓴다.</summary>
@@ -89,6 +101,38 @@ public sealed class PhoneViewItem
 
     // ── 루틴에만
     public int Streak { get; set; }
+
+    /// <summary>연결된 메모. 그 메모가 <see cref="PhoneView.Memos"/> 에 있을 때만 채운다(없으면 null).</summary>
+    public Guid? MemoId { get; set; }
+}
+
+/// <summary>phone-view.json 의 메모 하나. 휴지통·읽지 못한 메모는 오지 않는다.</summary>
+public sealed class PhoneMemo
+{
+    public Guid Id { get; set; }
+
+    /// <summary>줄 머리 기호를 뗀 제목(첫 비어 있지 않은 줄). 비면 "제목 없음".</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>머리말을 뺀 본문 전체. 줄바꿈은 \n 으로 맞춘다. 체크의 Line 은 이 글의 줄 번호다.</summary>
+    public string Text { get; set; } = "";
+
+    public bool Pinned { get; set; }
+
+    /// <summary>매일 초기화 메모인지.</summary>
+    public bool Daily { get; set; }
+
+    /// <summary>마지막으로 매일 초기화한 날(yyyy-MM-dd). 없으면 null.</summary>
+    public DateOnly? Reset { get; set; }
+
+    /// <summary>머리말 tags 와 본문 #태그를 합친 것(# 없이).</summary>
+    public List<string> Tags { get; set; } = new();
+
+    /// <summary>본문의 판. 본문이 바뀌면 바뀐다.</summary>
+    public string Rev { get; set; } = "";
+
+    /// <summary>파일을 고친 시각.</summary>
+    public DateTime Updated { get; set; }
 }
 
 /// <summary>phone-view.json. PC만 쓴다. 폰이 보여줄 오늘 화면 그대로.</summary>
@@ -119,4 +163,16 @@ public sealed class PhoneView
     /// 여기 없는 일은 아직 PC가 못 받은 것이니, 폰은 화면에 '반영 대기'로 얹어 보여 준다.
     /// </summary>
     public List<Guid> AppliedOps { get; set; } = new();
+
+    /// <summary>
+    /// 메모(휴지통·읽지 못함 제외). 고정 먼저, 그다음 최근에 고친 순.
+    /// 이 필드를 모르는 옛 폰은 그냥 건너뛴다.
+    /// </summary>
+    public List<PhoneMemo> Memos { get; set; } = new();
+
+    /// <summary>
+    /// 지금 PC 메모 창이 쓰는 중으로 들고 있는 메모 id(쓰기 모드·저장 안 된 글). 그 메모에 온 폰 체크는 쓰기를 마칠 때까지 남는다 —
+    /// 폰은 이걸 보고 '1분 안에' 대신 'PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다'라고 알린다. 모르는 옛 폰은 건너뛴다.
+    /// </summary>
+    public List<Guid> HeldMemos { get; set; } = new();
 }

@@ -457,19 +457,27 @@
               </Panel>
             </DockPanel>
 
-            <!-- 충돌·지워짐·저장 실패 띠 -->
-            <Border Grid.Row="1" IsVisible="{Binding HasBanner}"
-                    Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
-                    CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="{Binding Banner}" FontSize="13" TextWrapping="Wrap"
-                           Foreground="#F3D48B" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Classes="icon" Width="22" Height="22" Margin="8,0,0,0"
-                        Command="{Binding DismissBannerCommand}" ToolTip.Tip="닫기">
-                  <Path Data="{StaticResource CloseIcon}" Width="9" Height="9" Stretch="Uniform" />
-                </Button>
-              </Grid>
-            </Border>
+            <!-- 띠: 충돌·지워짐·저장 실패가 위, 쓰는 중이라 기다리는 휴대폰 체크가 아래(둘 다 있으면 쌓인다) -->
+            <StackPanel Grid.Row="1">
+              <Border IsVisible="{Binding HasBanner}"
+                      Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
+                      CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Banner}" FontSize="13" TextWrapping="Wrap"
+                             Foreground="#F3D48B" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Classes="icon" Width="22" Height="22" Margin="8,0,0,0"
+                          Command="{Binding DismissBannerCommand}" ToolTip.Tip="닫기">
+                    <Path Data="{StaticResource CloseIcon}" Width="9" Height="9" Stretch="Uniform" />
+                  </Button>
+                </Grid>
+              </Border>
+              <Border IsVisible="{Binding HasPhoneWait}"
+                      Background="#1E2A3A" BorderBrush="#2F4A6B" BorderThickness="1"
+                      CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
+                <TextBlock Text="{Binding PhoneWait}" FontSize="13" TextWrapping="Wrap"
+                           Foreground="#A9C8F0" VerticalAlignment="Center" />
+              </Border>
+            </StackPanel>
 
             <!-- 읽기 모드 제목. 누르면 쓰기 모드로. -->
             <TextBlock Name="ReadTitleText" Grid.Row="2" Text="{Binding ReadTitle}" IsVisible="{Binding ShowReader}"

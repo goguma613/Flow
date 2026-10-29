@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using Flow.Models;
 using Flow.Services;
+using Flow.ViewModels;
 
 namespace Flow.Tests;
 
@@ -333,8 +336,14 @@ internal static partial class Program
         view.GeneratedAt = view.GeneratedAt.AddMinutes(5);
         Check("시각만 다르면 다시 쓰지 않음 — 업로드를 아낀다", store.WriteView(view), false);
 
-        view.Tasks.Add(new PhoneViewItem { Id = Guid.NewGuid(), Title = "새 일" });
+        view.Tasks.Add(new PhoneViewItem { Id = Guid.NewGuid(), Title = "새 일", Priority = Priority.High });
         Check("내용이 바뀌면 씀", store.WriteView(view), true);
+        var compact = File.ReadAllText(viewPath);
+        Check("파일은 한글을 그대로 (\\u 로 바꾸지 않음)", (compact.Contains("\"Title\":\"새 일\""), compact.Contains("\\u")), (true, false));
+        Check("파일은 들여쓰기 없이 한 줄", compact.Contains('\n'), false);
+        Check("파일의 중요도는 이름 그대로", compact.Contains("\"Priority\":\"High\""), true);
+        view.GeneratedAt = view.GeneratedAt.AddMinutes(5);
+        Check("한 줄로 써도 시각만 다르면 다시 쓰지 않음", store.WriteView(view), false);
 
         // 내용이 짧아졌을 때 뒤에 옛 글자가 남으면 JSON 이 깨진다
         view.Tasks.Clear();
@@ -369,9 +378,400 @@ internal static partial class Program
         Directory.Delete(root, true);
     }
 
+    /// <summary>시험용 메모 체크 받는 곳. 정해 둔 결과를 돌려주고 받은 값을 적어 둔다.</summary>
+    private sealed class FakeMemoTarget(MemoCheckResult answer) : IPhoneMemoTarget
+    {
+        public MemoCheckResult Answer { get; set; } = answer;
+        public List<(Guid Id, string Text, int? Line, bool Checked, DateOnly? Day)> Calls { get; } = new();
+
+        public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
+        {
+            Calls.Add((id, text, line, isChecked, day));
+            return Answer;
+        }
+    }
+
+    /// <summary>
+    /// 시험용: 체크 줄 하나를 가진 메모(Memo). 처음 LockedCalls 번은 잠겨 미루고, 그다음부터 그 줄을 맞춘다.
+    /// History 는 실제로 바꾼 순서(+ 체크, - 해제). 다른 메모의 체크는 그냥 들어간 것으로 한다.
+    /// </summary>
+    private sealed class LineTarget : IPhoneMemoTarget
+    {
+        public Guid Memo { get; init; }
+        public int LockedCalls { get; set; }
+        public int Calls { get; private set; }
+        public bool Checked { get; private set; }
+        public string History { get; private set; } = "";
+
+        public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
+        {
+            Calls++;
+            if (id != Memo) return MemoCheckResult.Applied;
+            if (LockedCalls > 0)
+            {
+                LockedCalls--;
+                return MemoCheckResult.Deferred;
+            }
+            if (Checked == isChecked) return MemoCheckResult.Skipped;
+            Checked = isChecked;
+            History += isChecked ? "+" : "-";
+            return MemoCheckResult.Applied;
+        }
+    }
+
+    private static PhoneOp MemoCheckOp(Guid memo, string text, int? line, bool isChecked, DateOnly day, int hour, int minute = 0)
+    {
+        var op = Op(PhoneOp.MemoCheck, day, hour, minute, target: memo, text: text);
+        op.Line = line;
+        op.Checked = isChecked;
+        return op;
+    }
+
+    /// <summary>폰 화면의 메모와 폰에서 온 메모 체크.</summary>
+    private static void PhoneMemoTests()
+    {
+        var memoA = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000000a1");
+        var memoB = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000000b2");
+        var memoGone = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000000c3");
+
+        // ── 받는 곳이 없으면(옛 길) 메모 체크는 모르는 갈래처럼 남긴다
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var op = MemoCheckOp(memoA, "단가표 확인", 2, true, Mon, 9);
+            var result = PhoneLinkEngine.Apply(data, [op]);
+            Check("메모 받는 곳 없이: 저장할 것 없음", result.NeedsSave, false);
+            Check("메모 받는 곳 없이: 처리했다고 적지 않음", data.PhoneOpsApplied.Count, 0);
+        }
+
+        // ── 받는 곳의 결과대로 적는다
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var task = new TaskItem { Title = "장부 정리" };
+            data.Tasks.Add(task);
+
+            var target = new FakeMemoTarget(MemoCheckResult.Deferred);
+            var before = Op(PhoneOp.Done, Mon, 8, target: task.Id);
+            var check = MemoCheckOp(memoA, "단가표 확인", 2, true, Mon, 9);
+            var rename = Op(PhoneOp.Rename, Mon, 10, target: task.Id, text: "장부 정리 끝");
+            var deferred = PhoneLinkEngine.Apply(data, [rename, check, before], target);
+            Check("미룬 메모 체크는 처리했다고 적지 않음 (inbox 에 남음)",
+                data.PhoneOpsApplied.Any(a => a.Id == check.Id), false);
+            Check("미뤄도 다른 일은 들어감", (task.Done, task.Title), (true, "장부 정리 끝"));
+            Check("미룬 것은 건너뜀으로도 안 셈", (deferred.Skipped, deferred.MemoChecked), (0, 0));
+            Check("받는 곳이 받은 값", target.Calls.SingleOrDefault(), (memoA, "단가표 확인", (int?)2, true, (DateOnly?)Mon));
+
+            target.Answer = MemoCheckResult.Applied;
+            var applied = PhoneLinkEngine.Apply(data, [rename, check, before], target);
+            Check("다음에 다시 해 봄 → 메모 체크 1", applied.MemoChecked, 1);
+            Check("메모 체크도 화면이 바뀐 것", applied.Changed, 1);
+            Check("이번에는 처리했다고 적음", data.PhoneOpsApplied.Any(a => a.Id == check.Id), true);
+            PhoneLinkEngine.Apply(data, [check], target);
+            Check("적은 것은 다시 하지 않음", target.Calls.Count, 2);
+
+            target.Answer = MemoCheckResult.Skipped;
+            var none = MemoCheckOp(memoGone, "없는 줄", 0, true, Mon, 11);
+            var skipped = PhoneLinkEngine.Apply(data, [none], target);
+            Check("맞는 줄이 없으면 건너뛰고 처리함으로 적음", (skipped.Skipped, data.PhoneOpsApplied.Any(a => a.Id == none.Id)), (1, true));
+
+            var broken = Op(PhoneOp.MemoCheck, Mon, 12, target: memoA, text: "단가표 확인");
+            var brokenResult = PhoneLinkEngine.Apply(data, [broken], target);
+            Check("Checked 가 없으면 건너뜀", (brokenResult.Skipped, target.Calls.Count), (1, 3));
+
+            var tomorrow = MemoCheckOp(memoA, "단가표 확인", 2, true, Tue, 9);
+            PhoneLinkEngine.Apply(data, [tomorrow], target);
+            Check("PC 가 아직 그 날에 안 왔으면 손대지 않음", (target.Calls.Count, data.PhoneOpsApplied.Any(a => a.Id == tomorrow.Id)), (3, false));
+        }
+
+        // ── PC 가 쓰는 중이라 남긴 체크는 메모마다 세어 알린다(잠김 같은 다른 까닭은 세지 않음)
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var target = new FakeMemoTarget(MemoCheckResult.Held);
+            var c1 = MemoCheckOp(memoA, "엑셀 받기", 1, true, Mon, 9);
+            var c2 = MemoCheckOp(memoA, "단가표 확인", 2, true, Mon, 9, 1);
+            var heldResult = PhoneLinkEngine.Apply(data, [c1, c2], target);
+            Check("쓰는 중이라 남긴 체크 수 (메모마다)", (heldResult.HeldFor(memoA), heldResult.HeldFor(memoB)), (2, 0));
+            Check("쓰는 중이면 처리했다고 적지 않음", (data.PhoneOpsApplied.Count, heldResult.NeedsSave), (0, false));
+
+            target.Answer = MemoCheckResult.Deferred;
+            var locked = PhoneLinkEngine.Apply(data, [c1], target);
+            Check("잠김으로 미룬 것은 쓰는 중으로 세지 않음", (locked.Held, data.PhoneOpsApplied.Count), ((IReadOnlyDictionary<Guid, int>?)null, 0));
+
+            target.Answer = MemoCheckResult.Applied;
+            var released = PhoneLinkEngine.Apply(data, [c1, c2], target);
+            Check("놓으면 들어가고 남은 것 없음", (released.MemoChecked, released.Held), (2, (IReadOnlyDictionary<Guid, int>?)null));
+
+            var sum = new PhoneApplyResult(0, 0, 0, 0, Held: new Dictionary<Guid, int> { [memoA] = 1 })
+                      + new PhoneApplyResult(0, 0, 0, 0, Held: new Dictionary<Guid, int> { [memoA] = 2, [memoB] = 1 });
+            Check("결과를 더하면 남긴 수도 더함", (sum.HeldFor(memoA), sum.HeldFor(memoB)), (3, 1));
+        }
+
+        // ── 한 메모의 체크를 하나 남기면 그 메모의 뒤 체크도 남긴다 — 체크 → 해제가 거꾸로 끝나지 않게
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var line = new LineTarget { Memo = memoA, LockedCalls = 1 };   // 첫 시도만 잠김(잠깐 잡혔다 풀림)
+            var check = MemoCheckOp(memoA, "단가표 확인", 2, true, Mon, 9);
+            var uncheck = MemoCheckOp(memoA, "단가표 확인", 2, false, Mon, 9, 1);
+            var other = MemoCheckOp(memoB, "아침 점검", 0, true, Mon, 9, 2);
+
+            var first = PhoneLinkEngine.Apply(data, [uncheck, check, other], line);
+            Check("첫 체크가 잠겨 미뤄지면 같은 메모의 해제도 남김", (line.Calls, line.Checked, first.MemoChecked), (2, false, 1));
+            Check("다른 메모의 체크는 그대로 들어감", data.PhoneOpsApplied.Select(a => a.Id).SingleOrDefault(), other.Id);
+
+            PhoneLinkEngine.Apply(data, [uncheck, check, other], line);
+            Check("풀린 뒤: 체크 → 해제 순으로 들어가 마지막은 해제", (line.History, line.Checked), ("+-", false));
+            Check("둘 다 처리했다고 적음", data.PhoneOpsApplied.Count, 3);
+        }
+
+        // ── 폰 화면의 메모: 순서, 기호 뗀 제목, \n 본문, 살아 있는 메모만 연결
+        {
+            MemoSummary Summary(Guid id, bool pinned, int day, string rev, bool unreadable = false)
+                => new(id, "", "?", "", new[] { "정산", "AK넷" }, pinned, id == memoB, new DateTime(2026, 10, day, 9, 0, 0), rev,
+                    unreadable, id == memoB ? Mon : null);
+
+            var bodies = new Dictionary<Guid, string>
+            {
+                [memoA] = "# 배포 절차 #AK넷\r\n[ ] 엑셀 받기\r\n[x] 단가표 확인",
+                [memoB] = "\n\n[ ] 아침 점검\n- 메모",
+                [memoGone] = "읽지 못함",
+            };
+            var loads = 0;
+            MemoFile? Load(Guid id)
+            {
+                loads++;
+                if (!bodies.TryGetValue(id, out var body)) return null;
+                return new MemoFile(new MemoDocument(id, true, false, false, null, null,
+                    Array.Empty<KeyValuePair<string, string>>(), body), "", MemoFormat.RevOf(body));
+            }
+
+            var cache = new PhoneMemoCache();
+            var summaries = new List<MemoSummary>
+            {
+                Summary(memoA, false, 9, MemoFormat.RevOf(bodies[memoA])),
+                Summary(memoB, true, 1, MemoFormat.RevOf(bodies[memoB])),
+                Summary(memoGone, false, 10, "", unreadable: true),
+            };
+            var memos = cache.Build(summaries, Load);
+            Check("읽지 못한 메모는 빼고, 처음엔 다 읽음", (memos.Count, loads), (2, 2));
+            var a = memos.Single(m => m.Id == memoA);
+            Check("제목은 기호를 뗌", a.Title, "배포 절차 #AK넷");
+            Check("본문은 머리말 뺀 그대로, 줄바꿈만 \\n", a.Text, "# 배포 절차 #AK넷\n[ ] 엑셀 받기\n[x] 단가표 확인");
+            Check("판", a.Rev, MemoFormat.RevOf(bodies[memoA]));
+            Check("태그는 요약 그대로 (머리말+본문)", string.Join(",", a.Tags), "정산,AK넷");
+            var b = memos.Single(m => m.Id == memoB);
+            Check("체크 줄 제목도 기호를 뗌", b.Title, "아침 점검");
+            Check("매일·초기화 날", (b.Daily, b.Reset), (true, (DateOnly?)Mon));
+
+            cache.Build(summaries, Load);
+            Check("판이 같으면 다시 읽지 않음", loads, 2);
+
+            bodies[memoA] = "# 배포 절차 #AK넷\r\n[x] 엑셀 받기\r\n[x] 단가표 확인";
+            summaries[0] = Summary(memoA, false, 11, MemoFormat.RevOf(bodies[memoA]));
+            var changed = cache.Build(summaries, Load);
+            Check("판이 바뀐 메모만 읽음", loads, 3);
+            Check("새 본문", changed.Single(m => m.Id == memoA).Text.Contains("[x] 엑셀 받기"), true);
+
+            summaries.RemoveAt(1);
+            cache.Build(summaries, Load);
+            summaries.Add(Summary(memoB, true, 1, MemoFormat.RevOf(bodies[memoB])));
+            cache.Build(summaries, Load);
+            Check("사라진 메모는 잊음 (돌아오면 다시 읽음)", loads, 4);
+
+            var lastText = changed.Single(m => m.Id == memoA).Text;
+            bodies.Remove(memoA);
+            summaries[0] = Summary(memoA, false, 12, "다른 판");
+            var failed = cache.Build(summaries, Load).SingleOrDefault(m => m.Id == memoA);
+            Check("잠깐 읽다 실패해도 기억한 본문으로 그대로 보냄", failed?.Text, lastText);
+            Check("…머리말 값은 새 요약에서", failed?.Updated, (DateTime?)new DateTime(2026, 10, 12, 9, 0, 0));
+            bodies[memoA] = "# 배포 절차\n[ ] 다시 읽음";
+            cache.Build(summaries, Load);
+            Check("다음에는 다시 읽어 봄", loads, 6);
+
+            summaries[0] = Summary(memoA, false, 13, "", unreadable: true);
+            var unreadable = cache.Build(summaries, Load).SingleOrDefault(m => m.Id == memoA);
+            Check("잠깐 읽지 못하는 메모도 기억한 것을 그대로 보냄", (unreadable?.Text, unreadable?.Title), ((string?)"# 배포 절차\n[ ] 다시 읽음", (string?)"배포 절차"));
+            Check("…읽지 못한 요약은 다시 읽지 않음", loads, 6);
+
+            // 폰 화면에 얹기
+            var list = new List<PhoneMemo>
+            {
+                new() { Id = memoA, Title = "오래된", Updated = new DateTime(2026, 10, 1) },
+                new() { Id = memoGone, Title = "최근", Updated = new DateTime(2026, 10, 9) },
+                new() { Id = memoB, Title = "고정", Pinned = true, Updated = new DateTime(2026, 9, 1) },
+            };
+            var data = new AppData { LastLogicalDate = Mon };
+            data.Routines.Add(new Routine { Title = "아침 점검", MemoId = memoB });
+            data.Tasks.Add(new TaskItem { Title = "배포", MemoId = memoA, Order = 0 });
+            data.Tasks.Add(new TaskItem { Title = "지운 메모", MemoId = Guid.NewGuid(), Order = 1 });
+            data.Tasks.Add(new TaskItem { Title = "다음 주 배포", MemoId = memoA, Due = Mon.AddDays(7) });
+
+            var view = PhoneLinkEngine.BuildView(data, Mon, Mon.ToDateTime(new TimeOnly(9, 0)), list);
+            Check("메모 순서: 고정 먼저, 그다음 최근", string.Join(",", view.Memos.Select(m => m.Title)), "고정,최근,오래된");
+            Check("루틴의 메모 연결", view.Routines.Single().MemoId, (Guid?)memoB);
+            Check("할 일의 메모 연결", view.Tasks.Single(t => t.Title == "배포").MemoId, (Guid?)memoA);
+            Check("목록에 없는 메모(휴지통·지움)는 연결하지 않음", view.Tasks.Single(t => t.Title == "지운 메모").MemoId, (Guid?)null);
+            Check("예정의 메모 연결", view.Upcoming.Single().MemoId, (Guid?)memoA);
+
+            Check("쓰는 중인 메모가 없으면 HeldMemos 비어 있음", view.HeldMemos.Count, 0);
+            var heldView = PhoneLinkEngine.BuildView(data, Mon, Mon.ToDateTime(new TimeOnly(9, 0)), list, [memoB, Guid.NewGuid()]);
+            Check("HeldMemos: 폰에 보이는 메모 중 PC 가 쓰는 중인 것만", string.Join(",", heldView.HeldMemos), memoB.ToString());
+
+            var old = PhoneLinkEngine.BuildView(data, Mon, Mon.ToDateTime(new TimeOnly(9, 0)));
+            Check("메모 없이 만든 화면: 메모 없음, 연결 없음",
+                (old.Memos.Count, old.Routines.Single().MemoId), (0, (Guid?)null));
+
+            // JSON 에 새 필드
+            view.Memos[0].Reset = Mon;
+            view.Memos[0].Tags = ["정산"];
+            view.Memos[0].Text = "고정\n[ ] 하나";
+            var json = JsonSerializer.Serialize(view, AppJsonContext.Default.PhoneView);
+            foreach (var field in new[] { "Memos", "MemoId", "Id", "Title", "Text", "Pinned", "Daily", "Reset", "Tags", "Rev", "Updated" })
+                Check($"phone-view.json 에 {field}", json.Contains($"\"{field}\":"), true);
+            Check("Reset 은 yyyy-MM-dd", json.Contains("\"Reset\": \"2026-10-05\""), true);
+            Check("초기화 날이 없으면 null", json.Contains("\"Reset\": null"), true);
+            view.HeldMemos = [memoB];
+            var compactJson = PhoneLinkStore.SerializeView(view);
+            Check("폰 화면 파일: 한글 그대로", (compactJson.Contains("\"Text\":\"고정\\n[ ] 하나\""), compactJson.Contains("\\u")), (true, false));
+            Check("폰 화면 파일: 한 줄", compactJson.Contains('\n'), false);
+            Check("폰 화면 파일: HeldMemos", compactJson.Contains($"\"HeldMemos\":[\"{memoB}\"]"), true);
+            Check("폰 화면 파일: Reset 은 yyyy-MM-dd", compactJson.Contains("\"Reset\":\"2026-10-05\""), true);
+            Check("폰 화면 파일이 더 작음", Encoding.UTF8.GetByteCount(compactJson) < Encoding.UTF8.GetByteCount(json), true);
+            var compactBack = JsonSerializer.Deserialize(compactJson, AppJsonContext.Default.PhoneView);
+            Check("한 줄 파일도 다시 읽힘", (compactBack?.Memos[0].Text, compactBack?.HeldMemos.SingleOrDefault()), ((string?)"고정\n[ ] 하나", (Guid?)memoB));
+            Check("data.json 꼴은 그대로(들여쓰기)", JsonSerializer.Serialize(new AppData(), AppJsonContext.Default.AppData).Contains("\n"), true);
+            view.HeldMemos = [];
+
+            var back = JsonSerializer.Deserialize(json, AppJsonContext.Default.PhoneView);
+            Check("메모가 오감", (back?.Memos.Count, back?.Memos[0].Text, back?.Memos[0].Reset), ((int?)3, "고정\n[ ] 하나", (DateOnly?)Mon));
+            Check("연결이 오감", back?.Routines[0].MemoId, (Guid?)memoB);
+
+            var inbox = PhoneLinkStore.ParseInbox(
+                "{\"Version\":1,\"Ops\":[{\"Id\":\"" + Guid.NewGuid() + "\",\"Kind\":\"memo-check\",\"Target\":\"" + memoA +
+                "\",\"Text\":\"단가표 확인\",\"Line\":2,\"Checked\":true,\"At\":\"2026-10-05T09:00:00\",\"Day\":\"2026-10-05\"}]}");
+            var inOp = inbox?.Ops.SingleOrDefault();
+            Check("inbox 의 메모 체크를 읽음", (inOp?.Kind, inOp?.Line, inOp?.Checked), ((string?)"memo-check", (int?)2, (bool?)true));
+            var oldInbox = PhoneLinkStore.ParseInbox(
+                "{\"Ops\":[{\"Id\":\"" + Guid.NewGuid() + "\",\"Kind\":\"done\",\"At\":\"2026-10-05T09:00:00\",\"Day\":\"2026-10-05\"}]}");
+            Check("옛 inbox 는 Line·Checked 없음", (oldInbox?.Ops[0].Line, oldInbox?.Ops[0].Checked), ((int?)null, (bool?)null));
+        }
+
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 메모 체크 파일 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var root = Path.Combine(DataStore.Directory, "phonememotest");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 5, 9, 0, 0));
+        string Body(Guid id) => store.Load(id)!.Doc.Body.Replace("\r\n", "\n");
+
+        var memo = store.Create("# 배포 절차 #AK넷\n[ ] 엑셀 받기\n[ ] 단가표 확인\n  - [ ] 배포\n[ ] 단가표 확인")!;
+        var id = memo.Doc.Id;
+        store.SetTags(id, ["정산"]);
+        var trashed = store.Create("지울 메모\n[ ] 하나")!;
+        store.Delete(trashed.Doc.Id);
+
+        // ── 폰 화면: 실제 파일에서
+        {
+            var cache = new PhoneMemoCache();
+            var memos = cache.Build(store.Memos, store.Load);
+            Check("휴지통 메모는 폰 화면에 없음", memos.Select(m => m.Id).SequenceEqual([id]), true);
+            Check("머리말 태그 + 본문 태그", string.Join(",", memos[0].Tags), "정산,AK넷");
+            Check("본문 그대로(\\n)", memos[0].Text, "# 배포 절차 #AK넷\n[ ] 엑셀 받기\n[ ] 단가표 확인\n  - [ ] 배포\n[ ] 단가표 확인");
+        }
+
+        // ── 줄 번호가 맞음
+        Check("줄 번호가 맞으면 그 줄을 체크", store.SetLineChecked(id, "단가표 확인", 2, true), MemoCheckResult.Applied);
+        Check("그 줄만 바뀜", Body(id), "# 배포 절차 #AK넷\n[ ] 엑셀 받기\n[x] 단가표 확인\n  - [ ] 배포\n[ ] 단가표 확인");
+        Check("머리말은 그대로", store.Load(id)!.Doc.Tags?.SingleOrDefault(), "정산");
+        Check("이미 그 상태면 건너뜀", store.SetLineChecked(id, "단가표 확인", 2, true), MemoCheckResult.Skipped);
+        Check("같은 글이 둘이어도 줄 번호가 맞으면 그 줄", store.SetLineChecked(id, "단가표 확인", 4, true), MemoCheckResult.Applied);
+        Check("둘째 줄이 바뀜", Body(id).EndsWith("\n[x] 단가표 확인"), true);
+        Check("들여쓴 체크도 글로 찾음", store.SetLineChecked(id, "배포", 3, true), MemoCheckResult.Applied);
+        Check("들여쓰기는 그대로", Body(id).Contains("\n  - [x] 배포\n"), true);
+
+        // ── 폰이 본 뒤 PC 에서 위에 줄을 더함 → 같은 글을 찾는다
+        {
+            var file = store.Load(id)!;
+            store.Save(id, "# 배포 절차 #AK넷\n오늘 메모 한 줄\n[ ] 엑셀 받기\n[x] 단가표 확인\n  - [x] 배포\n[x] 단가표 확인", file.Rev);
+        }
+        Check("줄이 밀려도 같은 글을 찾음", store.SetLineChecked(id, "엑셀 받기", 1, true), MemoCheckResult.Applied);
+        Check("밀린 줄이 체크됨", Body(id), "# 배포 절차 #AK넷\n오늘 메모 한 줄\n[x] 엑셀 받기\n[x] 단가표 확인\n  - [x] 배포\n[x] 단가표 확인");
+        Check("같은 글이 둘이고 줄이 틀리면 첫째", store.SetLineChecked(id, "단가표 확인", 2, false), MemoCheckResult.Applied);
+        Check("첫째만 풀림", Body(id), "# 배포 절차 #AK넷\n오늘 메모 한 줄\n[x] 엑셀 받기\n[ ] 단가표 확인\n  - [x] 배포\n[x] 단가표 확인");
+
+        // ── 맞는 줄이 없음 · 메모가 없음 · 휴지통
+        var rev = store.Load(id)!.Rev;
+        Check("맞는 줄이 없으면 건너뜀", store.SetLineChecked(id, "없는 줄", 2, true), MemoCheckResult.Skipped);
+        Check("체크 줄이 아닌 같은 글은 건드리지 않음", store.SetLineChecked(id, "오늘 메모 한 줄", 1, true), MemoCheckResult.Skipped);
+        Check("건너뛰면 파일 그대로", store.Load(id)!.Rev, rev);
+        Check("없는 메모는 건너뜀", store.SetLineChecked(Guid.NewGuid(), "단가표 확인", 2, true), MemoCheckResult.Skipped);
+        Check("휴지통 메모는 건너뜀", store.SetLineChecked(trashed.Doc.Id, "하나", 1, true), MemoCheckResult.Skipped);
+        Check("폴더를 기다리는 중이면 미룸",
+            new MemoStore(root, () => false, () => DateTime.Now).SetLineChecked(id, "단가표 확인", 3, true), MemoCheckResult.Deferred);
+
+        if (OperatingSystem.IsWindows())
+        {
+            using (new FileStream(store.Load(id)!.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Check("파일이 잠겼으면 미룸", store.SetLineChecked(id, "단가표 확인", 3, true), MemoCheckResult.Deferred);
+            Check("잠겼던 동안 바뀌지 않음", store.Load(id)!.Rev, rev);
+        }
+
+        // ── 매일 초기화 메모: 지난 날 체크는 건너뛰고, 그 날 몫 초기화 전이면 미룬다
+        {
+            var daily = store.Create("아침 점검\n[ ] 창문\n[ ] 화분")!.Doc.Id;
+            store.SetDaily(daily, true, Mon);
+            Check("초기화한 날의 체크는 넣음", store.SetLineChecked(daily, "창문", 1, true, Mon), MemoCheckResult.Applied);
+            Check("아직 그 날 몫을 안 풀었으면 미룸", store.SetLineChecked(daily, "화분", 2, true, Tue), MemoCheckResult.Deferred);
+            store.ResetDaily(Tue);
+            Check("풀고 나면 넣음", store.SetLineChecked(daily, "화분", 2, true, Tue), MemoCheckResult.Applied);
+            Check("어제 체크가 늦게 오면 건너뜀", store.SetLineChecked(daily, "창문", 1, true, Mon), MemoCheckResult.Skipped);
+            Check("매일 메모 본문", Body(daily), "아침 점검\n[ ] 창문\n[x] 화분");
+        }
+
+        // ── PC 메모 창이 쓰는 중이면 남겨 두었다가 다음에 — 덮어쓰지도, 충돌 사본을 만들지도 않는다
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var editor = new MemoEditorState(store);
+            editor.Open(id);
+            Func<Guid, bool>? held = m => editor.CurrentId == m && (editor.IsDirty || editor.IsEditing);
+            var target = new PhoneMemoTarget(store, () => held);
+            var count = store.Memos.Count;
+
+            editor.IsEditing = true;
+            var op = MemoCheckOp(id, "단가표 확인", 3, true, Mon, 9);
+            var first = PhoneLinkEngine.Apply(data, [op], target);
+            Check("쓰기 모드면 미룸 (처리했다고 적지 않음)", (first.MemoChecked, data.PhoneOpsApplied.Count), (0, 0));
+            Check("쓰기 모드면 파일 그대로", store.Load(id)!.Rev, rev);
+            Check("쓰기 모드라 남긴 체크로 셈 (메모 창 띠)", first.HeldFor(id), 1);
+
+            editor.Edit(editor.Body + "\n새로 쓴 줄");
+            Check("저장 안 된 글이 있어도 미룸", PhoneLinkEngine.Apply(data, [op], target).MemoChecked, 0);
+            Check("내 글은 그대로 저장됨", editor.Flush()!.Outcome, SaveOutcome.Saved);
+            editor.IsEditing = false;
+
+            var second = PhoneLinkEngine.Apply(data, [op], target);
+            Check("놓은 뒤 다시 해 보면 들어감", (second.MemoChecked, data.PhoneOpsApplied.Count), (1, 1));
+            Check("쓴 글과 폰 체크가 함께 남음", Body(id).EndsWith("[x] 단가표 확인\n  - [x] 배포\n[x] 단가표 확인\n새로 쓴 줄"), true);
+
+            editor.OnExternalChange();
+            Check("읽기 모드 메모 창은 새 글을 다시 읽음", editor.Body.Replace("\r\n", "\n").Contains("\n[x] 단가표 확인\n  -"), true);
+            editor.ToggleCheck(2);
+            Check("그 뒤 PC 에서 체크해도 충돌 없음", (Body(id).Contains("\n[ ] 엑셀 받기\n"), store.Memos.Count), (true, count));
+
+            held = null;   // 메모 창이 닫힘
+            var closed = MemoCheckOp(id, "엑셀 받기", 2, true, Mon, 10);
+            Check("메모 창이 없으면 바로 들어감", PhoneLinkEngine.Apply(data, [closed], target).MemoChecked, 1);
+        }
+
+        Directory.Delete(root, true);
+    }
+
     /// <summary>파일이 디스크에서 같은 파일인지 가르는 번호(볼륨 + 파일 인덱스).</summary>
     private static string FileIdentity(string path)
     {
+        // 윈도 밖(로컬에서 돌려 볼 때)에는 이 번호를 얻을 길이 없다. CI(윈도)에서 제대로 본다.
+        if (!OperatingSystem.IsWindows()) return "?";
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         if (!GetFileInformationByHandle(stream.SafeFileHandle.DangerousGetHandle(), out var info)) return "?";
         return $"{info.VolumeSerialNumber:X}-{info.FileIndexHigh:X}-{info.FileIndexLow:X}";

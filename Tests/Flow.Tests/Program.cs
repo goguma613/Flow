@@ -62,6 +62,9 @@ internal static partial class Program
         Section("폰 연동 · 파일");
         PhoneStoreTests();
 
+        Section("폰 연동 · 메모");
+        PhoneMemoTests();
+
         Section("저장 위치 옮기기");
         DataLocationTests();
 

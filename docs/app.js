@@ -75,7 +75,14 @@ const state = {
   relay: DEMO ? null : local.get('relay', null), // 로그인 없이 쓰기: { url, key }
   editing: null,                       // 고치기 창에 띄운 항목의 Id
   confirmDelete: false,                // 삭제를 한 번 눌렀다
-  fetchedAt: local.get('fetchedAt', 0)
+  fetchedAt: local.get('fetchedAt', 0),
+  tab: local.get('tab', 'today') === 'memo' ? 'memo' : 'today', // 위 탭(오늘 · 메모). 연 메모는 기억하지 않는다
+  memoOpen: null,                      // 읽기 화면에 띄운 메모의 Id
+  memoFrom: 'memo',                    // 메모를 연 탭(오늘의 📝 · 메모 목록). ‹ 가 그리로 돌아간다
+  draft: '',                           // 빠른 추가 칸에 적던 글. 탭을 바꾸거나 메모를 열었다 와도 남는다
+  memoSearch: '',                      // 메모 탭 검색칸
+  memoTag: null,                       // 메모 탭에서 고른 태그 칩
+  memoListScroll: 0                    // 메모를 열 때 연 화면이 내려가 있던 자리. 돌아오면 그 자리로
 };
 
 // ───────── 날짜
@@ -490,16 +497,29 @@ async function flush() {
   render();
 }
 
-/** 폰에서 한 일 하나를 쌓는다. 화면에는 바로 반영하고, 드라이브에는 모아서 보낸다. */
-function pushOp(kind, target, text) {
+/**
+ * 폰에서 한 일 하나를 쌓는다. 화면에는 바로 반영하고, 드라이브에는 모아서 보낸다.
+ * extra 는 갈래마다 더 붙는 칸(메모 체크의 Line · Checked).
+ */
+function pushOp(kind, target, text, extra) {
   const now = new Date();
+  let at = localIso(now);
+
+  // 메모 체크는 같은 칸을 1초 안에 두 번 누를 수 있다(체크했다 바로 풀기). PC 는 At 순으로 넣고
+  // 같은 초면 번호 순이라 거꾸로 들어갈 수 있다. 앞의 메모 체크보다 언제나 뒤의 시각을 쓴다.
+  if (kind === 'memo-check') {
+    const last = state.pending.filter(op => op.Kind === 'memo-check').map(op => op.At).sort().pop();
+    if (last && last >= at) at = localIso(new Date(new Date(last).getTime() + 1000));
+  }
+
   state.pending.push({
     Id: uuid(),
     Kind: kind,
     Target: target ?? null,
     Text: text ?? null,
-    At: localIso(now),
-    Day: logicalToday(now)
+    At: at,
+    Day: logicalToday(now),
+    ...(extra ?? {})
   });
   state.rev++;
   state.dirty = true;
@@ -571,6 +591,194 @@ function composeView() {
   return { today: stale ? today : view.Today, stale, routines, tasks, upcoming };
 }
 
+// ───────── 메모
+//
+// 글은 PC 가 phone-view.json 의 Memos 에 통째로 넣어 준다. 폰은 읽고 체크만 한다(쓰기·고치기는 다음 단계).
+// 줄 나누기·검색·태그는 PC 의 MemoFormat · MemoQuery 와 같은 규칙이어야 한다. 한쪽을 바꾸면 여기도 맞출 것.
+
+const MEMO_RX = {
+  lineBreak: /\r\n|\n|\r/,
+  heading2: /^##\s+/,
+  heading1: /^#\s+/,
+  check: /^[ \t]*(?:-\s+)?\[([ xX]?)\]\s?/,
+  numbered: /^[ \t]*(\d{1,3}\.)\s+/,
+  bullet: /^[ \t]*[-*]\s+/,
+  indent: /^[ \t]*/,
+  // 목록에 보일 때 떼는 줄 머리 기호(MemoFormat.PlainLine)
+  plainCheck: /^(?:[-*]\s+)?\[[ xX]?\](?:\s+|$)/,
+  plainMark: /^(?:#{1,2}|\d{1,3}\.|[-*])(?:\s+|$)/
+};
+
+/** 줄 앞 공백·탭의 들여쓰기 단계. 2칸이 한 단계, 탭은 4칸, 많아도 6단계. */
+function memoIndent(line) {
+  let columns = 0;
+  for (const ch of MEMO_RX.indent.exec(line)[0]) columns += ch === '\t' ? 4 : 1;
+  return Math.min(Math.floor(columns / 2), 6);
+}
+
+/** 한 줄의 갈래. MemoFormat.Classify 와 같은 순서로 본다(## 를 # 보다 먼저). */
+function classifyMemoLine(index, line) {
+  const make = (kind, text, extra) => ({ index, kind, text, number: null, checked: false, indent: 0, ...extra });
+  if (!line.trim()) return make('blank', '');
+
+  let m = MEMO_RX.heading2.exec(line);
+  if (m) return make('h2', line.slice(m[0].length));
+  m = MEMO_RX.heading1.exec(line);
+  if (m) return make('h1', line.slice(m[0].length));
+
+  m = MEMO_RX.check.exec(line);
+  if (m) return make('check', line.slice(m[0].length), { checked: m[1] === 'x' || m[1] === 'X', indent: memoIndent(line) });
+
+  m = MEMO_RX.numbered.exec(line);
+  if (m) return make('numbered', line.slice(m[0].length), { number: m[1], indent: memoIndent(line) });
+
+  m = MEMO_RX.bullet.exec(line);
+  if (m) return make('bullet', line.slice(m[0].length), { indent: memoIndent(line) });
+
+  return make('text', line);
+}
+
+function memoLines(text) {
+  return String(text ?? '').split(MEMO_RX.lineBreak).map((line, i) => classifyMemoLine(i, line));
+}
+
+/** 줄 머리 기호를 뗀 한 줄(MemoFormat.PlainLine). */
+function plainMemoLine(line) {
+  const trimmed = line.trim();
+  const check = MEMO_RX.plainCheck.exec(trimmed);
+  if (check) return trimmed.slice(check[0].length).trim();
+  const mark = MEMO_RX.plainMark.exec(trimmed);
+  return mark ? trimmed.slice(mark[0].length).trim() : trimmed;
+}
+
+/** 목록의 흐린 첫머리: 제목 줄 다음 본문을 기호 떼고 한 줄로 접어 앞 80자(MemoFormat.PreviewOf). */
+function memoPreview(text) {
+  const lines = String(text ?? '').split(MEMO_RX.lineBreak);
+  const first = lines.findIndex(l => l.trim());
+  if (first < 0) return '';
+  const folded = lines.slice(first + 1).map(plainMemoLine).join(' ').replace(/\s+/g, ' ').trim();
+  if (folded.length <= 80) return folded;
+  const cut = folded.slice(0, 80);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+const lower = s => String(s ?? '').toLocaleLowerCase();
+const bareTag = t => String(t ?? '').replace(/^#+/, '');
+
+/** 고정 먼저, 최근에 고친 순, 같으면 제목 순(MemoQuery.Filter 의 정렬). */
+function memoOrder(a, b) {
+  return (b.Pinned ? 1 : 0) - (a.Pinned ? 1 : 0)
+    || (Date.parse(b.Updated) || 0) - (Date.parse(a.Updated) || 0)
+    || lower(a.Title).localeCompare(lower(b.Title), 'ko');
+}
+
+/**
+ * 검색칸의 낱말이 모두 (제목 또는 본문)에 들어 있는 메모. 대소문자는 무시한다.
+ * '#' 로 시작하는 낱말과 고른 태그 칩은 태그 조건이다(MemoQuery.Filter 와 같다).
+ */
+function filterMemos(memos, search, tag) {
+  const words = [];
+  const tags = [];
+  for (const raw of String(search ?? '').split(/\s+/).filter(Boolean)) {
+    if (raw.startsWith('#')) {
+      const t = bareTag(raw);
+      if (t) tags.push(lower(t));
+    } else words.push(lower(raw));
+  }
+  const chosen = bareTag(String(tag ?? '').trim());
+  if (chosen) tags.push(lower(chosen));
+
+  return memos.filter(m => {
+    const have = (m.Tags ?? []).map(t => lower(bareTag(t)));
+    if (!tags.every(t => have.includes(t))) return false;
+    const title = lower(m.Title);
+    const body = lower(m.Text);
+    return words.every(w => title.includes(w) || body.includes(w));
+  }).sort(memoOrder);
+}
+
+/** 모든 태그(대소문자 무시로 합침). 메모 수 많은 순, 같으면 이름순(MemoQuery.AllTags). */
+function allMemoTags(memos) {
+  const counts = new Map();
+  for (const m of memos) {
+    const seen = new Set();
+    for (const raw of m.Tags ?? []) {
+      const name = bareTag(raw);
+      const key = lower(name);
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      const entry = counts.get(key) ?? { name, count: 0 };
+      entry.count++;
+      counts.set(key, entry);
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || lower(a.name).localeCompare(lower(b.name), 'ko'))
+    .map(e => e.name);
+}
+
+/** PC 가 Memos 를 보내 주는지. 옛 PC 는 이 칸이 없다. */
+function memosOfView() {
+  return Array.isArray(state.view?.Memos) ? state.view.Memos : null;
+}
+
+/** 체크 일이 가리키는 줄: Line 줄이 같은 글의 체크 줄이면 그 줄, 아니면 같은 글의 첫 체크 줄(PC 와 같다). */
+function findCheckLine(lines, line, text) {
+  const want = String(text ?? '').trim();
+  const matches = l => l.kind === 'check' && l.text.trim() === want;
+  return (Number.isInteger(line) && lines[line] && matches(lines[line]) ? lines[line] : null) ?? lines.find(matches) ?? null;
+}
+
+/**
+ * 화면에 보일 메모 = PC 가 보낸 글 + 아직 PC 가 못 받은 체크(composeView 와 같은 생각).
+ * PC 가 받아 간 체크(AppliedOps)는 얹지 않는다 — 넣었든 건너뛰었든 PC 의 글이 맞다.
+ * PC 가 꺼진 채 하루가 지났으면, 매일 초기화 메모는 PC 가 켜지면 풀릴 체크를 미리 풀어 보여 준다.
+ */
+function composeMemo(memo) {
+  const today = logicalToday();
+  const stale = !!state.view?.Today && state.view.Today < today;
+  const preview = stale && !!memo.Daily && (!memo.Reset || memo.Reset < today);
+  const lines = memoLines(memo.Text);
+  if (preview) for (const l of lines) if (l.kind === 'check') l.checked = false;
+
+  const applied = new Set(state.view?.AppliedOps ?? []);
+  let waiting = 0;
+  const ops = state.pending
+    .filter(op => op.Kind === 'memo-check' && op.Target === memo.Id && !applied.has(op.Id))
+    .sort((a, b) => a.At.localeCompare(b.At));
+
+  for (const op of ops) {
+    if (memo.Daily) {
+      // PC 는 초기화보다 앞선 날의 체크를 건너뛴다. 미리 풀어 보이는 중이면 오늘 누른 것만 남는다.
+      if (preview && op.Day < today) continue;
+      if (memo.Reset && op.Day < memo.Reset) continue;
+    }
+    const line = findCheckLine(lines, op.Line, op.Text);
+    if (!line) continue;
+    line.checked = !!op.Checked;
+    if (!line.waiting) waiting++;
+    line.waiting = true;
+  }
+
+  return { ...memo, lines, preview, waiting };
+}
+
+function findMemo(id) {
+  return memosOfView()?.find(m => m.Id === id) ?? null;
+}
+
+/** PC 메모 창이 지금 쓰는 중으로 들고 있는 메모인지. 그 메모의 체크는 PC 에서 쓰기를 마쳐야 들어간다. */
+function isHeldMemo(id) {
+  return Array.isArray(state.view?.HeldMemos) && state.view.HeldMemos.includes(id);
+}
+
+/** 대기 표시. PC 가 쓰는 중인 메모면 '1분 안에'가 아니라 쓰기를 마치면 들어간다고 알린다. */
+function waitBadge(memoId) {
+  return isHeldMemo(memoId)
+    ? '<span class="badge wait held">PC에서 쓰는 중</span>'
+    : '<span class="badge wait">PC 반영 대기</span>';
+}
+
 // ───────── 그리기
 
 const ICON = {
@@ -589,7 +797,15 @@ function render() {
   if (state.phase === 'setup') { if (!app.querySelector('.setup')) renderSetup(); return; }
   if (state.phase === 'signin' || (state.phase === 'boot' && !state.view)) return renderSignin();
   if (state.phase === 'waiting-pc' && !state.view?.Today) return renderWaiting();
+  if (state.tab === 'memo') return state.memoOpen ? renderMemoView() : renderMemoList();
   renderToday();
+}
+
+/** 위의 '오늘 | 메모' 탭. */
+function tabsHtml(active) {
+  const tab = (name, label) =>
+    `<button class="tab${active === name ? ' on' : ''}" role="tab" aria-selected="${active === name}" data-act="tab" data-tab="${name}">${label}</button>`;
+  return `<nav class="tabs" role="tablist">${tab('today', '오늘')}${tab('memo', '메모')}</nav>`;
 }
 
 function renderSignin() {
@@ -651,7 +867,12 @@ function statusLine() {
     return `<button class="status" data-act="refresh"><span class="dot"></span>${generated ? generated + ' · ' : ''}눌러서 최신으로</button>`;
   }
   if (waiting > 0) {
-    return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개 · PC가 켜져 있으면 1분 안에</div>`;
+    // PC 가 그 메모를 쓰는 중이면(쓰기 모드) 1분이 지나도 안 들어간다. 왜 기다리는지 말해 준다.
+    const held = open.filter(op => state.sent.has(op.Id) && op.Kind === 'memo-check' && isHeldMemo(op.Target)).length;
+    const when = held === waiting ? 'PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다'
+      : held > 0 ? `PC가 켜져 있으면 1분 안에 · ${held}개는 PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다`
+      : 'PC가 켜져 있으면 1분 안에';
+    return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개 · ${when}</div>`;
   }
   return `<div class="status live"><span class="dot"></span>${generated || '최신'}</div>`;
 }
@@ -661,7 +882,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v7',
+    'v9',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -690,6 +911,10 @@ function rowHtml(item) {
   const meta = [];
   if (item.waiting && item.kind === 'task' && item.Id && !inView(item.Id)) {
     meta.push('<span class="badge wait">PC 반영 대기</span>');
+  }
+  if (item.MemoId && findMemo(item.MemoId)) {
+    // 줄 안의 작은 단추. 누르면 메모를 연다 — 줄 체크·길게 누르기와는 따로 논다(누르기 처리에서 가른다).
+    meta.push(`<span class="memo-link" role="button" aria-label="메모 열기" data-act="memo-open" data-memo="${esc(item.MemoId)}">📝</span>`);
   }
   if (item.kind === 'routine') {
     if (item.Time) meta.push(`<span class="badge">${esc(shortTime(item.Time))}</span>`);
@@ -748,11 +973,12 @@ function renderToday() {
   const finished = routines.filter(r => r.Done).length + done.length;
   const percent = total ? Math.round(finished / total * 100) : 0;
 
-  const draft = document.getElementById('compose')?.value ?? '';
+  const draft = state.draft;
   const hadFocus = document.activeElement?.id === 'compose';
 
   app.innerHTML = `
     <header class="head">
+      ${tabsHtml('today')}
       <div class="head-row">
         <div class="head-date">
           <div class="date">${date.getMonth() + 1}월 ${date.getDate()}일</div>
@@ -797,6 +1023,179 @@ function renderToday() {
     input.setSelectionRange(input.value.length, input.value.length);
   }
 }
+
+// ───────── 메모 탭 · 읽기 화면
+
+/** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
+function memoDiag() {
+  const parts = ['v9', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
+  return `<div class="diag">${parts.join(' · ')}</div>`;
+}
+
+/**
+ * 메모 목록. 검색칸은 처음 한 번만 그리고 그 아래만 다시 그린다 —
+ * 30초마다 통째로 다시 그리면 적던 검색어(한글 조합 중인 글자)가 날아간다.
+ */
+function renderMemoList() {
+  if (!app.querySelector('.memo-page')) {
+    app.innerHTML = `
+      <header class="head memo-page">
+        ${tabsHtml('memo')}
+        <div class="head-row search-row">
+          <input id="memo-search" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false"
+            placeholder="검색 — 제목·본문, #태그" value="${esc(state.memoSearch)}">
+          <button class="icon-btn" data-act="refresh" aria-label="새로고침">${ICON.refresh}</button>
+        </div>
+        <div id="memo-status"></div>
+      </header>
+      <main class="list memo-list" id="memo-body"></main>
+      <div class="toast" id="toast"></div>`;
+  }
+  updateMemoList();
+}
+
+function updateMemoList() {
+  const body = document.getElementById('memo-body');
+  if (!body) return;
+  app.querySelector('.memo-page [data-act="refresh"]')?.classList.toggle('spinning', state.busy);
+  document.getElementById('memo-status').innerHTML = statusLine();
+
+  const memos = memosOfView();
+  if (!memos) {
+    body.innerHTML = `<div class="empty">PC의 Flow를 1.8.0 이상으로 올리면<br>메모가 여기에 보입니다.</div>${memoDiag()}`;
+    return;
+  }
+
+  const tags = allMemoTags(memos);
+  if (state.memoTag && !tags.some(t => lower(t) === lower(state.memoTag))) state.memoTag = null;
+  const found = filterMemos(memos, state.memoSearch, state.memoTag);
+  const searching = !!state.memoSearch.trim() || !!state.memoTag;
+
+  const chips = tags.length ? `
+    <div class="chips">${tags.map(t => {
+      const on = state.memoTag && lower(t) === lower(state.memoTag);
+      return `<button class="chip${on ? ' on' : ''}" data-act="memo-tag" data-tag="${esc(t)}">#${esc(t)}</button>`;
+    }).join('')}</div>` : '';
+
+  const rows = found.map(m => {
+    const shown = composeMemo(m);
+    const preview = memoPreview(m.Text);
+    return `
+      <button class="memo-row" data-act="memo-open" data-memo="${esc(m.Id)}">
+        <span class="memo-row-head">
+          ${m.Pinned ? '<span class="pin" aria-label="고정">📌</span>' : ''}
+          <span class="memo-row-title">${esc(m.Title)}</span>
+          ${m.Daily ? '<span class="daily" title="매일 초기화">↻</span>' : ''}
+          ${shown.waiting ? waitBadge(m.Id) : ''}
+        </span>
+        ${preview ? `<span class="memo-row-preview">${esc(preview)}</span>` : ''}
+      </button>`;
+  }).join('');
+
+  const label = searching ? `찾은 메모 ${found.length}개` : `메모 ${memos.length}개`;
+  const empty = !memos.length
+    ? '<div class="empty">아직 메모가 없습니다.<br>PC의 메모 창에서 쓰면 여기에 보입니다.</div>'
+    : !found.length ? '<div class="empty">찾는 메모가 없습니다.</div>' : '';
+
+  body.innerHTML = `${chips}${memos.length ? `<div class="section-label">${label}</div>` : ''}${rows}${empty}${memoDiag()}`;
+}
+
+/** 읽기 화면 한 줄. PC 읽기 모드와 같은 모양: 소제목 · 번호 · 점 · 체크 · 보통 글, 들여쓰기. */
+function memoLineHtml(line, memoId) {
+  const indent = line.indent ? ` style="--indent:${line.indent}"` : '';
+  switch (line.kind) {
+    case 'blank': return '<div class="m-blank"></div>';
+    case 'h1': return `<div class="m-h1">${esc(line.text)}</div>`;
+    case 'h2': return `<div class="m-h2">${esc(line.text)}</div>`;
+    case 'numbered':
+      return `<div class="m-item"${indent}><span class="m-mark m-num">${esc(line.number)}</span><span class="m-body">${esc(line.text)}</span></div>`;
+    case 'bullet':
+      return `<div class="m-item"${indent}><span class="m-mark m-dot">•</span><span class="m-body">${esc(line.text)}</span></div>`;
+    case 'check':
+      return `
+        <button class="m-item m-check${line.checked ? ' on' : ''}${line.waiting ? ' waiting' : ''}"${indent}
+          role="checkbox" aria-checked="${line.checked}" data-act="memo-check" data-line="${line.index}">
+          <span class="m-mark"><span class="m-box">${ICON.check}</span></span>
+          <span class="m-body">${esc(line.text)}</span>
+          ${line.waiting ? waitBadge(memoId) : ''}
+        </button>`;
+    default: return `<div class="m-text">${esc(line.text)}</div>`;
+  }
+}
+
+/** 메모 읽기 화면. 30초마다 다시 그려도 읽던 자리(스크롤)는 그대로 둔다. */
+function renderMemoView() {
+  const memo = findMemo(state.memoOpen);
+  const y = window.scrollY;
+
+  let main;
+  if (!memo) {
+    main = '<div class="empty">이 메모는 이제 PC에 없습니다.<br>지워졌거나 휴지통으로 갔습니다.</div>';
+  } else {
+    const shown = composeMemo(memo);
+
+    // 첫 비어 있지 않은 줄은 제목으로 위에 따로 보인다. 제목 바로 아래 빈 줄은 뺀다(PC 와 같다).
+    const titleAt = shown.lines.findIndex(l => l.kind !== 'blank');
+    const lines = titleAt < 0 ? [] : shown.lines.slice(titleAt + 1);
+    while (lines.length && lines[0].kind === 'blank') lines.shift();
+
+    const meta = [];
+    if (memo.Pinned) meta.push('<span class="chip static">📌 고정</span>');
+    if (memo.Daily) meta.push(`<span class="chip static daily">↻ 매일 초기화${shown.preview ? ' · 새 하루라 풀어 보임' : ''}</span>`);
+    for (const t of memo.Tags ?? []) meta.push(`<span class="chip static">#${esc(bareTag(t))}</span>`);
+
+    main = `
+      <h1 class="memo-title">${esc(memo.Title)}</h1>
+      ${meta.length ? `<div class="chips memo-meta">${meta.join('')}</div>` : ''}
+      <div class="memo-lines">${lines.map(l => memoLineHtml(l, memo.Id)).join('')}</div>
+      <div class="memo-foot">고치기는 다음 업데이트에서 됩니다</div>`;
+  }
+
+  app.innerHTML = `
+    <header class="head memo-head">
+      <div class="head-row">
+        <button class="back-btn" data-act="memo-back">‹ ${state.memoFrom === 'today' ? '오늘' : '메모'}</button>
+        <span class="grow"></span>
+        <button class="icon-btn${state.busy ? ' spinning' : ''}" data-act="refresh" aria-label="새로고침">${ICON.refresh}</button>
+      </div>
+      ${statusLine()}
+    </header>
+    <main class="memo-view" data-memo="${esc(state.memoOpen)}">${main}${memoDiag()}</main>
+    <div class="toast" id="toast"></div>`;
+
+  window.scrollTo(0, y);
+}
+
+/**
+ * 메모를 연다. 안드로이드 뒤로 단추로도 닫히게 기록을 하나 쌓는다.
+ * 연 탭(오늘의 📝 · 메모 목록)을 기억해 ‹ 와 뒤로 단추가 그리로 돌아간다. 다시 열 때 볼 탭도 연 탭 그대로 둔다.
+ */
+function openMemo(id, fromList) {
+  if (!state.memoOpen) {
+    state.memoFrom = fromList || state.tab === 'memo' ? 'memo' : 'today';
+    state.memoListScroll = window.scrollY;
+  }
+  state.memoOpen = id;
+  state.tab = 'memo';
+  closeEditor();
+  if (history.state?.memo == null) history.pushState({ memo: id }, '');
+  else history.replaceState({ memo: id }, '');
+  app.innerHTML = '';
+  render();
+  window.scrollTo(0, 0);
+}
+
+function closeMemo() {
+  if (!state.memoOpen) return;
+  state.memoOpen = null;
+  state.tab = state.memoFrom;
+  local.set('tab', state.tab);
+  app.innerHTML = '';
+  render();
+  window.scrollTo(0, state.memoListScroll);
+}
+
+window.addEventListener('popstate', () => closeMemo());
 
 let toastTimer = 0;
 
@@ -903,7 +1302,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=7', { cache: 'no-store' })
+  fetch('relay.gs?v=9', { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -1104,7 +1503,7 @@ let suppressClick = false;
 app.addEventListener('pointerdown', event => {
   suppressClick = false;
   const row = event.target.closest('.row[data-id]');
-  if (!row) return;
+  if (!row || event.target.closest('.memo-link')) return;   // 📝 는 길게 눌러도 고치기 창을 열지 않는다
   const id = row.dataset.id;
   press = {
     x: event.clientX,
@@ -1129,6 +1528,7 @@ app.addEventListener('contextmenu', event => {
   const row = event.target.closest('.row[data-id]');
   if (!row) return;
   event.preventDefault();
+  if (event.target.closest('.memo-link')) return;
   cancelPress();
   suppressClick = true;
   openEditor(row.dataset.id);
@@ -1202,6 +1602,46 @@ app.addEventListener('click', async event => {
       render();
       return;
 
+    case 'tab':
+      if (state.tab === target.dataset.tab && !state.memoOpen) return;
+      state.tab = target.dataset.tab === 'memo' ? 'memo' : 'today';
+      local.set('tab', state.tab);
+      if (state.memoOpen && history.state?.memo != null) history.back();   // 쌓아 둔 기록을 걷는다
+      state.memoOpen = null;
+      app.innerHTML = '';
+      render();
+      window.scrollTo(0, 0);
+      return;
+
+    case 'memo-open':
+      // 오늘 줄 안의 📝 도 여기로 온다. 가장 가까운 data-act 가 이것이라 줄 체크는 일어나지 않는다.
+      if (!findMemo(target.dataset.memo)) return;
+      openMemo(target.dataset.memo, !!target.closest('.memo-list'));
+      return;
+
+    case 'memo-back':
+      if (history.state?.memo != null) history.back();   // popstate 가 닫는다
+      else closeMemo();
+      return;
+
+    case 'memo-tag':
+      state.memoTag = state.memoTag && lower(state.memoTag) === lower(target.dataset.tag) ? null : target.dataset.tag;
+      updateMemoList();
+      return;
+
+    case 'memo-check': {
+      const memo = findMemo(state.memoOpen);
+      if (!memo) return;
+      const line = composeMemo(memo).lines[Number(target.dataset.line)];
+      if (line?.kind !== 'check') return;
+
+      if (navigator.vibrate) navigator.vibrate(8);
+      pushOp('memo-check', memo.Id, line.text.trim(), { Line: line.index, Checked: !line.checked });
+      if (!hasToken()) await requestToken();
+      if (hasToken()) scheduleFlush();
+      return;
+    }
+
     case 'toggle': {
       const item = findItem(target.dataset.id);
       if (!item) return;
@@ -1215,6 +1655,11 @@ app.addEventListener('click', async event => {
   }
 });
 
+// 검색칸에서 엔터(키보드의 '검색')를 누르면 자판만 내린다.
+app.addEventListener('keydown', event => {
+  if (event.target.id === 'memo-search' && event.key === 'Enter' && !event.isComposing) event.target.blur();
+});
+
 app.addEventListener('submit', async event => {
   event.preventDefault();
   const input = document.getElementById('compose');
@@ -1222,6 +1667,7 @@ app.addEventListener('submit', async event => {
   if (!text) return;
 
   input.value = '';
+  state.draft = '';
   pushOp('add', null, text);
   toast('적어 뒀습니다 · PC가 받아 넣습니다');
   if (!hasToken()) await requestToken();
@@ -1229,7 +1675,13 @@ app.addEventListener('submit', async event => {
 });
 
 app.addEventListener('input', event => {
+  if (event.target.id === 'memo-search') {
+    state.memoSearch = event.target.value;
+    updateMemoList();
+    return;
+  }
   if (event.target.id !== 'compose') return;
+  state.draft = event.target.value;
   const send = app.querySelector('.send');
   if (send) send.disabled = !event.target.value.trim();
 });
@@ -1249,6 +1701,7 @@ function loadDemo() {
   const now = new Date();
   const minutesAgo = m => localIso(new Date(now.getTime() - m * 60000));
   const ids = Array.from({ length: 9 }, () => uuid());
+  const memoIds = Array.from({ length: 4 }, () => uuid());
 
   state.view = {
     Version: 1,
@@ -1257,11 +1710,11 @@ function loadDemo() {
     DayStartHour: 4,
     Routines: [
       { Id: ids[0], Title: '물 2L 마시기', Done: true, Streak: 12 },
-      { Id: ids[1], Title: '스트레칭 10분', Done: false, Time: '22:00:00', Streak: 4 },
+      { Id: ids[1], Title: '스트레칭 10분', Done: false, Time: '22:00:00', Streak: 4, MemoId: memoIds[1] },
       { Id: ids[2], Title: '하루 정산 기록', Done: false, Streak: 0 }
     ],
     Tasks: [
-      { Id: ids[3], Title: '분기 매출 정리해서 메일 보내기', Done: false, Priority: 'High', Due: today, Time: '15:00:00' },
+      { Id: ids[3], Title: '분기 매출 정리해서 메일 보내기', Done: false, Priority: 'High', Due: today, Time: '15:00:00', MemoId: memoIds[2] },
       { Id: ids[4], Title: '택배 반품 접수', Done: false, Priority: 'Medium', Due: today, CarryOverCount: 2 },
       { Id: ids[5], Title: '치과 예약 전화', Done: false, Priority: 'None' },
       { Id: ids[6], Title: '은행 서류 제출', Done: true, Priority: 'None', Due: today }
@@ -1269,13 +1722,38 @@ function loadDemo() {
     Upcoming: [
       { Id: ids[8], Title: '월말 정산 자료 준비', Done: false, Priority: 'Medium', Due: addDays(today, 2) }
     ],
-    AppliedOps: []
+    AppliedOps: [],
+    Memos: [
+      {
+        Id: memoIds[0], Title: 'AK넷 일별 정책서 배포', Pinned: true, Daily: false, Reset: null, Tags: ['AK넷', '업무'],
+        Rev: 'demo0', Updated: minutesAgo(40),
+        Text: '# AK넷 일별 정책서 배포\n#AK넷 #업무\n\n## 아침\n1. 정책서 파일 받기\n2. 단가표 확인\n  - 지난주와 다른 칸 표시\n\n## 보내기\n[x] 대리점 단톡방 공지\n[ ] 본사 메일 회신\n- [ ] 정산 시트 갱신\n    [ ] 바뀐 단가만 따로 표시\n\n늦어도 10시 전에 끝낸다.'
+      },
+      {
+        Id: memoIds[1], Title: '아침 루틴', Pinned: false, Daily: true, Reset: today, Tags: ['루틴'],
+        Rev: 'demo1', Updated: minutesAgo(90),
+        Text: '아침 루틴 #루틴\n[x] 물 한 컵\n[ ] 비타민\n[ ] 스트레칭 5분\n[ ] 오늘 할 일 훑기'
+      },
+      {
+        Id: memoIds[2], Title: '정산 절차', Pinned: false, Daily: false, Reset: null, Tags: ['정산', '업무'],
+        Rev: 'demo2', Updated: minutesAgo(60 * 26),
+        Text: '정산 절차 #정산\n매달 말일 전에 끝낸다.\n\n1. 판매 내역 내려받기\n2. 반품 빼기\n3. 시트에 붙여넣기\n* 영수증은 따로 모아 둔다\n\n[ ] 이번 달 영수증 사진'
+      },
+      {
+        Id: memoIds[3], Title: '읽을 책', Pinned: false, Daily: false, Reset: null, Tags: [],
+        Rev: 'demo3', Updated: minutesAgo(60 * 24 * 5),
+        Text: '읽을 책\n- 아주 작은 습관의 힘\n- 딥 워크\n- 몰입'
+      }
+    ]
   };
   state.pending = [
     { Id: ids[7], Kind: 'add', Target: null, Text: '퇴근길에 우유 사기', At: minutesAgo(1), Day: today }
   ];
   state.phase = 'today';
 }
+
+// 메모를 연 채 새로고침했으면 그 기록이 남아 있다. 열린 메모는 기억하지 않으므로 지운다.
+if (history.state?.memo != null) history.replaceState(null, '');
 
 if (DEMO) {
   loadDemo();
