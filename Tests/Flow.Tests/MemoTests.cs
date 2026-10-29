@@ -143,9 +143,9 @@ internal static partial class Program
         var moved = Path.Combine(store.Folder, "다른 이름.md");
         File.Move(r.Path, moved);
         Check("이름이 바뀐 메모도 읽음", store.Load(r.Doc.Id)?.Path, moved);
-        File.Move(moved, r.Path);
-        File.Move(r.Path, moved);
-        Check("이름이 바뀐 메모에 저장", store.Save(r.Doc.Id, "이름 바뀔 메모\n본문 고침", r.Rev).Outcome, SaveOutcome.Saved);
+        var r2 = store.Create("또 바뀔 메모\n본문")!;
+        File.Move(r2.Path, Path.Combine(store.Folder, "또 다른 이름.md"));
+        Check("이름이 바뀐 메모에 저장", store.Save(r2.Doc.Id, "또 바뀔 메모\n본문 고침", r2.Rev).Outcome, SaveOutcome.Saved);
         Check("tmp·bak 가 남지 않음", Directory.EnumerateFiles(store.Folder).Any(f => f.EndsWith(".tmp") || f.EndsWith(".bak")), false);
     }
 }
