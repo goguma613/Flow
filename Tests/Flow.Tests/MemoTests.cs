@@ -628,4 +628,87 @@ internal static partial class Program
         Check("CRLF 이어 쓰기", Enter("제목\r\n- 가|\r\n끝"), "제목\r\n- 가\r\n- |\r\n끝");
         Check("CRLF 빈 항목", Enter("- 가\r\n- |\r\n끝"), "- 가\r\n|\r\n끝");
     }
+
+    /// <summary>할 일·루틴과 메모의 연결, 롤오버 때의 매일 초기화 순서.</summary>
+    private static void MemoLinkTests()
+    {
+        var a = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000000a1");
+        var b = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000000b2");
+        var c = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000000c3");
+        MemoSummary Summary(Guid id, string title, bool pinned, int day)
+            => new(id, "", title, "", Array.Empty<string>(), pinned, false, new DateTime(2026, 10, day), "", false);
+
+        // 연결 메뉴: 메모 탭과 같은 순서, 기호를 뗀 제목
+        var choices = MemoLinks.Choices([Summary(a, "# 오래된 절차", false, 1), Summary(b, "[ ] 최근 메모", false, 9), Summary(c, "고정 메모", true, 2)]);
+        Check("연결 메뉴 순서 (고정 먼저, 그다음 최근)", string.Join(",", choices.Select(x => x.Id == a ? "a" : x.Id == b ? "b" : "c")), "c,b,a");
+        Check("연결 메뉴 제목은 기호를 뗌", string.Join(",", choices.Select(x => x.Title)), "고정 메모,최근 메모,오래된 절차");
+        Check("메모가 없으면 빈 메뉴", MemoLinks.Choices([]).Count, 0);
+
+        // 📝: 연결이 있고 그 메모가 목록에 있을 때만
+        var live = new HashSet<Guid> { a, b };
+        Check("연결 없음 → 📝 없음", MemoLinks.IsAlive(null, live), false);
+        Check("목록에 있음 → 📝", MemoLinks.IsAlive(a, live), true);
+        Check("없거나 휴지통 → 📝 없음", MemoLinks.IsAlive(c, live), false);
+
+        // 연결된 항목: 루틴 먼저, 각각 목록 순서. 여러 항목이 같은 메모를 가리킬 수 있다.
+        var data = new AppData();
+        data.Routines.Add(new Routine { Title = "AK넷 배포", Order = 1, MemoId = a });
+        data.Routines.Add(new Routine { Title = "물 마시기", Order = 0 });
+        data.Tasks.Add(new TaskItem { Title = "정산", Order = 2, MemoId = a });
+        data.Tasks.Add(new TaskItem { Title = "보고", Order = 1, MemoId = a });
+        data.Tasks.Add(new TaskItem { Title = "다른 일", Order = 0, MemoId = b });
+        Check("연결된 항목", string.Join(", ", MemoLinks.LinkedItems(data, a)), "루틴 · AK넷 배포, 할 일 · 보고, 할 일 · 정산");
+        Check("다른 메모의 항목", string.Join(", ", MemoLinks.LinkedItems(data, b)), "할 일 · 다른 일");
+        Check("아무도 안 가리키면 빈 목록", MemoLinks.LinkedItems(data, c).Count, 0);
+        data.Tasks[1].MemoId = null;   // '보고' 하나만 연결 끊기
+        Check("하나를 끊어도 나머지는 그대로", string.Join(", ", MemoLinks.LinkedItems(data, a)), "루틴 · AK넷 배포, 할 일 · 정산");
+
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 롤오버 매일 초기화 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var root = Path.Combine(DataStore.Directory, "memotest-rollover");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 5, 23, 0, 0));
+        string Body(Guid id) => store.Load(id)!.Doc.Body.Replace("\r\n", "\n");
+
+        var memo = store.Create("절차\n[ ] 하나")!;
+        var other = store.Create("다른 절차\n[x] 둘")!;
+        store.SetDaily(memo.Doc.Id, true, Mon);
+        store.SetDaily(other.Doc.Id, true, Mon);
+        var editor = new MemoEditorState(store);
+        editor.Open(memo.Doc.Id);
+        editor.ToggleCheck(1);
+        Func<Guid, bool> dirty = id => editor.IsDirty && editor.CurrentId == id;
+
+        // 새벽에 쓰는 중: 먼저 저장하고 푼다 → 쓰던 글은 남고, 충돌 사본이 생기지 않는다.
+        editor.IsEditing = true;
+        editor.Edit("절차\n[x] 하나\n새벽에 쓴 줄");
+        var flushed = false;
+        var count = MemoLinks.ResetAtRollover(store, Tue, () => { editor.Flush(); flushed = true; }, dirty);
+        Check("롤오버는 먼저 저장하게 함", flushed, true);
+        Check("저장한 뒤 풂 (둘 다)", count, 2);
+        Check("쓰던 글은 남고 체크만 풀림", Body(memo.Doc.Id), "절차\n[ ] 하나\n새벽에 쓴 줄");
+        editor.IsEditing = false;
+        editor.OnExternalChange();
+        Check("메모 창은 푼 글을 다시 읽음", editor.Body, "절차\n[ ] 하나\n새벽에 쓴 줄");
+        editor.Edit("절차\n[ ] 하나\n새벽에 쓴 줄\n아침");
+        Check("그 뒤 저장도 충돌 없음", editor.Flush()!.Outcome, SaveOutcome.Saved);
+        Check("충돌 사본 없음", store.Memos.Count, 2);
+
+        // 저장이 안 된 채(dirty)면 이번에는 그 메모를 건너뛰고, 다음 기회에 푼다.
+        editor.ToggleCheck(1);
+        editor.Edit("절차\n[x] 하나\n새벽에 쓴 줄\n아침\n저장 못 함");
+        var other2 = store.Load(other.Doc.Id)!;
+        store.Save(other.Doc.Id, other2.Doc.Body.Replace("[ ] 둘", "[x] 둘"), other2.Rev);
+        Check("저장 못 한 메모는 건너뜀 (나머지는 풂)", MemoLinks.ResetAtRollover(store, Wed, null, dirty), 1);
+        Check("건너뛴 메모는 체크 그대로", Body(memo.Doc.Id).Contains("[x] 하나"), true);
+        Check("다른 매일 메모는 풀림", Body(other.Doc.Id), "다른 절차\n[ ] 둘");
+        Check("쓰던 글도 그대로", editor.Body.EndsWith("저장 못 함"), true);
+        Check("나중에 저장하면 충돌 없음", editor.Flush()!.Outcome, SaveOutcome.Saved);
+        Check("다음 기회에 풂", MemoLinks.ResetAtRollover(store, Wed, () => editor.Flush(), dirty), 1);
+        Check("그때 풀림", Body(memo.Doc.Id), "절차\n[ ] 하나\n새벽에 쓴 줄\n아침\n저장 못 함");
+    }
 }

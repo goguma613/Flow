@@ -142,6 +142,9 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>저장하지 못한 글이 남아 있는지. 창을 닫을 때 본다.</summary>
     public bool HasUnsavedText => _state.IsDirty;
 
+    /// <summary>그 메모를 저장 못 한 글과 함께 들고 있는지.</summary>
+    public bool HoldsUnsaved(Guid id) => _state.IsDirty && _state.CurrentId == id;
+
     /// <summary>저장 못 한 글이 있어 닫기를 거절했다. 띠로 알리고 다시 시도는 계속한다.</summary>
     public void RefuseClose()
     {

@@ -113,6 +113,9 @@ public partial class MemoWindow : Window
 
     public void OpenMemo(Guid id) => _vm?.Open(id);
 
+    /// <summary>이 창이 그 메모를 저장 못 한 글과 함께 들고 있는지. 매일 초기화가 그 메모를 이번에 건너뛴다.</summary>
+    public bool HoldsUnsaved(Guid id) => _vm is not null && _vm.HoldsUnsaved(id);
+
     /// <summary>위젯이 끝날 때. 저장을 시도하고 막지 않고 닫는다.</summary>
     public void CloseForExit()
     {

@@ -1,0 +1,52 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Flow.Models;
+
+namespace Flow.Services;
+
+// 루틴·할 일과 메모의 연결, 하루가 바뀔 때의 매일 초기화. 순수 규칙이고 UI 패키지를 참조하지 않는다.
+
+/// <summary>연결 메뉴의 메모 한 줄. 제목은 줄 머리 기호를 뗀 것.</summary>
+public sealed record MemoChoice(Guid Id, string Title);
+
+public static class MemoLinks
+{
+    /// <summary>
+    /// 연결 메뉴에 놓을 메모들. 메모 탭과 같은 순서(고정 먼저, 그다음 최근).
+    /// 제목은 메모 탭처럼 줄 머리 기호(# · 1. · - · [ ])를 뗀 것.
+    /// </summary>
+    public static IReadOnlyList<MemoChoice> Choices(IEnumerable<MemoSummary> memos)
+        => MemoQuery.Filter(memos, null, null, _ => null)
+            .Select(m => new MemoChoice(m.Id, MemoFormat.PlainTitle(m.Title)))
+            .ToList();
+
+    /// <summary>
+    /// 그 메모를 가리키는 루틴·할 일. "루틴 · 제목" 다음 "할 일 · 제목", 각각 목록 순서.
+    /// 지난 날 끝낸 할 일도 연결이 남아 있으면 넣는다.
+    /// </summary>
+    public static IReadOnlyList<string> LinkedItems(AppData data, Guid memoId)
+    {
+        var result = new List<string>();
+        foreach (var routine in data.Routines.Where(r => r.MemoId == memoId).OrderBy(r => r.Order))
+            result.Add("루틴 · " + routine.Title);
+        foreach (var task in data.Tasks.Where(t => t.MemoId == memoId).OrderBy(t => t.Order))
+            result.Add("할 일 · " + task.Title);
+        return result;
+    }
+
+    /// <summary>연결이 있고 그 메모가 지금 목록(휴지통 제외)에 있는지. 없으면 📝 를 그리지 않는다(연결 값은 둔다).</summary>
+    public static bool IsAlive(Guid? memoId, ISet<Guid> liveIds)
+        => memoId is { } id && liveIds.Contains(id);
+
+    /// <summary>
+    /// 하루가 바뀐 자리의 매일 초기화. 열린 메모를 먼저 저장하게 하고(flush), 그래도 저장 안 된 글을
+    /// 들고 있는 메모(dirty)는 이번에 건너뛴다 — 다음 롤오버나 다음 시작 때 푼다.
+    /// 쓴 파일 수를 돌려준다(풀 체크가 없던 것도 날짜를 적으므로 센다).
+    /// </summary>
+    public static int ResetAtRollover(MemoStore store, DateOnly today, Action? flush, Func<Guid, bool>? dirty)
+    {
+        flush?.Invoke();
+        return store.ResetDaily(today, dirty);
+    }
+}

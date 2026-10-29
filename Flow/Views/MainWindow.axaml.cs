@@ -184,11 +184,15 @@ public partial class MainWindow : Window
         if (_memoWindow is null)
         {
             var window = new MemoWindow(vm);
+            // 하루가 바뀔 때 이 창이 저장 못 한 글을 들고 있는 메모는 풀지 않게 한다.
+            Func<Guid, bool> dirty = window.HoldsUnsaved;
             window.Closed += (_, _) =>
             {
                 if (_memoWindow == window) _memoWindow = null;
+                if (vm.IsMemoDirty == dirty) vm.IsMemoDirty = null;
             };
             _memoWindow = window;
+            vm.IsMemoDirty = dirty;
             if (id is { } first) window.OpenMemo(first);
             window.Show();
         }
@@ -199,6 +203,57 @@ public partial class MainWindow : Window
         }
 
         _memoWindow.Activate();
+    }
+
+    /// <summary>
+    /// 줄 우클릭 메뉴가 열린다. '메모 연결' 아래를 지금 메모 목록으로 새로 채운다 —
+    /// 메뉴를 열 때만 만들어 메모가 많아도 줄마다 미리 들고 있지 않는다.
+    /// </summary>
+    private void OnRowMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (sender is not ContextMenu menu || menu.DataContext is not RowBase row) return;
+        if (ViewModel is not { } vm) return;
+
+        MenuItem? host = null;
+        foreach (var item in menu.Items)
+        {
+            if (item is MenuItem candidate && Equals(candidate.Tag, "memo")) host = candidate;
+        }
+        if (host is null) return;
+
+        host.Items.Clear();
+        host.Items.Add(new MenuItem { Header = "새 메모 만들기", Command = row.LinkNewMemoCommand });
+
+        var choices = vm.MemoChoices;
+        if (choices.Count > 0)
+        {
+            host.Items.Add(new Separator());
+            foreach (var choice in choices)
+            {
+                host.Items.Add(new MenuItem
+                {
+                    Header = MenuText(choice.Title),
+                    ToggleType = MenuItemToggleType.CheckBox,
+                    IsChecked = choice.Id == row.MemoId,
+                    Command = row.LinkMemoCommand,
+                    CommandParameter = choice.Id,
+                });
+            }
+        }
+
+        if (row.MemoId is not null)
+        {
+            host.Items.Add(new Separator());
+            host.Items.Add(new MenuItem { Header = "연결 끊기", Command = row.UnlinkMemoCommand });
+        }
+    }
+
+    /// <summary>메뉴 글. '_' 는 단축 글자 표시로 먹히므로 겹쳐 쓰고, 너무 긴 제목은 줄인다.</summary>
+    private static string MenuText(string title)
+    {
+        const int Max = 40;
+        var text = title.Length > Max ? title[..Max].TrimEnd() + "…" : title;
+        return text.Replace("_", "__");
     }
 
     /// <summary>위젯이 끝날 때 메모 창도 닫는다. 닫히면서 쓰던 글을 저장한다.</summary>
