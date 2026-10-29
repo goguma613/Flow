@@ -25,6 +25,15 @@ public static class MemoFormat
     private static readonly Regex CheckRx = new(@"^[ \t]*(?:-\s+)?\[(?<c>[ xX]?)\]\s?", RegexOptions.Compiled);
     private static readonly Regex NumberedRx = new(@"^[ \t]*(?<n>\d{1,3}\.)\s+", RegexOptions.Compiled);
     private static readonly Regex BulletRx = new(@"^[ \t]*[-*]\s+", RegexOptions.Compiled);
+    private static readonly Regex IndentRx = new(@"^[ \t]*", RegexOptions.Compiled);
+
+    // 목록 화면에 보일 때 떼는 줄 머리 기호. 기호만 있고 글이 없는 줄(예: "- ", "[ ]")도 뗀다.
+    private static readonly Regex PlainCheckRx = new(@"^(?:[-*]\s+)?\[[ xX]?\](?:\s+|$)", RegexOptions.Compiled);
+    private static readonly Regex PlainMarkRx = new(@"^(?:#{1,2}|\d{1,3}\.|[-*])(?:\s+|$)", RegexOptions.Compiled);
+
+    /// <summary>들여쓰기 한 단계의 칸 수. 탭은 4칸으로 센다.</summary>
+    private const int IndentColumns = 2;
+    private const int MaxIndent = 6;
     private static readonly Regex ReservedRx = new(@"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -141,17 +150,45 @@ public static class MemoFormat
         return Convert.ToHexString(hash).ToLowerInvariant()[..16];
     }
 
-    /// <summary>제목 줄 다음 본문을 공백 하나로 접어 앞 80자.</summary>
+    /// <summary>제목 줄 다음 본문을 줄마다 기호(PlainLine)를 떼고 공백 하나로 접어 앞 80자.</summary>
     public static string PreviewOf(string body)
     {
         var parts = LineBreak.Split(body).Where(p => !LineBreak.IsMatch(p)).ToList();
         var first = parts.FindIndex(p => !string.IsNullOrWhiteSpace(p));
         if (first < 0) return "";
-        var rest = string.Join(" ", parts.Skip(first + 1));
+        var rest = string.Join(" ", parts.Skip(first + 1).Select(PlainLine));
         var folded = Regex.Replace(rest, @"\s+", " ").Trim();
         if (folded.Length <= 80) return folded;
         var cut = folded[..80];
         return char.IsHighSurrogate(cut[^1]) ? cut[..^1] : cut;
+    }
+
+    /// <summary>
+    /// 목록 줄에 보일 한 줄. 앞뒤 공백과 줄 머리 기호(# · ## 소제목, 1. 번호, - · * 점, [ ] · [x] · [] · - [ ] 체크)를 뗀 글.
+    /// 기호만 있으면 빈 글. #태그(# 뒤에 바로 글자)는 기호가 아니라 그대로 둔다. 파일 이름·검색에는 쓰지 않는다.
+    /// </summary>
+    public static string PlainLine(string line)
+    {
+        var trimmed = line.Trim();
+        var check = PlainCheckRx.Match(trimmed);
+        if (check.Success) return trimmed[check.Length..].Trim();
+        var mark = PlainMarkRx.Match(trimmed);
+        return mark.Success ? trimmed[mark.Length..].Trim() : trimmed;
+    }
+
+    /// <summary>목록·제목 줄에 보일 제목. 기호를 떼고, 떼서 비면 원래 제목 그대로.</summary>
+    public static string PlainTitle(string title)
+    {
+        var plain = PlainLine(title);
+        return plain.Length > 0 ? plain : title.Trim();
+    }
+
+    /// <summary>줄 앞 공백·탭의 들여쓰기 단계. 2칸이 한 단계, 탭은 4칸, 많아도 6단계.</summary>
+    public static int IndentOf(string line)
+    {
+        var columns = 0;
+        foreach (var ch in IndentRx.Match(line).Value) columns += ch == '\t' ? 4 : 1;
+        return Math.Min(columns / IndentColumns, MaxIndent);
     }
 
     // ───────────────────────── 줄 분류
@@ -177,13 +214,15 @@ public static class MemoFormat
 
         var c = CheckRx.Match(line);
         if (c.Success)
-            return new MemoLine(index, MemoLineKind.Check, line[c.Length..], null, c.Groups["c"].Value is "x" or "X");
+            return new MemoLine(index, MemoLineKind.Check, line[c.Length..], null, c.Groups["c"].Value is "x" or "X",
+                IndentOf(line));
 
         var n = NumberedRx.Match(line);
-        if (n.Success) return new MemoLine(index, MemoLineKind.Numbered, line[n.Length..], n.Groups["n"].Value, false);
+        if (n.Success)
+            return new MemoLine(index, MemoLineKind.Numbered, line[n.Length..], n.Groups["n"].Value, false, IndentOf(line));
 
         var b = BulletRx.Match(line);
-        if (b.Success) return new MemoLine(index, MemoLineKind.Bullet, line[b.Length..], null, false);
+        if (b.Success) return new MemoLine(index, MemoLineKind.Bullet, line[b.Length..], null, false, IndentOf(line));
 
         return new MemoLine(index, MemoLineKind.Text, line, null, false);
     }

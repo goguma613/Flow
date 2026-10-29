@@ -78,6 +78,15 @@ public partial class MemoWindow : Window
 
         if (_tagBox is not null) _tagBox.KeyDown += OnTagBoxKeyDown;
 
+        // 사용법 판 바깥(어둡게 덮은 곳)을 누르면 닫는다. 판 안을 누른 것은 여기까지 오지 않는다.
+        var helpScrim = this.FindControl<Border>("HelpScrim");
+        if (helpScrim is not null)
+            helpScrim.PointerPressed += (_, e) =>
+            {
+                _vm.CloseHelpCommand.Execute(null);
+                e.Handled = true;
+            };
+
         HookChrome();
 
         _placementSaveTimer = new DispatcherTimer { Interval = PlacementSaveDelay };
@@ -95,6 +104,11 @@ public partial class MemoWindow : Window
 
         // 단축키는 입력칸이 삼키기 전에 먼저 본다.
         AddHandler(KeyDownEvent, OnShortcutKeyDown, RoutingStrategies.Tunnel);
+        // 사용법 판이 떠 있는 동안은 글자 입력도 가려진 쓰기 칸·태그 칸에 들어가지 않는다.
+        AddHandler(TextInputEvent, (_, e) =>
+        {
+            if (_vm.IsHelpOpen) e.Handled = true;
+        }, RoutingStrategies.Tunnel);
     }
 
     public void OpenMemo(Guid id) => _vm?.Open(id);
@@ -116,6 +130,13 @@ public partial class MemoWindow : Window
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // 사용법 판을 닫으면 쓰던 자리로 포커스를 돌려준다(Enter 이어 쓰기도 포커스를 본다).
+        if (e.PropertyName == nameof(MemoEditorViewModel.IsHelpOpen) && !_vm.IsHelpOpen && _vm.IsEditing)
+        {
+            FocusWriterSoon();
+            return;
+        }
+
         if (e.PropertyName != nameof(MemoEditorViewModel.IsEditing) || !_vm.IsEditing) return;
 
         // 쓰기 칸이 보이게 된 다음에야 포커스가 간다.
@@ -135,6 +156,15 @@ public partial class MemoWindow : Window
 
     private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
     {
+        // 사용법 판이 떠 있으면 Esc 는 판만 닫고(쓰기 모드는 그대로), 다른 키는 가려진 쓰기 칸에 가지 않게 막는다.
+        // Alt+F4(창 닫기)만은 그대로 둔다.
+        if (_vm.IsHelpOpen)
+        {
+            if (e.Key == Key.Escape) _vm.IsHelpOpen = false;
+            if (!(e.Key == Key.F4 && e.KeyModifiers.HasFlag(KeyModifiers.Alt))) e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             if (_vm.IsEditing) LeaveEditingSoon();
@@ -152,6 +182,35 @@ public partial class MemoWindow : Window
         }
 
         if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None) ContinueListOnEnter(e);
+    }
+
+    // ───────────────────────── 사용법 판
+
+    /// <summary>
+    /// ? 단추. 한글을 조합하던 중이면 서식 단추처럼 조합을 먼저 확정하고, 그 글자가 쓰기 칸에 들어온 뒤에 판을 연다.
+    /// 단추는 포커스를 가져가지 않는다(Focusable=False).
+    /// </summary>
+    private void OnHelpClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is null) return;
+        if (_writer is not null && _vm.IsEditing && IsComposing(_writer))
+        {
+            CompleteComposition();
+            Dispatcher.UIThread.Post(() => _vm.IsHelpOpen = true, DispatcherPriority.Background);
+            return;
+        }
+        _vm.ToggleHelpCommand.Execute(null);
+    }
+
+    /// <summary>쓰기 칸이 보이면 포커스만 돌려준다. 커서 자리는 쓰기 칸이 기억한 그대로.</summary>
+    private void FocusWriterSoon()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_writer is null || !_writer.IsVisible || _vm.IsHelpOpen) return;
+            if (_writer.IsKeyboardFocusWithin || _tagBox?.IsKeyboardFocusWithin == true) return;
+            _writer.Focus();
+        }, DispatcherPriority.Background);
     }
 
     // ───────────────────────── 서식 단추 · Enter 이어 쓰기

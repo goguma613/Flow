@@ -21,7 +21,8 @@ public sealed partial class MemoRow : ObservableObject
         _owner = owner;
         IsCompact = owner.IsCompact;
         Id = summary.Id;
-        Title = summary.Title;
+        // 목록에는 줄 머리 기호(# · 1. · - · [ ])를 뗀 제목을 보인다. 파일 이름·검색은 원래 제목 그대로.
+        Title = MemoFormat.PlainTitle(summary.Title);
         // 읽지 못한 파일의 요약은 이전 값일 수 있어 그대로 믿지 않고 상태만 알린다.
         Preview = summary.Unreadable ? "읽지 못함" : summary.Preview;
         IsPinned = summary.Pinned;

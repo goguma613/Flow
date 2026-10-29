@@ -489,8 +489,11 @@
                           <TextBlock Text="↻" FontSize="12" IsVisible="{Binding IsDaily}"
                                      Foreground="{StaticResource TextSecondaryBrush}"
                                      ToolTip.Tip="매일 초기화" />
-                          <TextBlock Text="📌" FontSize="11" IsVisible="{Binding IsPinned}"
-                                     ToolTip.Tip="고정" />
+                          <Path Data="{StaticResource PinIcon}" Width="11" Height="11" Stretch="Uniform"
+                                Stroke="{StaticResource AccentBrush}" Fill="{StaticResource AccentBrush}"
+                                StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+                                VerticalAlignment="Center" IsVisible="{Binding IsPinned}"
+                                ToolTip.Tip="고정" />
                         </StackPanel>
                       </Grid>
                     </Button>
