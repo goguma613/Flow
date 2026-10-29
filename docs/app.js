@@ -1068,7 +1068,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v12',
+    'v13',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -1213,7 +1213,7 @@ function renderToday() {
 
 /** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
 function memoDiag() {
-  const parts = ['v12', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
+  const parts = ['v13', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
   return `<div class="diag">${parts.join(' · ')}</div>`;
 }
 
@@ -1495,7 +1495,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=12', { cache: 'no-store' })
+  fetch('relay.gs?v=13', { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -2216,7 +2216,7 @@ function fitEditor() {
 window.visualViewport?.addEventListener('resize', fitEditor);
 window.visualViewport?.addEventListener('scroll', fitEditor);
 
-let memoEdit = null;          // 쓰는 중인 글 { key, id, isNew, base, pcRev, start, text }
+let memoEdit = null;          // 쓰는 중인 글 { key, id, isNew, base, pcRev, start, startedAt, text }
 let draftTimer = 0;
 let shiftEnter = false;       // Shift+Enter 는 이어 쓰지 않고 그냥 줄을 바꾼다
 let afterEditorPop = null;    // 글 칸을 닫으며 걷어 낸 기록이 돌아오면 할 일
@@ -2247,10 +2247,13 @@ function saveMemoDraft() {
   return saved;
 }
 
-/** 임시 글이 든 저장(savedOp)이 아직 이 폰에도(pending) 드라이브에도 없고 PC 도 안 받았는지. */
+/**
+ * 임시 글이 든 저장(savedOp)의 일이 아직 메모리에만 있는지(이 폰에도 · 드라이브에도 없고 PC 도 안 받음).
+ * 일이 메모리에서도 사라졌으면(앱이 닫힘) 그 임시 글은 보통 임시 글이다 — 이어 쓰고 덮고 버릴 수 있다.
+ */
 function unpersistedSave(draft) {
   const id = draft?.savedOp;
-  if (!id) return false;
+  if (!id || !state.pending.some(op => op.Id === id)) return false;
   if (state.sent.has(id) || (state.view?.AppliedOps ?? []).includes(id)) return false;
   return !local.get('pending', []).some(op => op?.Id === id);
 }
@@ -2350,13 +2353,15 @@ async function resumeDraft(draft) {
       // PC 글은 그대로인데 보이는 글이 바뀌었다. 체크 · 모두 풀기(어느 탭 · 기기에서든)나 새 하루의 매일 초기화뿐이면
       // Base 를 지금 글로 옮긴다. 아직 PC 가 안 받은 다른 글 전체(memo-save — 다른 탭 · 기기에서 고친 것)가 끼어 있으면
       // 옮기지 않는다 — 옮기면 PC 가 그 글을 넣은 뒤 이 저장이 판이 맞아 그 글을 사본 없이 덮는다.
+      // 고치기를 시작한 뒤(startedAt 부터)의 저장만 센다 — 그 전 저장(이 폰의 앞 저장 등)은 이미 시작 글에 들어 있다.
+      // startedAt 이 없는 것(v12 까지 남긴 글)은 모두 센다.
       const applied = new Set(state.view?.AppliedOps ?? []);
       const otherSave = state.pending.some(op => op.Kind === 'memo-save' && op.Target === draft.id
-        && !applied.has(op.Id) && op.Text !== draft.start);
+        && !applied.has(op.Id) && op.Text !== draft.start && (!draft.startedAt || op.At >= draft.startedAt));
       if (otherSave) {
         notes.push('그 사이 다른 곳에서 이 메모를 고쳤습니다 · 저장하면 충돌 사본이 생길 수 있습니다');
       } else {
-        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text };
+        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text, startedAt: localIso(new Date()) };
         notes.push('그 뒤 바꾼 체크 등은 저장하면 이 글대로 됩니다');
       }
     }
@@ -2380,7 +2385,8 @@ async function openMemoEditor(id) {
   } else if (id) {
     const memo = findMemo(id);
     if (!memo) return;
-    draft = { key, id, isNew: false, base: await memoBaseOf(memo), pcRev: sentMemo(id)?.Rev ?? null, start: memo.Text, text: memo.Text };
+    draft = { key, id, isNew: false, base: await memoBaseOf(memo), pcRev: sentMemo(id)?.Rev ?? null,
+      start: memo.Text, startedAt: localIso(new Date()), text: memo.Text };
     if (isHeldMemo(id)) note = HELD_NOTE;
   } else {
     draft = { key, id: uuid(), isNew: true, base: null, pcRev: null, start: '', text: '' };
