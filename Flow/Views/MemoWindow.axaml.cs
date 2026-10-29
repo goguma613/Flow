@@ -205,6 +205,35 @@ public partial class MemoWindow : Window
         _vm.ToggleHelpCommand.Execute(null);
     }
 
+    // ───────────────────────── ↻ 매일 초기화 · 모두 풀기
+
+    /// <summary>↻ 단추. 쓰던 글(조합 중인 글자 포함)을 먼저 넘긴 뒤 켜고 끈다. 저장은 상태가 먼저 한다.</summary>
+    private void OnDailyClick(object? sender, RoutedEventArgs e) => AfterComposition(() =>
+    {
+        _vm.TakeWriterText(_writer?.Text);
+        _vm.ToggleDaily();
+    });
+
+    /// <summary>'모두 풀기' 단추. 쓰던 글을 먼저 넘겨, 저장한 뒤 푼다(쓰던 글이 사라지지 않게).</summary>
+    private void OnUncheckAllClick(object? sender, RoutedEventArgs e) => AfterComposition(() =>
+    {
+        _vm.TakeWriterText(_writer?.Text);
+        _vm.UncheckAll();
+    });
+
+    /// <summary>한글을 조합하던 중이면 조합을 먼저 확정하고, 그 글자가 쓰기 칸에 들어온 뒤에 한다(? 단추와 같다).</summary>
+    private void AfterComposition(Action action)
+    {
+        if (_vm is null) return;
+        if (_writer is not null && _vm.IsEditing && IsComposing(_writer))
+        {
+            CompleteComposition();
+            Dispatcher.UIThread.Post(action, DispatcherPriority.Background);
+            return;
+        }
+        action();
+    }
+
     /// <summary>쓰기 칸이 보이면 포커스만 돌려준다. 커서 자리는 쓰기 칸이 기억한 그대로.</summary>
     private void FocusWriterSoon()
     {

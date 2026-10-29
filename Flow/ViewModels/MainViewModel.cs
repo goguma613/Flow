@@ -363,6 +363,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>열려 있는 메모 창이 쓰던 글을 지금 저장하게 한다.</summary>
     public void FlushMemos() => MemoFlushRequested?.Invoke();
 
+    /// <summary>할 일·루틴의 메모 연결이나 그 목록이 바뀌었을 때. 메모 창이 '연결:' 줄을 다시 맞춘다.</summary>
+    public event Action? MemoLinksChanged;
+
+    /// <summary>오늘(논리적 날짜). 메모 창이 '매일 초기화'를 켤 때 reset 으로 적는다.</summary>
+    public DateOnly Today => _today;
+
     /// <summary>
     /// 열린 메모 창이 그 메모를 저장 안 된 글과 함께 들고 있는지. 메모 창을 만들 때 MainWindow 가 꽂고 닫힐 때 뺀다.
     /// 매일 초기화가 이 메모를 이번에는 건너뛴다 — 풀어 버리면 쓰던 글과 엇갈린다.
@@ -1573,6 +1579,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var row in TodayTasks) row.RefreshMemo(_liveMemoIds);
         foreach (var row in CompletedTasks) row.RefreshMemo(_liveMemoIds);
         foreach (var row in UpcomingTasks) row.RefreshMemo(_liveMemoIds);
+        MemoLinksChanged?.Invoke();
     }
 
     /// <summary>📝 를 눌렀다. 그사이 지워졌을 수 있어 파일을 한 번 더 보고 연다.</summary>
@@ -1851,6 +1858,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         HasRoutines = AllRoutines.Count > 0;
         HasTodayRoutines = TodayRoutines.Count > 0;
         RefreshStreakSummary();
+        // 지우거나 다른 PC 에서 받아 연결 항목이 바뀌었을 수 있다.
+        MemoLinksChanged?.Invoke();
     }
 
     private void RebuildTasks()
@@ -1897,6 +1906,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             : $"예정 {UpcomingTasks.Count}개";
         UpcomingIsEmpty = UpcomingTasks.Count == 0;
         TodayIsEmpty = TodayRoutines.Count == 0 && TodayTasks.Count == 0 && CompletedTasks.Count == 0;
+        MemoLinksChanged?.Invoke();
     }
 
     private void RefreshStreakSummary()

@@ -531,6 +531,85 @@ internal static partial class Program
         Check("목록 요약에도 머리말+본문 태그", string.Join(",", store.Memos.First(m => m.Id == tagged.Doc.Id).Tags), "AK넷,본문태그");
     }
 
+    /// <summary>메모 창의 ↻ · 모두 풀기. 쓰던 글을 먼저 저장하고, 못 하면 아무것도 하지 않는다.</summary>
+    private static void MemoEditorDailyTests()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 메모 창 매일 초기화 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var root = Path.Combine(DataStore.Directory, "memotest-editordaily");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 5, 9, 0, 0));
+        string Body(Guid id) => store.Load(id)!.Doc.Body.Replace("\r\n", "\n");
+        string Header(Guid id)
+        {
+            var text = File.ReadAllText(store.Load(id)!.Path);
+            return text[..text.IndexOf("\r\n---\r\n", 3, StringComparison.Ordinal)];
+        }
+
+        // 쓰는 중 '모두 풀기': 먼저 저장하고 푼다
+        var memo = store.Create("절차\n[x] 하나\n  - [X] 둘\n[ ] 셋")!;
+        var editor = new MemoEditorState(store);
+        editor.Open(memo.Doc.Id);
+        Check("체크된 칸이 있음", editor.HasChecked, true);
+        editor.IsEditing = true;
+        editor.Edit("절차\n[x] 하나\n  - [X] 둘\n[ ] 셋\n쓰던 줄");
+        Check("쓰는 중 모두 풀기", editor.UncheckAll(), true);
+        Check("쓰던 글은 저장되고 체크만 풀림", Body(memo.Doc.Id), "절차\n[ ] 하나\n  - [ ] 둘\n[ ] 셋\n쓰던 줄");
+        Check("창 본문도 풀린 글", editor.Body, "절차\n[ ] 하나\n  - [ ] 둘\n[ ] 셋\n쓰던 줄");
+        Check("본문에 [x] 없음", editor.Body.Contains("[x]") || editor.Body.Contains("[X]"), false);
+        Check("모두 푼 뒤 dirty 아님", editor.IsDirty, false);
+        Check("모두 푼 뒤 체크된 칸 없음", editor.HasChecked, false);
+        editor.Edit(editor.Body + "\n이어서");
+        Check("푼 뒤 저장은 충돌 없음", editor.Flush()?.Outcome, (SaveOutcome?)SaveOutcome.Saved);
+        Check("풀 것이 없으면 거짓", editor.UncheckAll(), false);
+        editor.ToggleCheck(1);
+        Check("체크하면 다시 HasChecked", editor.HasChecked, true);
+        editor.Edit("절차\n[ ] 하나\n  - [ ] 둘\n[ ] 셋\n쓰던 줄\n이어서");
+        Check("쓰던 글로 체크를 지우면 HasChecked 거짓", editor.HasChecked, false);
+        editor.Flush();
+
+        // 저장이 안 되는 동안(폴더를 기다림)은 풀지 않고 띠도 그대로
+        var blockedMemo = store.Create("막힌 절차\n[x] 하나")!;
+        var blocked = new MemoEditorState(new MemoStore(root, () => false, () => DateTime.Now));
+        blocked.Open(blockedMemo.Doc.Id);
+        blocked.Edit("막힌 절차\n[x] 하나\n못 쓴 줄");
+        blocked.Flush();
+        Check("저장 실패 띠", blocked.Banner, MemoEditorState.FailedBanner);
+        Check("저장 못 하면 풀지 않음", blocked.UncheckAll(), false);
+        Check("풀지 않은 채 쓰던 글 그대로", (blocked.Body, blocked.IsDirty), ("막힌 절차\n[x] 하나\n못 쓴 줄", true));
+        Check("띠도 그대로", blocked.Banner, MemoEditorState.FailedBanner);
+        Check("파일도 그대로", Body(blockedMemo.Doc.Id), "막힌 절차\n[x] 하나");
+        Check("저장 못 하면 매일 초기화도 안 켬", blocked.SetDaily(true, Tue), false);
+        Check("머리말도 그대로", Header(blockedMemo.Doc.Id).Contains("daily: true"), false);
+
+        // ↻ 켜기: 머리말 daily·reset 오늘, 본문은 그대로(켠 날 바로 풀리지 않음)
+        var daily = store.Create("매일 절차\n[x] 하나")!;
+        var de = new MemoEditorState(store);
+        de.Open(daily.Doc.Id);
+        Check("처음엔 꺼짐", de.IsDaily, false);
+        de.IsEditing = true;
+        de.Edit("매일 절차\n[x] 하나\n쓰던 줄");
+        Check("매일 초기화 켜기", de.SetDaily(true, Tue), true);
+        Check("켜짐", (de.IsDaily, de.IsDirty), (true, false));
+        Check("머리말 daily: true", Header(daily.Doc.Id).Contains("daily: true"), true);
+        Check("머리말 reset: 오늘", Header(daily.Doc.Id).Contains("reset: 2026-10-06"), true);
+        Check("본문 그대로(쓰던 글은 저장됨)", Body(daily.Doc.Id), "매일 절차\n[x] 하나\n쓰던 줄");
+        Check("목록 요약도 매일", store.Memos.First(m => m.Id == daily.Doc.Id).Daily, true);
+        de.Edit("매일 절차\n[x] 하나\n쓰던 줄\n더");
+        Check("켠 뒤 저장도 충돌 없음", de.Flush()?.Outcome, (SaveOutcome?)SaveOutcome.Saved);
+        Check("저장이 머리말을 지킴", Header(daily.Doc.Id).Contains("daily: true"), true);
+        Check("같은 날 롤오버는 안 풂", store.ResetDaily(Tue), 0);
+        Check("매일 초기화 끄기", de.SetDaily(false, Wed), true);
+        Check("꺼짐", (de.IsDaily, Header(daily.Doc.Id).Contains("daily: true")), (false, false));
+        var reopened = new MemoEditorState(store);
+        reopened.Open(daily.Doc.Id);
+        Check("다시 열어도 꺼짐", reopened.IsDaily, false);
+    }
+
     // ───────────────────────── 메모 · 줄 고치기 (서식 단추 · Enter)
 
     /// <summary>표시 글을 (글, 선택 시작, 선택 끝)으로. | 는 커서, { } 는 선택.</summary>

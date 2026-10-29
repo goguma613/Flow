@@ -83,6 +83,9 @@ internal static partial class Program
         Section("메모 · 편집");
         MemoEditorTests();
 
+        Section("메모 · 창의 매일 초기화 · 모두 풀기");
+        MemoEditorDailyTests();
+
         Section("메모 · 줄 고치기");
         MemoEditingTests();
 

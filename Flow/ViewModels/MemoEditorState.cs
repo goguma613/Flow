@@ -35,6 +35,12 @@ public sealed class MemoEditorState
     public bool IsEditing { get; set; }
     public bool Pinned { get; private set; }
 
+    /// <summary>머리말 daily. 켜 두면 하루가 바뀔 때 체크가 풀린다.</summary>
+    public bool IsDaily { get; private set; }
+
+    /// <summary>본문에 체크된 칸이 하나라도 있는지('모두 풀기'를 켤지). 쓰던 글 기준.</summary>
+    public bool HasChecked => CurrentId is not null && MemoFormat.UncheckAll(Body) != Body;
+
     /// <summary>머리말 tags(# 없이). 본문 #태그는 들어 있지 않다.</summary>
     public IReadOnlyList<string> Tags { get; private set; } = Array.Empty<string>();
 
@@ -66,6 +72,7 @@ public sealed class MemoEditorState
             CurrentId = null;
             Body = "";
             Pinned = false;
+            IsDaily = false;
             Tags = Array.Empty<string>();
             _baseRev = null;
             // 잠겼거나 덜 받아진 파일은 목록에 남아 있다. 지워졌다고 하면 안 된다.
@@ -76,6 +83,7 @@ public sealed class MemoEditorState
         CurrentId = id;
         Body = Normalize(file.Doc.Body);
         Pinned = file.Doc.Pinned;
+        IsDaily = file.Doc.Daily;
         Tags = file.Doc.Tags ?? Array.Empty<string>();
         _baseRev = file.Rev;
         return pre;
@@ -90,6 +98,7 @@ public sealed class MemoEditorState
         CurrentId = null;
         Body = "";
         Pinned = false;
+        IsDaily = false;
         Tags = Array.Empty<string>();
         _baseRev = null;
         Banner = null;
@@ -134,6 +143,7 @@ public sealed class MemoEditorState
                 CurrentId = result.CopyId;
                 _baseRev = MemoFormat.RevOf(Body);
                 Pinned = false;
+                IsDaily = false;
                 Tags = Array.Empty<string>();
                 IsDirty = false;
                 Banner = MissingBanner;
@@ -188,6 +198,44 @@ public sealed class MemoEditorState
     }
 
     /// <summary>
+    /// '매일 초기화'를 켜고 끈다. 켤 때 reset 을 today 로 적어 켠 날 바로 풀리지 않는다(MemoStore.SetDaily).
+    /// 쓰던 글을 먼저 저장하고, 못 했으면(띠가 남음) 아무것도 하지 않는다. 바뀐 파일을 다시 읽어 판을 맞춘다.
+    /// </summary>
+    public bool SetDaily(bool daily, DateOnly today)
+    {
+        if (!FlushFirst(out var id)) return false;
+        if (!_store.SetDaily(id, daily, today)) return false;
+        Reload();
+        return true;
+    }
+
+    /// <summary>
+    /// 체크를 지금 모두 푼다(날짜와 상관없이, reset 은 그대로). 쓰던 글을 먼저 저장하고,
+    /// 못 했으면(띠가 남음) 풀지 않는다. 푼 파일을 다시 읽어 본문·판을 맞춘다 — 그래서 다음 저장이 충돌이 아니다.
+    /// </summary>
+    public bool UncheckAll()
+    {
+        if (!FlushFirst(out var id)) return false;
+        if (!_store.UncheckAll(id)) return false;
+        Reload();
+        return true;
+    }
+
+    /// <summary>
+    /// 머리말·본문을 고치기 전에 쓰던 글을 저장한다. 저장하지 못했거나, 그 저장으로 다른 메모(지워져 새로 남긴 것)를
+    /// 열게 됐으면 거짓 — 사용자가 띠를 보고 다시 누르게 한다.
+    /// </summary>
+    private bool FlushFirst(out Guid id)
+    {
+        id = default;
+        if (CurrentId is not { } current) return false;
+        Flush();
+        if (IsDirty || CurrentId != current) return false;
+        id = current;
+        return true;
+    }
+
+    /// <summary>
     /// 휴지통으로 보낸다. 쓰던 글을 먼저 저장해 휴지통에 마지막 글이 남게 한다.
     /// 그 저장이 충돌이었으면 원본을 지우되 충돌 띠는 남긴다(내 글은 사본에 있다).
     /// 지워짐(Missing)이었으면 지울 원본이 없으니 지우지 않고 새 메모를 연 채로 둔다.
@@ -202,6 +250,7 @@ public sealed class MemoEditorState
         CurrentId = null;
         Body = "";
         Pinned = false;
+        IsDaily = false;
         Tags = Array.Empty<string>();
         _baseRev = null;
         Banner = pre?.Outcome == SaveOutcome.Conflict ? ConflictBanner : null;
@@ -231,6 +280,7 @@ public sealed class MemoEditorState
 
         Body = Normalize(file.Doc.Body);
         Pinned = file.Doc.Pinned;
+        IsDaily = file.Doc.Daily;
         Tags = file.Doc.Tags ?? Array.Empty<string>();
         _baseRev = file.Rev;
         if (Banner == DeletedBanner) Banner = null;
