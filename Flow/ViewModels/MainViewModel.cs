@@ -71,6 +71,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _busyTimer;
+    private readonly DispatcherTimer _memoScanTimer;
+
+    /// <summary>드라이브가 다른 PC 의 메모를 내려받는 것을 따라가는 주기.</summary>
+    private static readonly TimeSpan MemoScanInterval = TimeSpan.FromSeconds(10);
 
     private AppData _data;
     private DateOnly _today;
@@ -85,6 +89,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _quickAddHint = "";
     [ObservableProperty] private string _quickAddPlaceholder = "빠른 추가 — 내일 3시 회의 !1";
     [ObservableProperty] private int _selectedTab;
+
+    /// <summary>메모 탭의 검색어. 바뀌면 목록을 다시 거른다.</summary>
+    [ObservableProperty] private string _memoSearch = "";
+
+    /// <summary>메모 탭에서 눌러 둔 태그('#' 없이). 다시 누르면 비운다.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMemoTag))]
+    [NotifyPropertyChangedFor(nameof(ShowMemoTags))]
+    private string? _memoTag;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowMemoTags))]
+    private bool _hasMemoTags;
+
+    [ObservableProperty] private bool _memosEmpty;
+    [ObservableProperty] private string _memosEmptyText = "";
     /// <summary>
     /// 설정에서 펼쳐 둔 묶음. -1이면 전부 접힘.
     ///
@@ -219,6 +239,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         WaitingForFolder = _store.WaitingForFolder;
         if (WaitingForFolder) _waitingSince = DateTime.Now;
 
+        // 메모는 파일마다 따로 있어 data.json 과 별개로 훑는다. 목록에는 요약만 올린다.
+        Memos = new MemoStore(DataStore.Directory, () => !_store.WaitingForFolder, () => DateTime.Now);
+        Memos.Scan();
+        Memos.PurgeTrash(_today);
+
+        // MemoStore 는 스레드 안전하지 않으므로 UI 스레드 타이머로만 훑는다.
+        _memoScanTimer = new DispatcherTimer { Interval = MemoScanInterval };
+        _memoScanTimer.Tick += (_, _) =>
+        {
+            if (!Memos.Scan()) return;
+            RefreshMemos();
+            MemosChanged?.Invoke();
+        };
+        _memoScanTimer.Start();
+
         // 부팅 직후라면 클라우드가 곧 붙는다. 분 단위 틱으로는 너무 늦어 따로 자주 본다.
         _recoverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _recoverTimer.Tick += (_, _) =>
@@ -267,6 +302,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RefreshBackupSummary();
 
         RebuildAll();
+        RefreshMemos();
         if (result.Changed) Announce(result.DaysElapsed == 1
             ? "새 하루 시작 · 루틴을 초기화했습니다"
             : $"{result.DaysElapsed}일치를 정산하고 초기화했습니다");
@@ -282,6 +318,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<TaskRow> UpcomingTasks { get; } = [];
     public ObservableCollection<HeatCell> Heatmap { get; } = [];
     public ObservableCollection<BackupRow> Backups { get; } = [];
+    public ObservableCollection<MemoRow> MemoRows { get; } = [];
+    public ObservableCollection<string> MemoTags { get; } = [];
+    public ObservableCollection<MemoTagChip> MemoTagChips { get; } = [];
+
+    /// <summary>메모 폴더. 메모 창도 같은 것을 쓴다(한 곳에서만 훑고 쓰도록).</summary>
+    public MemoStore Memos { get; }
+
+    /// <summary>메모를 열어 달라는 요청. null 이면 메모 창만 연다. 창은 MainWindow 가 만든다.</summary>
+    public event Action<Guid?>? MemoOpenRequested;
+
+    /// <summary>훑기나 되돌리기로 메모 목록이 바뀌었을 때. 열려 있는 메모 창이 듣는다.</summary>
+    public event Action? MemosChanged;
 
     /// <summary>
     /// 울렸는데 아직 처리되지 않은 항목들. 파일에 남기지 않는다 —
@@ -337,19 +385,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public bool IsTodayTab => SelectedTab == 0;
     public bool IsRoutineTab => SelectedTab == 1;
     public bool IsUpcomingTab => SelectedTab == 2;
+    public bool IsMemoTab => SelectedTab == 3;
 
     partial void OnSelectedTabChanged(int value)
     {
         OnPropertyChanged(nameof(IsTodayTab));
         OnPropertyChanged(nameof(IsRoutineTab));
         OnPropertyChanged(nameof(IsUpcomingTab));
+        OnPropertyChanged(nameof(IsMemoTab));
 
         QuickAddPlaceholder = value switch
         {
             1 => "루틴 추가 — 월수금 운동 30분",
             2 => "예정 추가 — 9/15 정산 마감",
+            3 => "새 메모 제목",
             _ => "빠른 추가 — 내일 3시 회의 !1"
         };
+
+        if (value == 3) RefreshMemos();
 
         // 탭이 바뀌면 같은 문장도 다르게 해석되므로 미리보기를 다시 만든다.
         UpdateQuickAddHint(QuickAddText);
@@ -1096,6 +1149,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RefreshBackupSummary();
         RebuildBackupList();
 
+        // 되돌리기가 메모 파일도 바꿨으니 목록과 열려 있는 메모 창이 다시 읽어야 한다.
+        Memos.Scan();
+        RefreshMemos();
+        MemosChanged?.Invoke();
+
         IsRestoreOpen = false;
         Announce(result.Outcome == RestoreOutcome.MemosPartial
             ? $"되돌렸지만 메모 {result.FailedMemos}개는 되돌리지 못했습니다"
@@ -1354,6 +1412,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void QuickAdd()
     {
+        if (IsMemoTab)
+        {
+            QuickAddMemo();
+            return;
+        }
+
         var input = QuickAddText?.Trim();
         if (string.IsNullOrWhiteSpace(input)) return;
 
@@ -1381,6 +1445,85 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RebuildAll();
     }
 
+    /// <summary>메모 탭에서 적은 글이 그대로 본문(첫 줄이 제목)인 새 메모가 된다. 할 일처럼 읽지 않는다.</summary>
+    private void QuickAddMemo()
+    {
+        var input = QuickAddText?.Trim();
+        if (string.IsNullOrWhiteSpace(input)) return;
+
+        var file = Memos.Create(input);
+        if (file is null)
+        {
+            // 글은 그대로 둔다. 폴더가 돌아오면 다시 Enter 만 누르면 된다.
+            Announce("저장 폴더를 기다리는 중이라 메모를 만들 수 없습니다");
+            return;
+        }
+
+        QuickAddText = "";
+        // 방금 만든 것이 필터에 가려지지 않게 한다.
+        MemoSearch = "";
+        MemoTag = null;
+        RefreshMemos();
+        MemoOpenRequested?.Invoke(file.Doc.Id);
+    }
+
+    [RelayCommand]
+    public void OpenMemo(Guid id)
+    {
+        var known = Memos.Memos.FirstOrDefault(m => m.Id == id);
+        if (known is null || known.Unreadable) return;
+        MemoOpenRequested?.Invoke(id);
+    }
+
+    public void ToggleMemoTag(string tag)
+        => MemoTag = string.Equals(MemoTag, tag, StringComparison.CurrentCultureIgnoreCase) ? null : tag;
+
+    partial void OnMemoSearchChanged(string value) => RefreshMemos();
+
+    partial void OnMemoTagChanged(string? value) => RefreshMemos();
+
+    public bool HasMemoTag => !string.IsNullOrEmpty(MemoTag);
+
+    /// <summary>태그 줄. 컴팩트에서는 접지만, 눌러 둔 태그가 있으면 풀 길이 보여야 하므로 남긴다.</summary>
+    public bool ShowMemoTags => HasMemoTags && (!IsCompact || HasMemoTag);
+
+    /// <summary>
+    /// 목록을 다시 만든다. 요약만 다루고, 검색어가 있어 제목만으로 못 가릴 때에 한해
+    /// MemoQuery 가 본문을 읽는다.
+    /// </summary>
+    private void RefreshMemos()
+    {
+        var all = Memos.Memos;
+
+        // 눌러 둔 태그가 다른 곳에서 사라졌으면 풀어 준다. 풀면 이 함수가 다시 불린다.
+        var tags = MemoQuery.AllTags(all);
+        if (HasMemoTag && !tags.Any(t => string.Equals(t, MemoTag, StringComparison.CurrentCultureIgnoreCase)))
+        {
+            MemoTag = null;
+            return;
+        }
+
+        var shown = MemoQuery.Filter(all, MemoSearch, MemoTag, id => Memos.Load(id)?.Doc.Body);
+
+        MemoRows.Clear();
+        foreach (var summary in shown) MemoRows.Add(new MemoRow(summary, this));
+
+        MemoTags.Clear();
+        MemoTagChips.Clear();
+        foreach (var tag in tags)
+        {
+            MemoTags.Add(tag);
+            MemoTagChips.Add(new MemoTagChip(tag,
+                string.Equals(tag, MemoTag, StringComparison.CurrentCultureIgnoreCase), this));
+        }
+        HasMemoTags = tags.Count > 0;
+
+        MemosEmpty = MemoRows.Count == 0;
+        MemosEmptyText = all.Count == 0
+            ? "아직 메모가 없습니다\n아래에 제목을 적고 Enter"
+            : "찾는 메모가 없습니다";
+    }
+
     [RelayCommand]
     private void ToggleCompleted() => ShowCompleted = !ShowCompleted;
 
@@ -1391,6 +1534,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var row in TodayTasks) row.IsCompact = value;
         foreach (var row in CompletedTasks) row.IsCompact = value;
         foreach (var row in UpcomingTasks) row.IsCompact = value;
+        foreach (var row in MemoRows) row.IsCompact = value;
+        OnPropertyChanged(nameof(ShowMemoTags));
     }
 
     [RelayCommand]
@@ -1456,7 +1601,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void UpdateQuickAddHint(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        // 메모 탭의 글은 제목일 뿐이라 날짜·우선순위로 읽지 않는다.
+        if (IsMemoTab || string.IsNullOrWhiteSpace(value))
         {
             QuickAddHint = "";
             return;
@@ -1684,6 +1830,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _statusTimer.Stop();
         _busyTimer.Stop();
         _updateTimer?.Stop();
+        _memoScanTimer.Stop();
         _store.Dispose();
     }
 }

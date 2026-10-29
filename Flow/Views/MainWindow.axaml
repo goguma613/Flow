@@ -446,6 +446,63 @@
 
             </StackPanel>
 
+            <!-- ─── 메모 ─── -->
+            <StackPanel IsVisible="{Binding IsMemoTab}">
+
+              <Border Classes="quickaddshell" Margin="0,0,0,8">
+                <TextBox Classes="quickadd"
+                         PlaceholderText="메모 찾기 — 제목, 본문, #태그"
+                         Text="{Binding MemoSearch}" />
+              </Border>
+
+              <ItemsControl ItemsSource="{Binding MemoTagChips}"
+                            IsVisible="{Binding ShowMemoTags}" Margin="0,0,0,8">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:MemoTagChip">
+                    <Button Classes="chip" Classes.active="{Binding IsActive}"
+                            Content="{Binding Text}" Command="{Binding ToggleCommand}"
+                            HorizontalAlignment="Left" Padding="9,4" Margin="0,0,4,4" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <ItemsControl ItemsSource="{Binding MemoRows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:MemoRow">
+                    <Button Classes="row" Classes.compact="{Binding IsCompact}"
+                            Classes.unreadable="{Binding IsUnreadable}"
+                            Command="{Binding OpenCommand}">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="title" MaxLines="1" TextWrapping="NoWrap">
+                          <Run Text="{Binding Title}" />
+                          <Run Text="   " />
+                          <Run Text="{Binding Preview}" FontSize="12"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                        </TextBlock>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
+                                    Margin="8,0,0,0" VerticalAlignment="Center">
+                          <TextBlock Text="↻" FontSize="12" IsVisible="{Binding IsDaily}"
+                                     Foreground="{StaticResource TextSecondaryBrush}"
+                                     ToolTip.Tip="매일 초기화" />
+                          <TextBlock Text="📌" FontSize="11" IsVisible="{Binding IsPinned}"
+                                     ToolTip.Tip="고정" />
+                        </StackPanel>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Classes="empty" IsVisible="{Binding MemosEmpty}"
+                         Text="{Binding MemosEmptyText}" />
+
+            </StackPanel>
+
           </Panel>
         </ScrollViewer>
 
@@ -464,13 +521,15 @@
                 Grid.Row="{Binding TabRow}"
                 Classes="tabstrip" Classes.compact="{Binding IsCompact}"
                 IsVisible="{Binding BottomVisible}">
-          <UniformGrid Columns="3">
+          <UniformGrid Columns="4">
             <Button Classes="tab" Classes.active="{Binding IsTodayTab}" Content="오늘"
                     Command="{Binding SelectTabCommand}" CommandParameter="0" />
             <Button Classes="tab" Classes.active="{Binding IsRoutineTab}" Content="루틴"
                     Command="{Binding SelectTabCommand}" CommandParameter="1" />
             <Button Classes="tab" Classes.active="{Binding IsUpcomingTab}" Content="예정"
                     Command="{Binding SelectTabCommand}" CommandParameter="2" />
+            <Button Classes="tab" Classes.active="{Binding IsMemoTab}" Content="메모"
+                    Command="{Binding SelectTabCommand}" CommandParameter="3" />
           </UniformGrid>
         </Border>
 
@@ -711,7 +770,7 @@
               <TextBlock Classes="helpbody"
                          Text="올라와 있는 동안에도 목록은 움직이지 않습니다. 마우스를 위로 올리면 곧 내려가고, 적는 중에는 마우스를 치워도 입력칸이 남아 있습니다." />
               <TextBlock Classes="helpbody"
-                         Text="탭은 Ctrl+1 오늘, Ctrl+2 루틴, Ctrl+3 예정으로도 넘길 수 있습니다. 삭제는 컴팩트에서도 항목을 오른쪽 클릭하면 나옵니다." />
+                         Text="탭은 Ctrl+1 오늘, Ctrl+2 루틴, Ctrl+3 예정, Ctrl+4 메모로도 넘길 수 있습니다. 삭제는 컴팩트에서도 항목을 오른쪽 클릭하면 나옵니다." />
             </StackPanel>
 
             <StackPanel Spacing="7">

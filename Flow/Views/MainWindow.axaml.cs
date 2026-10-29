@@ -642,6 +642,7 @@ public partial class MainWindow : Window
             Key.D1 => "0",
             Key.D2 => "1",
             Key.D3 => "2",
+            Key.D4 => "3",
             _ => null
         };
 

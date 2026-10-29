@@ -721,6 +721,12 @@
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
   </Style>
 
+  <!-- 읽지 못한 메모(잠겼거나 덜 받아진 파일). 눌러도 열리지 않으니 흐리게 둔다. -->
+  <Style Selector="Button.row.unreadable">
+    <Setter Property="Opacity" Value="0.45" />
+    <Setter Property="Cursor" Value="Arrow" />
+  </Style>
+
   <!-- ===== 컴팩트에서의 줄 =====
        기본 규칙들보다 반드시 뒤에 있어야 한다. Avalonia 는 나중에 적힌 쪽이 이긴다. -->
   <Style Selector="Button.row.compact">
