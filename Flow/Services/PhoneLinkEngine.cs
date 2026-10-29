@@ -5,23 +5,82 @@ using Flow.Models;
 
 namespace Flow.Services;
 
-/// <summary>폰에서 온 일을 반영한 결과.</summary>
-public readonly record struct PhoneApplyResult(int Added, int Checked, int Unchecked, int Skipped, int Edited = 0, int Deleted = 0)
+/// <summary>폰에서 온 일을 반영한 결과. MemoChecked 는 고쳐 쓴 메모 체크 줄 수.</summary>
+public readonly record struct PhoneApplyResult(int Added, int Checked, int Unchecked, int Skipped, int Edited = 0, int Deleted = 0,
+    int MemoChecked = 0)
 {
     public static readonly PhoneApplyResult None = new(0, 0, 0, 0);
 
     /// <summary>화면에 보이는 것이 바뀌었는지.</summary>
-    public int Changed => Added + Checked + Unchecked + Edited + Deleted;
+    public int Changed => Added + Checked + Unchecked + Edited + Deleted + MemoChecked;
 
     public static PhoneApplyResult operator +(PhoneApplyResult a, PhoneApplyResult b) => new(
         a.Added + b.Added, a.Checked + b.Checked, a.Unchecked + b.Unchecked,
-        a.Skipped + b.Skipped, a.Edited + b.Edited, a.Deleted + b.Deleted);
+        a.Skipped + b.Skipped, a.Edited + b.Edited, a.Deleted + b.Deleted, a.MemoChecked + b.MemoChecked);
 
     /// <summary>
     /// 저장할 것이 생겼는지. 건너뛴 것도 '처리했음'을 적어 둬야 하므로 저장 대상이다 —
     /// 안 적으면 폰이 그 일을 inbox 에서 영영 못 지운다.
     /// </summary>
     public bool NeedsSave => Changed > 0 || Skipped > 0;
+}
+
+/// <summary>
+/// 폰의 메모 체크를 받아 넣을 곳. 파일을 아는 쪽(MemoStore, 쓰는 중인 메모를 아는 PhoneMemoTarget)이 맡는다.
+/// day 는 폰에서 누른 논리적 날짜 — 매일 초기화 메모가 그 날 몫인지 가린다.
+/// </summary>
+public interface IPhoneMemoTarget
+{
+    MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null);
+}
+
+/// <summary>
+/// 메모 창이 쓰는 중으로 들고 있는 메모(쓰기 모드·저장 안 된 글)는 Deferred 로 돌려주고, 나머지는 MemoStore 에 맡긴다.
+/// 쓰는 중인 파일을 고치면 다음 저장이 충돌 사본이 되므로, 놓은 뒤에 다시 해 본다.
+/// held 는 부를 때마다 묻는다 — 메모 창이 열리고 닫히며 바뀐다.
+/// </summary>
+public sealed class PhoneMemoTarget(MemoStore store, Func<Func<Guid, bool>?> held) : IPhoneMemoTarget
+{
+    public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
+        => held()?.Invoke(id) == true
+            ? MemoCheckResult.Deferred
+            : store.SetLineChecked(id, text, line, isChecked, day);
+}
+
+/// <summary>
+/// 폰 화면에 넣을 메모 본문을 기억해 둔다(id → 판·본문). 판이 바뀐 메모만 다시 읽고, 사라진 메모는 잊는다.
+/// 머리말 값(고정·매일·초기화 날·태그·고친 시각)은 요약에서 그대로 가져온다 — 판은 본문만 보므로.
+/// </summary>
+public sealed class PhoneMemoCache
+{
+    private readonly Dictionary<Guid, (string Rev, string Body)> _bodies = new();
+
+    /// <summary>읽지 못한 메모는 빼고, 판이 같으면 기억한 본문을 쓴다. 읽다 실패한 메모는 이번에는 뺀다.</summary>
+    public IReadOnlyList<PhoneMemo> Build(IEnumerable<MemoSummary> memos, Func<Guid, MemoFile?> load)
+    {
+        var result = new List<PhoneMemo>();
+        var live = new HashSet<Guid>();
+        foreach (var summary in memos)
+        {
+            if (summary.Unreadable || !live.Add(summary.Id)) continue;
+
+            if (!_bodies.TryGetValue(summary.Id, out var known) || known.Rev != summary.Rev)
+            {
+                if (load(summary.Id) is not { } file)
+                {
+                    _bodies.Remove(summary.Id);
+                    continue;
+                }
+                known = (file.Rev, file.Doc.Body);
+                _bodies[summary.Id] = known;
+            }
+
+            result.Add(PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body));
+        }
+
+        foreach (var gone in _bodies.Keys.Where(id => !live.Contains(id)).ToList()) _bodies.Remove(gone);
+        return result;
+    }
 }
 
 /// <summary>
@@ -32,7 +91,7 @@ public readonly record struct PhoneApplyResult(int Added, int Checked, int Unche
 /// - 반영한 일의 번호를 data.json 에 남겨 두 번 하지 않고,
 /// - 그 기록이 사라져도 결과가 같도록 일 자체를 '뒤집기'가 아니라 '이렇게 맞추기'로 만든다.
 ///   (체크 = 끝난 상태로 맞추기, 추가 = 그 번호의 항목이 없을 때만 만들기,
-///    이름·중요도 = 그 값으로 맞추기, 지우기 = 있으면 지우기)
+///    이름·중요도 = 그 값으로 맞추기, 지우기 = 있으면 지우기, 메모 체크 = 그 줄을 그 상태로 맞추기)
 /// </summary>
 public static class PhoneLinkEngine
 {
@@ -48,15 +107,18 @@ public static class PhoneLinkEngine
     /// PC를 켤 때는 롤오버 <b>전에</b> 한 번, <b>뒤에</b> 한 번 부른다.
     /// 월요일 밤 폰에서 한 체크를 화요일 아침에 받으면, 롤오버 전이라야 월요일 몫으로 들어가
     /// 월요일 결산과 연속 기록에 잡힌다. 화요일에 한 일은 롤오버 뒤에 들어간다.
+    ///
+    /// 메모 체크는 memos 가 있을 때만 넣는다. 없으면 모르는 갈래처럼 손대지도 적지도 않는다.
+    /// 지금 못 하는 메모 체크(Deferred)도 적지 않는다 — inbox 에 남아 다음에 다시 온다.
     /// </summary>
-    public static PhoneApplyResult Apply(AppData data, IEnumerable<PhoneOp>? ops)
+    public static PhoneApplyResult Apply(AppData data, IEnumerable<PhoneOp>? ops, IPhoneMemoTarget? memos = null)
     {
         if (ops is null) return PhoneApplyResult.None;
 
         var openDay = data.LastLogicalDate;
         var applied = new HashSet<Guid>(data.PhoneOpsApplied.Select(a => a.Id));
 
-        int added = 0, checkedCount = 0, uncheckedCount = 0, skipped = 0, edited = 0, deleted = 0;
+        int added = 0, checkedCount = 0, uncheckedCount = 0, skipped = 0, edited = 0, deleted = 0, memoChecked = 0;
 
         foreach (var op in ops.Where(o => !applied.Contains(o.Id)).OrderBy(o => o.At).ThenBy(o => o.Id))
         {
@@ -73,6 +135,12 @@ public static class PhoneLinkEngine
                 case PhoneOp.SetPriority: outcome = ApplyPriority(data, op); break;
                 case PhoneOp.Delete: outcome = ApplyDelete(data, op); break;
 
+                case PhoneOp.MemoCheck:
+                    if (memos is null) continue;
+                    if (ApplyMemoCheck(memos, op) is not { } memoOutcome) continue;   // 지금은 못 함 — 적지 않는다
+                    outcome = memoOutcome;
+                    break;
+
                 // 새 버전 폰이 보낸, 이 PC가 모르는 일. 손대지도 적지도 않는다 —
                 // 적어 버리면 폰이 지워서 새 버전 PC조차 영영 못 받는다.
                 default: continue;
@@ -85,6 +153,7 @@ public static class PhoneLinkEngine
                 case Outcome.Unchecked: uncheckedCount++; break;
                 case Outcome.Edited: edited++; break;
                 case Outcome.Deleted: deleted++; break;
+                case Outcome.MemoChecked: memoChecked++; break;
                 default: skipped++; break;
             }
 
@@ -95,10 +164,23 @@ public static class PhoneLinkEngine
         var cutoff = openDay.AddDays(-AppliedRetentionDays);
         data.PhoneOpsApplied.RemoveAll(a => a.Day < cutoff);
 
-        return new PhoneApplyResult(added, checkedCount, uncheckedCount, skipped, edited, deleted);
+        return new PhoneApplyResult(added, checkedCount, uncheckedCount, skipped, edited, deleted, memoChecked);
     }
 
-    private enum Outcome { Added, Checked, Unchecked, Edited, Deleted, Skipped }
+    private enum Outcome { Added, Checked, Unchecked, Edited, Deleted, MemoChecked, Skipped }
+
+    /// <summary>메모 체크. null 이면 지금은 못 한 것(쓰는 중·폴더 기다림·파일 잠김)이라 적지 않는다.</summary>
+    private static Outcome? ApplyMemoCheck(IPhoneMemoTarget memos, PhoneOp op)
+    {
+        if (op.Target is not { } target || op.Checked is not { } isChecked) return Outcome.Skipped;
+
+        return memos.SetLineChecked(target, op.Text ?? "", op.Line, isChecked, op.Day) switch
+        {
+            MemoCheckResult.Applied => Outcome.MemoChecked,
+            MemoCheckResult.Deferred => null,
+            _ => Outcome.Skipped
+        };
+    }
 
     private static Outcome ApplyAdd(AppData data, PhoneOp op)
     {
@@ -205,8 +287,12 @@ public static class PhoneLinkEngine
         return Outcome.Skipped;
     }
 
-    /// <summary>폰이 보여줄 오늘 화면. PC의 '오늘' 탭과 같은 항목, 같은 순서.</summary>
-    public static PhoneView BuildView(AppData data, DateOnly today, DateTime now)
+    /// <summary>
+    /// 폰이 보여줄 오늘 화면. PC의 '오늘' 탭과 같은 항목, 같은 순서.
+    /// memos 는 폰에 보일 메모(PhoneMemoCache 가 만든다). 고정 먼저, 최근에 고친 순으로 늘어놓고,
+    /// 루틴·할 일의 MemoId 는 그 메모가 여기 있을 때만 채운다.
+    /// </summary>
+    public static PhoneView BuildView(AppData data, DateOnly today, DateTime now, IReadOnlyList<PhoneMemo>? memos = null)
     {
         var view = new PhoneView
         {
@@ -215,6 +301,15 @@ public static class PhoneLinkEngine
             DayStartHour = data.Settings.DayStartHour,
             AppliedOps = data.PhoneOpsApplied.Select(a => a.Id).ToList()
         };
+
+        if (memos is not null)
+            view.Memos = memos
+                .OrderByDescending(m => m.Pinned)
+                .ThenByDescending(m => m.Updated)
+                .ThenBy(m => m.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        var memoIds = new HashSet<Guid>(view.Memos.Select(m => m.Id));
+        Guid? LinkOf(Guid? memoId) => memoId is { } id && memoIds.Contains(id) ? id : null;
 
         foreach (var routine in data.Routines.OrderBy(r => r.Order))
         {
@@ -226,7 +321,8 @@ public static class PhoneLinkEngine
                 Title = routine.Title,
                 Done = routine.DoneToday,
                 Time = routine.Time,
-                Streak = routine.Streak
+                Streak = routine.Streak,
+                MemoId = LinkOf(routine.MemoId)
             });
         }
 
@@ -238,7 +334,7 @@ public static class PhoneLinkEngine
         foreach (var task in ordered)
         {
             var bucket = DayEngine.BucketOf(task, today);
-            if (bucket is TaskBucket.Today or TaskBucket.DoneToday) view.Tasks.Add(ToViewItem(task));
+            if (bucket is TaskBucket.Today or TaskBucket.DoneToday) view.Tasks.Add(ToViewItem(task, LinkOf(task.MemoId)));
         }
 
         // 예정은 PC의 '예정' 탭처럼 가까운 날짜부터 늘어놓는다.
@@ -249,13 +345,13 @@ public static class PhoneLinkEngine
                      .ThenByDescending(t => (int)t.Priority)
                      .ThenBy(t => t.Order))
         {
-            view.Upcoming.Add(ToViewItem(task));
+            view.Upcoming.Add(ToViewItem(task, LinkOf(task.MemoId)));
         }
 
         return view;
     }
 
-    private static PhoneViewItem ToViewItem(TaskItem task) => new()
+    private static PhoneViewItem ToViewItem(TaskItem task, Guid? memoId) => new()
     {
         Id = task.Id,
         Title = task.Title,
@@ -263,6 +359,28 @@ public static class PhoneLinkEngine
         Time = task.DueTime,
         Priority = task.Priority,
         Due = task.Due,
-        CarryOverCount = task.CarryOverCount
+        CarryOverCount = task.CarryOverCount,
+        MemoId = memoId
     };
+
+    /// <summary>
+    /// 폰에 보낼 메모 하나. 제목은 메모 탭처럼 줄 머리 기호를 뗀 것(비면 "제목 없음"),
+    /// 본문은 머리말을 뺀 그대로에 줄바꿈만 \n 으로 맞춘 것 — 체크의 줄 번호가 PC 와 같게.
+    /// </summary>
+    public static PhoneMemo ToPhoneMemo(MemoSummary summary, string rev, string body)
+    {
+        var title = MemoFormat.PlainTitle(MemoFormat.TitleOf(body));
+        return new PhoneMemo
+        {
+            Id = summary.Id,
+            Title = string.IsNullOrWhiteSpace(title) ? MemoFormat.Untitled : title,
+            Text = body.Replace("\r\n", "\n").Replace('\r', '\n'),
+            Pinned = summary.Pinned,
+            Daily = summary.Daily,
+            Reset = summary.Reset,
+            Tags = summary.Tags.ToList(),
+            Rev = rev,
+            Updated = summary.Updated
+        };
+    }
 }

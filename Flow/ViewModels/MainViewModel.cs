@@ -212,12 +212,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 폰에서 온 일은 롤오버 앞뒤로 한 번씩 넣는다. 월요일 밤 폰으로 한 체크를
         // 화요일 아침에 받았다면, 롤오버 전이라야 월요일 몫으로 들어가 연속 기록에 잡힌다.
         _phone = new PhoneLinkStore(DataStore.Directory);
+        // 메모 체크는 여기서 넣지 않는다 — 아래 매일 초기화가 끝난 뒤에 넣어야 오늘 넣은 체크가 바로 풀리지 않는다.
         if (!_store.WaitingForFolder) _phoneOps = _phone.ReadInbox();
-        var fromPhone = ApplyPhoneOps();
+        var fromPhone = ApplyPhoneOps(withMemos: false);
 
         var result = DayEngine.Rollover(_data, _today);
 
-        var fromPhoneToday = ApplyPhoneOps();
+        var fromPhoneToday = ApplyPhoneOps(withMemos: false);
         fromPhone += fromPhoneToday;
 
         DayEngine.SyncToday(_data, _today);
@@ -253,6 +254,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         BackUpIfDue();
         _memoResetTried = _today;
         MarkMemoReset(Memos.ResetDaily(_today));
+
+        // 폰에서 온 메모 체크는 매일 초기화 뒤에. 아직 메모 창이 없으니 쓰는 중인 메모도 없다.
+        var fromPhoneMemos = ApplyPhoneOps();
+        if (fromPhoneMemos.NeedsSave) _store.RequestSave(_data);
+        fromPhone += fromPhoneMemos;
 
         // MemoStore 는 스레드 안전하지 않으므로 UI 스레드 타이머로만 훑는다.
         _memoScanTimer = new DispatcherTimer { Interval = MemoScanInterval };
@@ -1347,12 +1353,26 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private IReadOnlyList<PhoneOp>? _phoneOps;
 
-    private PhoneApplyResult ApplyPhoneOps()
+    /// <summary>
+    /// 폰 화면에 넣은 메모 본문(id → 판·본문). 판이 바뀐 메모만 다시 읽는다 —
+    /// 메모 본문이 다 들어가므로 view 를 만들 때마다 파일을 모두 읽지 않도록.
+    /// </summary>
+    private readonly PhoneMemoCache _phoneMemos = new();
+
+    /// <summary>폰의 메모 체크를 받는 곳. 메모 창이 쓰는 중으로 들고 있는 메모는 남겨 두었다가 다음에.</summary>
+    private PhoneMemoTarget? _phoneMemoTarget;
+
+    /// <summary>
+    /// 받아 둔 폰의 일을 넣는다. withMemos 가 거짓이면 메모 체크는 손대지도 적지도 않는다(메모 폴더를 아직 안 볼 때).
+    /// 메모 창이 쓰는 중인 메모·잠긴 파일의 체크는 적지 않아 inbox 에 남고, 매 분 다시 해 본다.
+    /// </summary>
+    private PhoneApplyResult ApplyPhoneOps(bool withMemos = true)
     {
         // 저장 폴더를 기다리는 중이면 지금 데이터는 빈 자리표시다. 여기에 넣으면 진짜 데이터가 아니다.
         if (_store.WaitingForFolder || _phoneOps is null) return PhoneApplyResult.None;
 
-        return PhoneLinkEngine.Apply(_data, _phoneOps);
+        var memos = withMemos ? (_phoneMemoTarget ??= new PhoneMemoTarget(Memos, () => IsMemoDirty)) : null;
+        return PhoneLinkEngine.Apply(_data, _phoneOps, memos);
     }
 
     /// <summary>분마다 한 번. 폰이 남긴 일을 받아 넣고, 폰이 볼 화면을 맞춰 둔다.</summary>
@@ -1395,15 +1415,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         RebuildAll();
         RefreshStreakSummary();
+
+        // 메모 파일을 고쳤다. 목록과, 읽기 모드로 열려 있는 메모 창이 다시 읽는다(쓰는 중인 메모는 애초에 건드리지 않았다).
+        if (result.MemoChecked > 0)
+        {
+            RefreshMemos();
+            MemosChanged?.Invoke();
+        }
+
         Announce(DescribePhone(result));
     }
 
     /// <summary>폰이 볼 오늘 화면을 쓴다. 폰이 연결을 안 했으면, 또는 내용이 그대로면 아무것도 안 한다.</summary>
     private void PushToPhone()
     {
-        if (_store.WaitingForFolder) return;
+        // 폰을 연결하지 않았으면 메모 본문을 읽을 까닭이 없다.
+        if (_store.WaitingForFolder || !_phone.HasView()) return;
 
-        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now));
+        var memos = _phoneMemos.Build(Memos.Memos, Memos.Load);
+        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos));
     }
 
     private static string DescribePhone(PhoneApplyResult result)
@@ -1414,6 +1444,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (result.Unchecked > 0) parts.Add($"완료 취소 {result.Unchecked}");
         if (result.Edited > 0) parts.Add($"수정 {result.Edited}");
         if (result.Deleted > 0) parts.Add($"삭제 {result.Deleted}");
+        if (result.MemoChecked > 0) parts.Add($"메모 체크 {result.MemoChecked}");
 
         return "폰에서 가져옴 · " + string.Join(" · ", parts);
     }

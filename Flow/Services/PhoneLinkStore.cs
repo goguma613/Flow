@@ -98,6 +98,19 @@ public sealed class PhoneLinkStore
         return ReadInboxIfChanged();
     }
 
+    /// <summary>폰이 연결을 마쳐 phone-view.json 이 있는지. 없으면 view 를 만들 까닭도 없다(메모 본문을 읽지 않으려고).</summary>
+    public bool HasView()
+    {
+        try
+        {
+            return FindFolder() is { } folder && File.Exists(Path.Combine(folder, ViewFileName));
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// 폰이 볼 오늘 화면을 쓴다. 폰이 만든 파일이 있을 때만, 내용이 바뀌었을 때만 쓴다.
     /// 만든 시각만 다르고 내용이 같으면 쓰지 않는다 — 쓰면 그게 곧 업로드다.

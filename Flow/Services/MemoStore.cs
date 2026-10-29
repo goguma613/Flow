@@ -11,13 +11,23 @@ namespace Flow.Services;
 
 // 메모 폴더를 다루는 저장소. UI 패키지를 참조하지 않는다.
 
-/// <summary>목록에 보이는 메모 하나. Unreadable 이면 잠겼거나 덜 받아진 파일이라 이전 값(없으면 파일 이름)을 보인다.</summary>
+/// <summary>
+/// 목록에 보이는 메모 하나. Unreadable 이면 잠겼거나 덜 받아진 파일이라 이전 값(없으면 파일 이름)을 보인다.
+/// Reset 은 머리말의 마지막 매일 초기화 날(폰 화면이 쓴다).
+/// </summary>
 public sealed record MemoSummary(Guid Id, string Path, string Title, string Preview,
-    IReadOnlyList<string> Tags, bool Pinned, bool Daily, DateTime Updated, string Rev, bool Unreadable);
+    IReadOnlyList<string> Tags, bool Pinned, bool Daily, DateTime Updated, string Rev, bool Unreadable,
+    DateOnly? Reset = null);
 
 public sealed record MemoFile(MemoDocument Doc, string Path, string Rev);
 
 public enum SaveOutcome { Saved, Unchanged, Conflict, Missing, Failed }
+
+/// <summary>
+/// 휴대폰에서 온 메모 체크 하나의 결과. Applied = 고쳐 씀, Skipped = 할 것이 없음(맞는 줄 없음·이미 그 상태·메모 없음),
+/// Deferred = 지금은 못 함(쓸 수 없음·읽지 못함·쓰는 중) — 처리했다고 적지 않아 다음에 다시 해 본다.
+/// </summary>
+public enum MemoCheckResult { Applied, Skipped, Deferred }
 
 public sealed record SaveResult(SaveOutcome Outcome, string? Rev, Guid? CopyId);
 
@@ -445,6 +455,48 @@ public sealed class MemoStore
         }
     }
 
+    /// <summary>
+    /// 휴대폰의 메모 체크 하나를 맞춘다. line 줄이 체크 줄이고 글이 text 와 같으면 그 줄을, 아니면(줄이 밀렸다)
+    /// 같은 글의 체크 줄 중 첫째를 isChecked 로 맞춘다. 글은 앞뒤 공백을 떼고 견준다.
+    /// 맞는 줄이 없거나 이미 그 상태거나 메모가 없으면 Skipped, 쓸 수 없거나 읽지·쓰지 못하면 Deferred.
+    /// day(폰에서 누른 논리적 날짜)가 있고 매일 초기화 메모라면: 그 날보다 뒤에 이미 풀었으면 지난 날 체크라 Skipped,
+    /// 그 날 몫 초기화가 아직이면 Deferred — 먼저 넣으면 곧 이어질 초기화가 방금 넣은 체크를 풀어 버린다.
+    /// </summary>
+    public MemoCheckResult SetLineChecked(Guid id, string? text, int? line, bool isChecked, DateOnly? day = null)
+    {
+        if (!_canWrite()) return MemoCheckResult.Deferred;
+        try
+        {
+            if (Locate(id) is not (var e, var doc)) return MemoCheckResult.Skipped;
+
+            if (doc.Daily && day is { } d)
+            {
+                if (doc.Reset is { } reset && d < reset) return MemoCheckResult.Skipped;
+                if (doc.Reset is not { } done || done < d) return MemoCheckResult.Deferred;
+            }
+
+            var want = (text ?? "").Trim();
+            var lines = MemoFormat.Lines(doc.Body);
+            bool Matches(MemoLine l) => l.Kind == MemoLineKind.Check && l.Text.Trim() == want;
+
+            var target = line is { } n && n >= 0 && n < lines.Count && Matches(lines[n]) ? lines[n] : null;
+            target ??= lines.FirstOrDefault(Matches);
+            if (target is null || target.Checked == isChecked) return MemoCheckResult.Skipped;
+
+            var body = MemoFormat.SetChecked(doc.Body, target.Index, isChecked);
+            if (body == doc.Body) return MemoCheckResult.Skipped;
+
+            doc = doc with { Id = id, HasHeader = true, Body = body };
+            WriteDoc(e.Path, doc);
+            Remember(e.Path, doc);
+            return MemoCheckResult.Applied;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return MemoCheckResult.Deferred;
+        }
+    }
+
     // ───────────────────────── 휴지통
 
     public bool Delete(Guid id)
@@ -644,7 +696,7 @@ public sealed class MemoStore
 
     private static MemoSummary Summarize(MemoDocument doc, string path, DateTime updated)
         => new(doc.Id, path, MemoFormat.TitleOf(doc.Body), MemoFormat.PreviewOf(doc.Body),
-            MemoFormat.TagsOfDoc(doc), doc.Pinned, doc.Daily, updated, MemoFormat.RevOf(doc.Body), false);
+            MemoFormat.TagsOfDoc(doc), doc.Pinned, doc.Daily, updated, MemoFormat.RevOf(doc.Body), false, doc.Reset);
 
     /// <summary>스스로 쓴 파일의 (크기, 고친 시각)을 기억해 바로 다음 훑기가 제 쓰기를 바뀜으로 읽지 않게 한다.</summary>
     private void Remember(string path, MemoDocument doc)
