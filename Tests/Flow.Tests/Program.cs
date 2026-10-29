@@ -70,6 +70,9 @@ internal static partial class Program
         Section("메모 · 형식");
         MemoFormatTests();
 
+        Section("메모 · 파일");
+        MemoStoreTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

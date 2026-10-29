@@ -29,6 +29,7 @@
     <Compile Include="MemoTests.cs" />
     <Compile Include="../../Flow/Models/Memo.cs" />
     <Compile Include="../../Flow/Services/MemoFormat.cs" />
+    <Compile Include="../../Flow/Services/MemoStore.cs" />
   </ItemGroup>
 
 </Project>
