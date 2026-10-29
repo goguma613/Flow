@@ -26,6 +26,9 @@
     <Compile Include="../../Flow/Services/ItemFactory.cs" />
     <Compile Include="../../Flow/Services/PhoneLinkEngine.cs" />
     <Compile Include="../../Flow/Services/PhoneLinkStore.cs" />
+    <Compile Include="MemoTests.cs" />
+    <Compile Include="../../Flow/Models/Memo.cs" />
+    <Compile Include="../../Flow/Services/MemoFormat.cs" />
   </ItemGroup>
 
 </Project>

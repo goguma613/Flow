@@ -67,6 +67,9 @@ internal static partial class Program
         Section("백업 · 되돌리기");
         BackupTests();
 
+        Section("메모 · 형식");
+        MemoFormatTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;
