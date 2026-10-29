@@ -2216,7 +2216,7 @@ function fitEditor() {
 window.visualViewport?.addEventListener('resize', fitEditor);
 window.visualViewport?.addEventListener('scroll', fitEditor);
 
-let memoEdit = null;          // 쓰는 중인 글 { key, id, isNew, base, pcRev, start, startedAt, text }
+let memoEdit = null;          // 쓰는 중인 글 { key, id, isNew, base, pcRev, start, startOps, text }
 let draftTimer = 0;
 let shiftEnter = false;       // Shift+Enter 는 이어 쓰지 않고 그냥 줄을 바꾼다
 let afterEditorPop = null;    // 글 칸을 닫으며 걷어 낸 기록이 돌아오면 할 일
@@ -2326,6 +2326,12 @@ function usableDraft(key) {
   return draft;
 }
 
+/** 그 메모의 아직 PC 가 안 받은 저장(memo-save) 번호들. 고치기 시작 글에 이미 들어 있는 저장을 기억해 둔다. */
+function pendingSavesOf(id) {
+  const applied = new Set(state.view?.AppliedOps ?? []);
+  return state.pending.filter(op => op.Kind === 'memo-save' && op.Target === id && !applied.has(op.Id)).map(op => op.Id);
+}
+
 const HELD_NOTE = 'PC에서 이 메모를 쓰는 중입니다 · 저장하면 PC에서 쓰기를 마친 뒤 들어갑니다';
 
 /**
@@ -2353,15 +2359,17 @@ async function resumeDraft(draft) {
       // PC 글은 그대로인데 보이는 글이 바뀌었다. 체크 · 모두 풀기(어느 탭 · 기기에서든)나 새 하루의 매일 초기화뿐이면
       // Base 를 지금 글로 옮긴다. 아직 PC 가 안 받은 다른 글 전체(memo-save — 다른 탭 · 기기에서 고친 것)가 끼어 있으면
       // 옮기지 않는다 — 옮기면 PC 가 그 글을 넣은 뒤 이 저장이 판이 맞아 그 글을 사본 없이 덮는다.
-      // 고치기를 시작한 뒤(startedAt 부터)의 저장만 센다 — 그 전 저장(이 폰의 앞 저장 등)은 이미 시작 글에 들어 있다.
-      // startedAt 이 없는 것(v12 까지 남긴 글)은 모두 센다.
+      // 고치기를 시작할 때 이미 있던 저장(startOps — 이 폰의 앞 저장 등)은 시작 글에 들어 있어 세지 않는다.
+      // 시각(At)으로 가르지 않는다: 다른 기기의 저장은 그 기기의 시각이라, 늦게 와도 시작보다 앞선 At 을 달고 있다.
+      // startOps 가 없는 것(v12 까지 남긴 글)은 모두 센다.
       const applied = new Set(state.view?.AppliedOps ?? []);
+      const known = Array.isArray(draft.startOps) ? new Set(draft.startOps) : new Set();
       const otherSave = state.pending.some(op => op.Kind === 'memo-save' && op.Target === draft.id
-        && !applied.has(op.Id) && op.Text !== draft.start && (!draft.startedAt || op.At >= draft.startedAt));
+        && !applied.has(op.Id) && op.Text !== draft.start && !known.has(op.Id));
       if (otherSave) {
         notes.push('그 사이 다른 곳에서 이 메모를 고쳤습니다 · 저장하면 충돌 사본이 생길 수 있습니다');
       } else {
-        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text, startedAt: localIso(new Date()) };
+        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text, startOps: pendingSavesOf(draft.id) };
         notes.push('그 뒤 바꾼 체크 등은 저장하면 이 글대로 됩니다');
       }
     }
@@ -2386,7 +2394,7 @@ async function openMemoEditor(id) {
     const memo = findMemo(id);
     if (!memo) return;
     draft = { key, id, isNew: false, base: await memoBaseOf(memo), pcRev: sentMemo(id)?.Rev ?? null,
-      start: memo.Text, startedAt: localIso(new Date()), text: memo.Text };
+      start: memo.Text, startOps: pendingSavesOf(id), text: memo.Text };
     if (isHeldMemo(id)) note = HELD_NOTE;
   } else {
     draft = { key, id: uuid(), isNew: true, base: null, pcRev: null, start: '', text: '' };
@@ -2591,7 +2599,9 @@ window.addEventListener('popstate', () => {
     if (changed && !saveMemoDraft()) {
       // 남기지 못했다(자리 모자람) — 닫으면 글이 사라진다. 글 칸을 그대로 두고 알린다.
       history.pushState({ ...(history.state ?? {}), editor: true }, '');
-      editorNote('휴대폰 저장 공간이 모자라 쓰던 글을 남겨 둘 수 없습니다 · 저장하거나 취소해 주세요', true);
+      editorNote(unpersistedSave(memoDrafts()[key])
+        ? '앞서 저장한 글이 아직 남겨지지 않았습니다 · 저장하거나 취소해 주세요'
+        : '휴대폰 저장 공간이 모자라 쓰던 글을 남겨 둘 수 없습니다 · 저장하거나 취소해 주세요', true);
       return;
     }
     if (!changed) dropMemoDraft(key);
