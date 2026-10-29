@@ -386,14 +386,14 @@
           <!-- ════════ 오른쪽: 도구 줄 · 띠 · 제목 · 태그 · 본문 ════════ -->
           <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,*">
 
-            <!-- 서식 단추(왼쪽) · 쓰기/읽기 · 고정 · 삭제(오른쪽). 좁으면 서식 단추가 두 줄이 된다. -->
+            <!-- 서식 단추(왼쪽) · 고치기/완료 · 고정 · 삭제(오른쪽). 좁으면 서식 단추가 두 줄이 된다. -->
             <DockPanel Grid.Row="0" Margin="22,4,16,4" MinHeight="30">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
                 <Button Classes="chip" Content="되살리기" Padding="12,5"
                         IsVisible="{Binding ShowRestore}" Command="{Binding RestoreCommand}" />
                 <Button Classes="chip" Content="{Binding ModeText}" Padding="12,5"
                         IsVisible="{Binding ShowToolbar}" Command="{Binding ToggleEditCommand}"
-                        ToolTip.Tip="Ctrl+E" />
+                        ToolTip.Tip="{Binding ModeTip}" />
                 <Button Classes="icon" Classes.pinned="{Binding IsPinned}"
                         IsVisible="{Binding ShowToolbar}" Command="{Binding TogglePinCommand}"
                         ToolTip.Tip="고정">
@@ -479,7 +479,7 @@
               </Border>
             </StackPanel>
 
-            <!-- 읽기 모드 제목. 누르면 쓰기 모드로. -->
+            <!-- 읽기 모드 제목 -->
             <TextBlock Name="ReadTitleText" Grid.Row="2" Text="{Binding ReadTitle}" IsVisible="{Binding ShowReader}"
                        FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
                        TextTrimming="CharacterEllipsis" Margin="28,6,28,0"
@@ -545,7 +545,7 @@
               <TextBlock Classes="empty" IsVisible="{Binding ShowEmptyPane}"
                          Text="{Binding EmptyPaneText}" Margin="0,60,0,0" />
 
-              <!-- 읽기 모드. 글 자리를 누르면 쓰기 모드로 간다(체크 칸은 제외). -->
+              <!-- 읽기 모드. 쓰기 모드는 고치기 단추나 Ctrl+E 로만 간다. -->
               <Panel Name="ReadArea" Background="Transparent" IsVisible="{Binding ShowReader}">
                 <!-- 오른쪽 크기 조절 띠(5px)를 비켜 스크롤바를 둔다 -->
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" Margin="0,0,6,0">
@@ -656,7 +656,7 @@
                 <StackPanel Spacing="14">
                   <StackPanel Spacing="1">
                     <TextBlock Classes="helphead" Text="쓰기와 읽기" />
-                    <TextBlock Classes="helpline" Text="본문을 누르면 바로 고칠 수 있어요." />
+                    <TextBlock Classes="helpline" Text="고치기 단추나 Ctrl+E 로 고쳐요." />
                     <TextBlock Classes="helpline" Text="다 쓰면 Esc. 저장은 알아서 돼요." />
                   </StackPanel>
                   <StackPanel Spacing="1">

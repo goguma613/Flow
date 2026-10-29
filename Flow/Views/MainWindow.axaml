@@ -840,7 +840,7 @@
               <TextBlock Classes="helpbody"
                          Text="메모 탭 맨 아래 칸에 적고 Enter 를 누르면 새 메모가 열립니다. 첫 줄이 제목입니다. 업무 절차처럼 긴 글을 적어 두는 곳입니다." />
               <TextBlock Classes="helpbody"
-                         Text="메모 창은 읽기 모드로 열립니다. 본문을 누르거나 Ctrl+E 로 쓰기, Esc 로 읽기로 돌아옵니다. 저장은 알아서 합니다. [ ] 와 [x] 는 읽기 모드에서 눌러 체크합니다." />
+                         Text="메모 창은 읽기 모드로 열립니다. 고치기 단추나 Ctrl+E 로 쓰기, Esc 로 읽기로 돌아옵니다. 저장은 알아서 합니다. [ ] 와 [x] 는 읽기 모드에서 눌러 체크합니다." />
               <TextBlock Classes="helpbody"
                          Text="본문 위 단추(큰 소제목 · 소제목 · 번호 · 점 · 체크)로 커서 줄에 기호를 붙이고 뗍니다. 읽기 모드에서 누르면 끝에 새 줄이 생깁니다. 체크 · 번호 · 점 줄에서 Enter 를 치면 다음 줄에 같은 기호가 붙고, 빈 항목에서 Enter 를 치면 목록이 끝납니다. Shift+Enter 는 그냥 줄바꿈." />
               <TextBlock Classes="helpbody"

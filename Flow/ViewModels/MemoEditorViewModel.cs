@@ -89,7 +89,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _showRestore;
     [ObservableProperty] private bool _showEmptyPane;
     [ObservableProperty] private string _emptyPaneText = "";
-    [ObservableProperty] private string _modeText = "쓰기";
+    [ObservableProperty] private string _modeText = "고치기";
+    [ObservableProperty] private string _modeTip = "고치기 (Ctrl+E)";
     [ObservableProperty] private string _listEmptyText = "";
 
     /// <summary>오른쪽 위 ? 단추로 여는 사용법 판.</summary>
@@ -578,7 +579,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
             ? (SelectedTrash is { } shown ? shown.Title + " · 휴지통" : "휴지통")
             : HasMemo ? DisplayTitle(_state.Body) : "";
         HasBarTitle = BarTitle.Length > 0;
-        ModeText = IsEditing ? "읽기" : "쓰기";
+        ModeText = IsEditing ? "완료" : "고치기";
+        ModeTip = IsEditing ? "읽기로 (Esc · Ctrl+E)" : "고치기 (Ctrl+E)";
 
         MarkCurrentRows();
         RefreshTagChips();
