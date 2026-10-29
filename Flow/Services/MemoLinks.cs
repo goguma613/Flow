@@ -14,12 +14,19 @@ public static class MemoLinks
 {
     /// <summary>
     /// 연결 메뉴에 놓을 메모들. 메모 탭과 같은 순서(고정 먼저, 그다음 최근).
-    /// 제목은 메모 탭처럼 줄 머리 기호(# · 1. · - · [ ])를 뗀 것.
+    /// 제목은 메모 탭처럼 줄 머리 기호(# · 1. · - · [ ])를 뗀 것, 비면 "제목 없음".
+    /// 읽지 못한 메모(잠겼거나 덜 받아진 파일)는 제목을 믿을 수 없어 뺀다.
     /// </summary>
     public static IReadOnlyList<MemoChoice> Choices(IEnumerable<MemoSummary> memos)
-        => MemoQuery.Filter(memos, null, null, _ => null)
-            .Select(m => new MemoChoice(m.Id, MemoFormat.PlainTitle(m.Title)))
+        => MemoQuery.Filter(memos.Where(m => !m.Unreadable), null, null, _ => null)
+            .Select(m => new MemoChoice(m.Id, TitleOf(m)))
             .ToList();
+
+    private static string TitleOf(MemoSummary memo)
+    {
+        var title = MemoFormat.PlainTitle(memo.Title);
+        return string.IsNullOrWhiteSpace(title) ? MemoFormat.Untitled : title;
+    }
 
     /// <summary>
     /// 그 메모를 가리키는 루틴·할 일. "루틴 · 제목" 다음 "할 일 · 제목", 각각 목록 순서.

@@ -22,7 +22,7 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu Opening="OnRowMenuOpening">
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
@@ -175,7 +175,7 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu Opening="OnRowMenuOpening">
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
                                     IsVisible="{Binding IsRinging}" />
@@ -240,7 +240,7 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu Opening="OnRowMenuOpening">
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="우선순위 바꾸기" Command="{Binding CyclePriorityCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
@@ -389,7 +389,7 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
                       <Button.ContextMenu>
-                        <ContextMenu Opening="OnRowMenuOpening">
+                        <ContextMenu Opened="OnRowMenuOpened">
                           <MenuItem Header="이름 바꾸기" Command="{Binding BeginRenameCommand}" />
                           <MenuItem Header="10분 뒤에 다시 알림" Command="{Binding SnoozeCommand}"
                                     IsVisible="{Binding IsRinging}" />

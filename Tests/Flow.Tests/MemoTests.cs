@@ -643,6 +643,9 @@ internal static partial class Program
         Check("연결 메뉴 순서 (고정 먼저, 그다음 최근)", string.Join(",", choices.Select(x => x.Id == a ? "a" : x.Id == b ? "b" : "c")), "c,b,a");
         Check("연결 메뉴 제목은 기호를 뗌", string.Join(",", choices.Select(x => x.Title)), "고정 메모,최근 메모,오래된 절차");
         Check("메모가 없으면 빈 메뉴", MemoLinks.Choices([]).Count, 0);
+        var unreadable = Summary(b, "잠긴 메모", false, 9) with { Unreadable = true };
+        Check("읽지 못한 메모는 메뉴에서 뺌", string.Join(",", MemoLinks.Choices([Summary(a, "보통", false, 1), unreadable]).Select(x => x.Title)), "보통");
+        Check("빈 제목은 제목 없음", MemoLinks.Choices([Summary(a, "", false, 1), Summary(b, "  ", false, 2)]).Select(x => x.Title).Distinct().Single(), "제목 없음");
 
         // 📝: 연결이 있고 그 메모가 목록에 있을 때만
         var live = new HashSet<Guid> { a, b };

@@ -771,5 +771,14 @@
   <Style Selector="Button.row.compact Button.rowaction">
     <Setter Property="IsVisible" Value="False" />
   </Style>
+  <!-- 📝 는 남기되 줄 높이를 늘리지 않게 줄인다. -->
+  <Style Selector="Button.row.compact Button.memolink">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="CornerRadius" Value="5" />
+  </Style>
+  <Style Selector="Button.row.compact Button.memolink TextBlock">
+    <Setter Property="FontSize" Value="11" />
+  </Style>
 
 </Styles>

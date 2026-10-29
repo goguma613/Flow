@@ -206,12 +206,18 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 줄 우클릭 메뉴가 열린다. '메모 연결' 아래를 지금 메모 목록으로 새로 채운다 —
+    /// 줄 우클릭 메뉴가 열렸다. '메모 연결' 아래를 지금 메모 목록으로 새로 채운다 —
     /// 메뉴를 열 때만 만들어 메모가 많아도 줄마다 미리 들고 있지 않는다.
+    ///
+    /// Opening 이 아니라 Opened 에서 한다. Opening 은 메뉴가 줄에 매달리기 전에 울려서,
+    /// 줄을 새로 만든 뒤 처음 여는 메뉴는 DataContext 가 아직 비어 있다.
+    /// Opened 는 Open() 이 팝업을 줄에 매달고 PlacementTarget 을 정한 뒤에 울린다.
+    /// 그래도 DataContext 에만 기대지 않고 메뉴를 띄운 줄(PlacementTarget·부모)에서도 찾는다.
+    /// 하위 메뉴는 '메모 연결'에 마우스를 올려야 펼쳐지므로 그 전에 다 채워진다.
     /// </summary>
-    private void OnRowMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
+    private void OnRowMenuOpened(object? sender, RoutedEventArgs e)
     {
-        if (sender is not ContextMenu menu || menu.DataContext is not RowBase row) return;
+        if (sender is not ContextMenu menu || RowOf(menu) is not { } row) return;
         if (ViewModel is not { } vm) return;
 
         MenuItem? host = null;
@@ -248,11 +254,23 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>메뉴 글. '_' 는 단축 글자 표시로 먹히므로 겹쳐 쓰고, 너무 긴 제목은 줄인다.</summary>
+    /// <summary>메뉴가 딸린 줄. 메뉴의 DataContext, 띄운 자리, 팝업이 띄운 자리, 부모 순으로 본다.</summary>
+    private static RowBase? RowOf(ContextMenu menu)
+        => menu.DataContext as RowBase
+           ?? menu.PlacementTarget?.DataContext as RowBase
+           ?? (menu.Parent as Avalonia.Controls.Primitives.Popup)?.PlacementTarget?.DataContext as RowBase
+           ?? (menu.Parent as Control)?.DataContext as RowBase;
+
+    /// <summary>메뉴 글. '_' 는 단축 글자 표시로 먹히므로 겹쳐 쓰고, 너무 긴 제목은 줄인다(이모지 반쪽은 남기지 않는다).</summary>
     private static string MenuText(string title)
     {
         const int Max = 40;
-        var text = title.Length > Max ? title[..Max].TrimEnd() + "…" : title;
+        var text = title;
+        if (title.Length > Max)
+        {
+            var cut = char.IsHighSurrogate(title[Max - 1]) ? Max - 1 : Max;
+            text = title[..cut].TrimEnd() + "…";
+        }
         return text.Replace("_", "__");
     }
 
