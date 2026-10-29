@@ -65,6 +65,9 @@ internal static partial class Program
         Section("폰 연동 · 메모");
         PhoneMemoTests();
 
+        Section("폰 연동 · 메모 고치기");
+        PhoneMemoEditTests();
+
         Section("저장 위치 옮기기");
         DataLocationTests();
 

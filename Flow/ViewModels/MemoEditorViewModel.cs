@@ -597,11 +597,11 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         Main.MemoHoldChanged();
     }
 
-    /// <summary>열린 메모에 기다리는 휴대폰 체크가 있으면 한 줄로 알린다. 들어가면 위젯이 알려 와 사라진다.</summary>
+    /// <summary>열린 메모에 기다리는 휴대폰의 일(체크·고치기·고정 등)이 있으면 한 줄로 알린다. 들어가면 위젯이 알려 와 사라진다.</summary>
     private void RefreshPhoneWait()
     {
-        var count = !IsTrashView && _state.CurrentId is { } id ? Main.PhoneChecksWaiting(id) : 0;
-        PhoneWait = count > 0 ? $"휴대폰 체크 {count}개가 기다립니다 · Esc 로 쓰기를 마치면 들어갑니다" : null;
+        var count = !IsTrashView && _state.CurrentId is { } id ? Main.PhoneEditsWaiting(id) : 0;
+        PhoneWait = count > 0 ? $"휴대폰에서 고친 것 {count}개가 기다립니다 · Esc 로 쓰기를 마치면 들어갑니다" : null;
         HasPhoneWait = count > 0;
     }
 

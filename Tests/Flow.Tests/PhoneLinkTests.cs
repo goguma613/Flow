@@ -379,12 +379,24 @@ internal static partial class Program
     }
 
     /// <summary>시험용 메모 체크 받는 곳. 정해 둔 결과를 돌려주고 받은 값을 적어 둔다.</summary>
-    private sealed class FakeMemoTarget(MemoCheckResult answer) : IPhoneMemoTarget
+    /// <summary>시험용 받는 곳의 바탕. 따로 정하지 않은 일은 건너뜀, 메모는 없음.</summary>
+    private abstract class MemoTargetStub : IPhoneMemoTarget
+    {
+        public virtual MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null) => MemoCheckResult.Skipped;
+        public virtual PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId) => PhoneMemoResult.Skipped;
+        public virtual PhoneMemoResult SetPinned(Guid id, bool pinned) => PhoneMemoResult.Skipped;
+        public virtual PhoneMemoResult SetDaily(Guid id, bool daily, DateOnly day) => PhoneMemoResult.Skipped;
+        public virtual PhoneMemoResult UncheckAll(Guid id) => PhoneMemoResult.Skipped;
+        public virtual PhoneMemoResult Delete(Guid id) => PhoneMemoResult.Skipped;
+        public virtual bool Exists(Guid id) => false;
+    }
+
+    private sealed class FakeMemoTarget(MemoCheckResult answer) : MemoTargetStub
     {
         public MemoCheckResult Answer { get; set; } = answer;
         public List<(Guid Id, string Text, int? Line, bool Checked, DateOnly? Day)> Calls { get; } = new();
 
-        public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
+        public override MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
         {
             Calls.Add((id, text, line, isChecked, day));
             return Answer;
@@ -395,7 +407,7 @@ internal static partial class Program
     /// 시험용: 체크 줄 하나를 가진 메모(Memo). 처음 LockedCalls 번은 잠겨 미루고, 그다음부터 그 줄을 맞춘다.
     /// History 는 실제로 바꾼 순서(+ 체크, - 해제). 다른 메모의 체크는 그냥 들어간 것으로 한다.
     /// </summary>
-    private sealed class LineTarget : IPhoneMemoTarget
+    private sealed class LineTarget : MemoTargetStub
     {
         public Guid Memo { get; init; }
         public int LockedCalls { get; set; }
@@ -403,7 +415,7 @@ internal static partial class Program
         public bool Checked { get; private set; }
         public string History { get; private set; } = "";
 
-        public MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
+        public override MemoCheckResult SetLineChecked(Guid id, string text, int? line, bool isChecked, DateOnly? day = null)
         {
             Calls++;
             if (id != Memo) return MemoCheckResult.Applied;
@@ -762,6 +774,400 @@ internal static partial class Program
             held = null;   // 메모 창이 닫힘
             var closed = MemoCheckOp(id, "엑셀 받기", 2, true, Mon, 10);
             Check("메모 창이 없으면 바로 들어감", PhoneLinkEngine.Apply(data, [closed], target).MemoChecked, 1);
+        }
+
+        Directory.Delete(root, true);
+    }
+
+    /// <summary>
+    /// 시험용: 메모 고치기를 받는 곳. Blocked 의 메모는 그 결과(Held·Deferred)로 돌려주고, 나머지는 들어간 것으로 Calls 에 적는다.
+    /// Live 는 지금 있는 메모(연결할 수 있는 것). 새 메모(Base 없음)를 만들면 Live 에 더한다.
+    /// </summary>
+    private sealed class EditTarget : MemoTargetStub
+    {
+        public Dictionary<Guid, MemoCheckResult> Blocked { get; } = new();
+        public HashSet<Guid> Live { get; } = new();
+        public List<string> Calls { get; } = new();
+
+        private PhoneMemoResult Do(Guid id, string call, PhoneMemoChange change)
+        {
+            if (Blocked.TryGetValue(id, out var status)) return new(status);
+            Calls.Add(call);
+            return new(MemoCheckResult.Applied, change);
+        }
+
+        public override PhoneMemoResult Save(Guid id, string text, string? baseRev, Guid opId)
+        {
+            var result = Do(id, "save:" + text, baseRev is null ? PhoneMemoChange.Created : PhoneMemoChange.Saved);
+            if (result.Status == MemoCheckResult.Applied) Live.Add(id);
+            return result;
+        }
+
+        public override PhoneMemoResult SetPinned(Guid id, bool pinned) => Do(id, "pin:" + pinned, PhoneMemoChange.Header);
+        public override PhoneMemoResult SetDaily(Guid id, bool daily, DateOnly day) => Do(id, $"daily:{daily}:{day:MM-dd}", PhoneMemoChange.Header);
+        public override PhoneMemoResult UncheckAll(Guid id) => Do(id, "uncheck-all", PhoneMemoChange.Saved);
+        public override PhoneMemoResult Delete(Guid id) => Do(id, "delete", PhoneMemoChange.Deleted);
+        public override bool Exists(Guid id) => Live.Contains(id);
+    }
+
+    private static PhoneOp MemoSaveOp(Guid memo, string text, string? baseRev, DateOnly day, int hour, int minute = 0)
+    {
+        var op = Op(PhoneOp.MemoSave, day, hour, minute, target: memo, text: text);
+        op.Base = baseRev;
+        return op;
+    }
+
+    /// <summary>휴대폰의 메모 고치기(쓰기·고치기·고정·매일·모두 풀기·삭제·연결).</summary>
+    private static void PhoneMemoEditTests()
+    {
+        var memoA = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000001a1");
+        var memoB = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000001b2");
+
+        // ── 휴대폰과 같은 판: rev-fixtures.json(폰 쪽 시험도 같은 파일을 본다)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "rev-fixtures.json");
+            using var fixtures = JsonDocument.Parse(File.Exists(path) ? File.ReadAllText(path) : "[]");
+            var items = fixtures.RootElement.EnumerateArray().ToList();
+            Check("판 고정 입력 파일을 읽음", items.Count >= 8, true);
+            for (var i = 0; i < items.Count; i++)
+            {
+                var text = items[i].GetProperty("text").GetString()!;
+                Check($"판 고정 입력 {i} ({text.Length}자)", MemoFormat.RevOf(text), items[i].GetProperty("rev").GetString());
+            }
+            Check("빈 본문의 판", MemoFormat.RevOf(""), "e3b0c44298fc1c14");
+            Check("\\r\\n 과 \\n 은 같은 판", MemoFormat.RevOf("# 장보기\r\n[ ] 우유\r\n[x] 계란"), MemoFormat.RevOf("# 장보기\n[ ] 우유\n[x] 계란"));
+            Check("끝 줄바꿈은 다른 판", MemoFormat.RevOf("# 장보기\n[ ] 우유\n[x] 계란\n") != MemoFormat.RevOf("# 장보기\n[ ] 우유\n[x] 계란"), true);
+        }
+
+        // ── 받는 곳이 없으면(옛 PC 처럼) 메모의 일은 모두 손대지도 적지도 않는다
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var routine = new Routine { Title = "아침 점검" };
+            data.Routines.Add(routine);
+            var ops = new[]
+            {
+                MemoSaveOp(memoA, "새 메모", null, Mon, 9),
+                Op(PhoneOp.MemoPin, Mon, 9, 1, memoA, "true"),
+                Op(PhoneOp.MemoDaily, Mon, 9, 2, memoA, "true"),
+                Op(PhoneOp.MemoUncheckAll, Mon, 9, 3, memoA),
+                Op(PhoneOp.MemoDelete, Mon, 9, 4, memoA),
+                Op(PhoneOp.MemoLink, Mon, 9, 5, routine.Id, memoA.ToString()),
+            };
+            var result = PhoneLinkEngine.Apply(data, ops);
+            Check("메모 받는 곳 없이: 메모 고치기는 저장할 것 없음", result.NeedsSave, false);
+            Check("메모 받는 곳 없이: 하나도 적지 않음", data.PhoneOpsApplied.Count, 0);
+            Check("메모 받는 곳 없이: 연결도 그대로", routine.MemoId, (Guid?)null);
+        }
+
+        // ── 받는 곳에 맞는 값을 넘기고, 결과를 갈래대로 센다
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var target = new EditTarget();
+            var ops = new[]
+            {
+                MemoSaveOp(memoA, "# 새 메모\n[ ] 하나", null, Mon, 9),
+                MemoSaveOp(memoB, "# 고친 글", "0123456789abcdef", Mon, 9, 1),
+                Op(PhoneOp.MemoPin, Mon, 9, 2, memoB, "true"),
+                Op(PhoneOp.MemoDaily, Mon, 9, 3, memoB, "false"),
+                Op(PhoneOp.MemoUncheckAll, Mon, 9, 4, memoB),
+                Op(PhoneOp.MemoDelete, Mon, 9, 5, memoB),
+            };
+            var result = PhoneLinkEngine.Apply(data, ops, target);
+            Check("받는 곳이 받은 순서·값", string.Join(" | ", target.Calls),
+                "save:# 새 메모\n[ ] 하나 | save:# 고친 글 | pin:True | daily:False:10-05 | uncheck-all | delete");
+            Check("센 것", (result.MemoCreated, result.MemoSaved, result.MemoHeader, result.MemoDeleted), (1, 2, 2, 1));
+            Check("모두 처리했다고 적음", data.PhoneOpsApplied.Count, 6);
+            Check("메모 파일이 바뀜", result.MemoFilesChanged, true);
+            Check("알림 줄: 0 인 것은 뺌", PhoneLinkEngine.Describe(result), "폰에서 가져옴 · 메모 고침 2 · 새 메모 1 · 메모 설정 2 · 메모 삭제 1");
+            Check("알림 줄: 충돌 사본·연결", PhoneLinkEngine.Describe(new PhoneApplyResult(1, 0, 0, 0, MemoConflicts: 1, MemoLinked: 2)),
+                "폰에서 가져옴 · 추가 1 · 충돌 사본 1 · 메모 연결 2");
+
+            var bad = new[]
+            {
+                Op(PhoneOp.MemoPin, Mon, 10, 0, memoB, "네"),
+                Op(PhoneOp.MemoDaily, Mon, 10, 1, memoB),
+                Op(PhoneOp.MemoSave, Mon, 10, 2, memoB),
+                Op(PhoneOp.MemoDelete, Mon, 10, 3),
+            };
+            var badResult = PhoneLinkEngine.Apply(data, bad, target);
+            Check("값이 틀리거나 없으면 건너뛰고 처리함으로 적음", (badResult.Skipped, target.Calls.Count, data.PhoneOpsApplied.Count), (4, 6, 10));
+        }
+
+        // ── 같은 메모의 일은 순서를 지킨다: 고치기가 쓰는 중이라 남으면 뒤의 고정·삭제도 함께 기다린다
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var target = new EditTarget();
+            target.Blocked[memoA] = MemoCheckResult.Held;
+            var save = MemoSaveOp(memoA, "# 휴대폰 글", "0123456789abcdef", Mon, 9);
+            var pin = Op(PhoneOp.MemoPin, Mon, 9, 1, memoA, "true");
+            var check = MemoCheckOp(memoA, "하나", 1, true, Mon, 9, 2);
+            var other = Op(PhoneOp.MemoPin, Mon, 9, 3, memoB, "true");
+
+            var first = PhoneLinkEngine.Apply(data, [check, pin, save, other], target);
+            Check("쓰는 중: 그 메모의 일은 모두 남김, 다른 메모는 들어감", (string.Join(" | ", target.Calls), data.PhoneOpsApplied.Count), ("pin:True", 1));
+            Check("쓰는 중이라 남긴 일 수 (띠)", first.HeldFor(memoA), 3);
+
+            target.Blocked[memoA] = MemoCheckResult.Deferred;
+            var locked = PhoneLinkEngine.Apply(data, [check, pin, save, other], target);
+            Check("잠김: 남기되 쓰는 중으로 세지 않음", (locked.Held, data.PhoneOpsApplied.Count), ((IReadOnlyDictionary<Guid, int>?)null, 1));
+
+            target.Blocked.Clear();
+            var released = PhoneLinkEngine.Apply(data, [check, pin, save, other], target);
+            Check("놓으면 누른 순서대로: 고치기 → 고정", string.Join(" | ", target.Calls), "pin:True | save:# 휴대폰 글 | pin:True");
+            Check("놓은 뒤 남은 것 없음", (released.Held, data.PhoneOpsApplied.Count), ((IReadOnlyDictionary<Guid, int>?)null, 4));
+        }
+
+        // ── 연결: 있는 메모만, 빈 글은 끊기, '새 메모로'는 그 메모가 생길 때까지 기다림
+        {
+            var data = new AppData { LastLogicalDate = Mon };
+            var routine = new Routine { Title = "아침 점검" };
+            var task = new TaskItem { Title = "배포", MemoId = memoB };
+            data.Routines.Add(routine);
+            data.Tasks.Add(task);
+            var target = new EditTarget();
+            target.Live.Add(memoB);
+
+            var link = Op(PhoneOp.MemoLink, Mon, 9, 0, routine.Id, memoB.ToString());
+            var unlink = Op(PhoneOp.MemoLink, Mon, 9, 1, task.Id, "");
+            var unknown = Op(PhoneOp.MemoLink, Mon, 9, 2, task.Id, Guid.NewGuid().ToString());
+            var broken = Op(PhoneOp.MemoLink, Mon, 9, 3, task.Id, "메모");
+            var noItem = Op(PhoneOp.MemoLink, Mon, 9, 4, Guid.NewGuid(), memoB.ToString());
+            var result = PhoneLinkEngine.Apply(data, [link, unlink, unknown, broken, noItem], target);
+            Check("루틴에 연결", routine.MemoId, (Guid?)memoB);
+            Check("빈 글은 끊기", task.MemoId, (Guid?)null);
+            Check("연결 2 · 없는 메모·틀린 id·없는 항목은 건너뜀", (result.MemoLinked, result.Skipped), (2, 3));
+            Check("연결만 바뀌면 메모 파일은 그대로", result.MemoFilesChanged, false);
+            Check("모두 처리했다고 적음", data.PhoneOpsApplied.Count, 5);
+            Check("data.json 에 연결이 들어감",
+                JsonSerializer.Serialize(data, AppJsonContext.Default.AppData).Contains($"\"MemoId\": \"{memoB}\""), true);
+            Check("같은 연결이 또 오면 건너뜀", PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoLink, Mon, 10, 0, routine.Id, memoB.ToString())], target).Skipped, 1);
+
+            // 새 메모로: 메모를 만드는 일이 잠겨 남으면 연결도 남는다(먼저 하면 없는 메모라 버려진다)
+            var fresh = Guid.NewGuid();
+            var create = MemoSaveOp(fresh, "배포", null, Mon, 11);
+            var linkFresh = Op(PhoneOp.MemoLink, Mon, 11, 1, task.Id, fresh.ToString());
+            target.Blocked[fresh] = MemoCheckResult.Deferred;
+            PhoneLinkEngine.Apply(data, [linkFresh, create], target);
+            Check("만들기가 남으면 연결도 남음", (task.MemoId, data.PhoneOpsApplied.Any(a => a.Id == linkFresh.Id)), ((Guid?)null, false));
+            target.Blocked.Clear();
+            var made = PhoneLinkEngine.Apply(data, [linkFresh, create], target);
+            Check("만든 뒤 연결", (task.MemoId, made.MemoCreated, made.MemoLinked), ((Guid?)fresh, 1, 1));
+        }
+
+        // ── inbox 의 새 갈래를 읽음
+        {
+            var opId = Guid.NewGuid();
+            var inbox = PhoneLinkStore.ParseInbox(
+                "{\"Version\":1,\"Ops\":[{\"Id\":\"" + opId + "\",\"Kind\":\"memo-save\",\"Target\":\"" + memoA +
+                "\",\"Text\":\"# 장보기\\n[ ] 우유\",\"Base\":\"546b2a47f7e030b9\",\"At\":\"2026-10-05T09:00:00\",\"Day\":\"2026-10-05\"}," +
+                "{\"Id\":\"" + Guid.NewGuid() + "\",\"Kind\":\"memo-save\",\"Target\":\"" + memoB +
+                "\",\"Text\":\"새 메모\",\"Base\":null,\"At\":\"2026-10-05T09:01:00\",\"Day\":\"2026-10-05\"}]}");
+            Check("inbox 의 메모 고치기를 읽음", (inbox?.Ops[0].Kind, inbox?.Ops[0].Text, inbox?.Ops[0].Base),
+                ((string?)"memo-save", (string?)"# 장보기\n[ ] 우유", (string?)"546b2a47f7e030b9"));
+            Check("새 메모는 Base 가 null", inbox?.Ops[1].Base, (string?)null);
+            var json = JsonSerializer.Serialize(new PhoneOp { Kind = PhoneOp.MemoSave, Base = "x" }, AppJsonContext.Default.PhoneOp);
+            Check("PhoneOp 에 Base", json.Contains("\"Base\": \"x\""), true);
+        }
+
+        PhoneMemoEditFileTests();
+    }
+
+    /// <summary>휴대폰의 메모 고치기를 실제 메모 파일에.</summary>
+    private static void PhoneMemoEditFileTests()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 메모 고치기 파일 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var root = Path.Combine(DataStore.Directory, "phonememoedit");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 5, 9, 0, 0));
+        Func<Guid, bool>? held = null;
+        var target = new PhoneMemoTarget(store, () => held);
+        var data = new AppData { LastLogicalDate = Mon };
+        string Body(Guid id) => store.Load(id)!.Doc.Body.Replace("\r\n", "\n");
+        int Count() => store.Memos.Count;
+
+        // ── 새 메모: 그 id 로, 같은 일이 두 번 와도 하나
+        var newId = Guid.Parse("3f2a9c1e-0000-4000-8000-0000000001c3");
+        var create = MemoSaveOp(newId, "# 장보기\n[ ] 우유\n[ ] 계란", null, Mon, 9);
+        {
+            var result = PhoneLinkEngine.Apply(data, [create], target);
+            Check("새 메모 1", (result.MemoCreated, result.MemoFilesChanged), (1, true));
+            Check("새 메모는 휴대폰이 준 id", store.Load(newId) is not null, true);
+            Check("새 메모 본문", Body(newId), "# 장보기\n[ ] 우유\n[ ] 계란");
+            Check("파일 이름은 PC 새 메모와 같이 제목에서", Path.GetFileName(store.Load(newId)!.Path), "# 장보기.md");
+
+            data.PhoneOpsApplied.Clear();   // 반영 기록이 사라져 같은 일이 또 옴
+            var again = PhoneLinkEngine.Apply(data, [create], target);
+            Check("같은 새 메모가 또 와도 하나", (again.MemoCreated, again.Skipped, Count()), (0, 1, 1));
+            Check("폴더를 기다리는 중이면 만들지 않음",
+                new MemoStore(root, () => false, () => DateTime.Now).CreateWithId(Guid.NewGuid(), "x"), MemoCheckResult.Deferred);
+        }
+
+        // ── 판이 같으면 덮음 · 같은 글이면 건너뜀
+        var rev0 = store.Load(newId)!.Rev;
+        var edit = MemoSaveOp(newId, "# 장보기\n[x] 우유\n[ ] 계란\n[ ] 빵", rev0, Mon, 10);
+        {
+            var result = PhoneLinkEngine.Apply(data, [edit], target);
+            Check("판이 같으면 덮음", (result.MemoSaved, Body(newId)), (1, "# 장보기\n[x] 우유\n[ ] 계란\n[ ] 빵"));
+            Check("덮어도 메모는 하나", Count(), 1);
+
+            data.PhoneOpsApplied.Clear();
+            var again = PhoneLinkEngine.Apply(data, [edit], target);
+            Check("같은 고치기가 또 오면(판은 옛것) 같은 글이라 건너뜀 — 충돌 사본 없음",
+                (again.Skipped, again.MemoConflicts, Count()), (1, 0, 1));
+        }
+
+        // ── 연속 고치기: 두 번째 Base 는 첫 번째 글의 판(폰이 계산) — 거짓 충돌 없음
+        {
+            var rev1 = MemoFormat.RevOf("# 장보기\n[x] 우유\n[ ] 계란\n[ ] 빵");
+            var second = MemoSaveOp(newId, "# 장보기\n[x] 우유\n[x] 계란\n[ ] 빵", rev1, Mon, 10, 1);
+            var third = MemoSaveOp(newId, "# 장보기\n[x] 우유\n[x] 계란\n[x] 빵", MemoFormat.RevOf("# 장보기\n[x] 우유\n[x] 계란\n[ ] 빵"), Mon, 10, 2);
+            var result = PhoneLinkEngine.Apply(data, [third, second], target);
+            Check("연속 고치기 둘 다 덮음", (result.MemoSaved, result.MemoConflicts, Body(newId)), (2, 0, "# 장보기\n[x] 우유\n[x] 계란\n[x] 빵"));
+        }
+
+        // ── 판이 다름: 원본 그대로 + 휴대폰 글은 제목 끝에 (휴대폰 충돌 사본)
+        {
+            var pcRev = store.Load(newId)!.Rev;
+            store.Save(newId, "# 장보기\n[x] 우유\n[x] 계란\n[x] 빵\nPC 에서 더함", pcRev);
+            var pcBody = Body(newId);
+            var stale = MemoSaveOp(newId, "# 장보기\n휴대폰에서 더함", pcRev, Mon, 11);
+            var result = PhoneLinkEngine.Apply(data, [stale], target);
+            Check("충돌 사본 1", (result.MemoConflicts, result.MemoSaved), (1, 0));
+            Check("원본은 그대로", Body(newId), pcBody);
+            var copy = store.Load(stale.Id);
+            Check("사본의 id 는 그 일의 번호", copy is not null, true);
+            Check("사본은 휴대폰 글 + 제목 끝 표시", copy is null ? null : Body(stale.Id), "# 장보기 (휴대폰 충돌 사본)\n휴대폰에서 더함");
+            Check("메모가 둘", Count(), 2);
+
+            data.PhoneOpsApplied.Clear();
+            var again = PhoneLinkEngine.Apply(data, [stale], target);
+            Check("같은 충돌이 또 와도 사본은 하나", (again.MemoConflicts, again.Skipped, Count()), (0, 1, 2));
+        }
+
+        // ── 그 사이 PC 에서 지움(휴지통): 휴대폰 글은 새 id 의 새 메모로
+        {
+            var gone = store.Create("# 지울 메모\n본문")!;
+            var goneRev = gone.Rev;
+            store.Delete(gone.Doc.Id);
+            var late = MemoSaveOp(gone.Doc.Id, "# 지울 메모\n휴대폰에서 고침", goneRev, Mon, 12);
+            var before = Count();
+            var result = PhoneLinkEngine.Apply(data, [late], target);
+            Check("지워진 메모에 온 고치기 → 새 메모, 처리함", (result.MemoCreated, data.PhoneOpsApplied.Any(a => a.Id == late.Id)), (1, true));
+            Check("새 id(그 일의 번호), 표시 없이 휴대폰 글 그대로", store.Load(late.Id) is null ? null : Body(late.Id), "# 지울 메모\n휴대폰에서 고침");
+            Check("휴지통 메모는 살아나지 않음", store.Load(gone.Doc.Id), (MemoFile?)null);
+            data.PhoneOpsApplied.Clear();
+            PhoneLinkEngine.Apply(data, [late], target);
+            Check("또 와도 하나", Count(), before + 1);
+            store.Delete(late.Id);
+        }
+
+        // ── 고정·매일 초기화·체크 모두 풀기·삭제
+        {
+            var pin = Op(PhoneOp.MemoPin, Mon, 13, 0, newId, "true");
+            var pinned = PhoneLinkEngine.Apply(data, [pin], target);
+            Check("고정", (pinned.MemoHeader, store.Memos.Single(m => m.Id == newId).Pinned), (1, true));
+            var rev = store.Load(newId)!.Rev;
+            Check("고정은 판을 바꾸지 않음", store.Load(newId)!.Rev, rev);
+            Check("이미 고정이면 건너뜀", PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoPin, Mon, 13, 1, newId, "true")], target).Skipped, 1);
+            Check("고정 풀기", (PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoPin, Mon, 13, 2, newId, "false")], target).MemoHeader,
+                store.Memos.Single(m => m.Id == newId).Pinned), (1, false));
+
+            var daily = PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoDaily, Mon, 13, 3, newId, "true")], target);
+            Check("매일 초기화 켬: 켠 날을 초기화 날로", (daily.MemoHeader, store.Load(newId)!.Doc.Daily, store.Load(newId)!.Doc.Reset),
+                (1, true, (DateOnly?)Mon));
+            store.ResetDaily(Mon);
+            Check("켠 날은 풀리지 않음", Body(newId).Contains("[x] 우유"), true);
+            store.ResetDaily(Tue);
+            Check("다음 날은 풀림", Body(newId).Contains("[x]"), false);
+            Check("매일 끄기", (PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoDaily, Mon, 13, 4, newId, "false")], target).MemoHeader,
+                store.Load(newId)!.Doc.Daily), (1, false));
+
+            store.SetLineChecked(newId, "우유", 1, true);
+            var uncheck = PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoUncheckAll, Mon, 13, 5, newId)], target);
+            Check("체크 모두 풀기", (uncheck.MemoSaved, Body(newId).Contains("[x]")), (1, false));
+            Check("풀 것이 없으면 건너뜀", PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoUncheckAll, Mon, 13, 6, newId)], target).Skipped, 1);
+
+            var copyId = store.Memos.Single(m => m.Id != newId).Id;
+            var del = PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoDelete, Mon, 13, 7, copyId)], target);
+            Check("삭제는 휴지통으로", (del.MemoDeleted, store.Load(copyId), store.Trash().Any(m => m.Id == copyId)), (1, (MemoFile?)null, true));
+            Check("이미 없으면 건너뜀", PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoDelete, Mon, 13, 8, copyId)], target).Skipped, 1);
+
+            var waiting = new PhoneMemoTarget(new MemoStore(root, () => false, () => DateTime.Now), () => null);
+            var deferredOp = Op(PhoneOp.MemoPin, Mon, 13, 9, newId, "true");
+            var deferred = PhoneLinkEngine.Apply(data, [deferredOp], waiting);
+            Check("폴더를 기다리는 중이면 미룸 (적지 않음)", (deferred.NeedsSave, data.PhoneOpsApplied.Any(a => a.Id == deferredOp.Id)), (false, false));
+
+            if (OperatingSystem.IsWindows())
+            {
+                var lockedSave = MemoSaveOp(newId, "# 장보기\n잠긴 동안", store.Load(newId)!.Rev, Mon, 13, 10);
+                using (new FileStream(store.Load(newId)!.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    var locked = PhoneLinkEngine.Apply(data, [lockedSave], target);
+                    Check("파일이 잠겼으면 미룸", (locked.MemoSaved, locked.Held, data.PhoneOpsApplied.Any(a => a.Id == lockedSave.Id)),
+                        (0, (IReadOnlyDictionary<Guid, int>?)null, false));
+                }
+                Check("풀리면 들어감", PhoneLinkEngine.Apply(data, [lockedSave], target).MemoSaved, 1);
+            }
+        }
+
+        // ── 연결: 실제 메모 목록에서
+        {
+            var routine = new Routine { Title = "장보기" };
+            data.Routines.Add(routine);
+            var trashed = store.Trash().First().Id;
+            var link = PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoLink, Mon, 14, 0, routine.Id, newId.ToString())], target);
+            Check("있는 메모에 연결", (link.MemoLinked, routine.MemoId), (1, (Guid?)newId));
+            var toTrash = PhoneLinkEngine.Apply(data, [Op(PhoneOp.MemoLink, Mon, 14, 1, routine.Id, trashed.ToString())], target);
+            Check("휴지통 메모에는 연결하지 않음", (toTrash.Skipped, routine.MemoId), (1, (Guid?)newId));
+        }
+
+        // ── PC 가 쓰는 중이면 남김 → 놓으면 들어감. PC 글과 휴대폰 글이 겹치면 둘 다 남는다
+        {
+            var editor = new MemoEditorState(store);
+            editor.Open(newId);
+            held = m => editor.CurrentId == m && (editor.IsDirty || editor.IsEditing);
+            var seen = store.Load(newId)!.Rev;
+            var count = Count();
+
+            editor.IsEditing = true;
+            var phoneSave = MemoSaveOp(newId, "# 장보기\n휴대폰 글", seen, Mon, 15);
+            var phonePin = Op(PhoneOp.MemoPin, Mon, 15, 1, newId, "true");
+            var phoneDelete = Op(PhoneOp.MemoDelete, Mon, 15, 2, newId);
+            var first = PhoneLinkEngine.Apply(data, [phoneSave, phonePin], target);
+            Check("쓰기 모드면 고치기·고정 모두 남김 (띠에 2)", (first.HeldFor(newId), first.NeedsSave), (2, false));
+            Check("쓰기 모드면 파일 그대로", store.Load(newId)!.Rev, seen);
+            Check("쓰기 모드면 삭제도 남김", PhoneLinkEngine.Apply(data, [phoneDelete], target).HeldFor(newId), 1);
+
+            editor.Edit(editor.Body + "\nPC 글");
+            Check("PC 글은 그대로 저장됨", editor.Flush()!.Outcome, SaveOutcome.Saved);
+            editor.IsEditing = false;
+            var pcBody = Body(newId);
+
+            var released = PhoneLinkEngine.Apply(data, [phoneSave, phonePin], target);
+            Check("놓으면 들어감: 판이 달라 충돌 사본, 고정은 원본에", (released.MemoConflicts, released.MemoHeader), (1, 1));
+            Check("PC 글은 원본에 그대로", Body(newId), pcBody);
+            Check("휴대폰 글은 사본에", Body(phoneSave.Id), "# 장보기 (휴대폰 충돌 사본)\n휴대폰 글");
+            Check("원본이 고정됨", store.Memos.Single(m => m.Id == newId).Pinned, true);
+            Check("메모 하나 늘어남", Count(), count + 1);
+
+            // 읽기 모드 메모 창: 휴대폰 고치기가 들어가면 다시 읽는다(MemosChanged → OnExternalChange)
+            var readRev = store.Load(newId)!.Rev;
+            var phoneEdit = MemoSaveOp(newId, "# 장보기\n휴대폰에서 다시 고침", readRev, Mon, 16);
+            var applied = PhoneLinkEngine.Apply(data, [phoneEdit], target);
+            Check("읽기 모드면 바로 들어감", (applied.MemoSaved, applied.MemoFilesChanged), (1, true));
+            editor.OnExternalChange();
+            Check("읽기 모드 메모 창은 휴대폰 글을 다시 읽음", editor.Body.Replace("\r\n", "\n"), "# 장보기\n휴대폰에서 다시 고침");
+            editor.Edit(editor.Body + "\n이어서 PC");
+            Check("그 뒤 PC 에서 고쳐도 충돌 없음", (editor.Flush()!.Outcome, Count()), (SaveOutcome.Saved, count + 1));
+
+            held = null;
+            var gone = PhoneLinkEngine.Apply(data, [phoneDelete], target);
+            Check("메모 창이 놓으면 삭제도 들어감", (gone.MemoDeleted, store.Load(newId)), (1, (MemoFile?)null));
         }
 
         Directory.Delete(root, true);

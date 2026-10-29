@@ -255,7 +255,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _memoResetTried = _today;
         MarkMemoReset(Memos.ResetDaily(_today));
 
-        // 폰에서 온 메모 체크는 매일 초기화 뒤에. 아직 메모 창이 없으니 쓰는 중인 메모도 없다.
+        // 폰에서 온 메모의 일(체크·고치기·연결)은 매일 초기화 뒤에. 아직 메모 창이 없으니 쓰는 중인 메모도 없다.
         var fromPhoneMemos = ApplyPhoneOps();
         if (fromPhoneMemos.NeedsSave) _store.RequestSave(_data);
         fromPhone += fromPhoneMemos;
@@ -321,7 +321,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (result.Changed) Announce(result.DaysElapsed == 1
             ? "새 하루 시작 · 루틴을 초기화했습니다"
             : $"{result.DaysElapsed}일치를 정산하고 초기화했습니다");
-        else if (fromPhone.Changed > 0) Announce(DescribePhone(fromPhone));
+        else if (fromPhone.Changed > 0) Announce(PhoneLinkEngine.Describe(fromPhone));
         AnnounceUnsavedMemos();
 
         PushToPhone();
@@ -1359,12 +1359,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private readonly PhoneMemoCache _phoneMemos = new();
 
-    /// <summary>폰의 메모 체크를 받는 곳. 메모 창이 쓰는 중으로 들고 있는 메모는 남겨 두었다가 다음에.</summary>
+    /// <summary>폰의 메모 체크·고치기를 받는 곳. 메모 창이 쓰는 중으로 들고 있는 메모는 남겨 두었다가 다음에.</summary>
     private PhoneMemoTarget? _phoneMemoTarget;
 
     /// <summary>
-    /// 받아 둔 폰의 일을 넣는다. withMemos 가 거짓이면 메모 체크는 손대지도 적지도 않는다(메모 폴더를 아직 안 볼 때).
-    /// 메모 창이 쓰는 중인 메모·잠긴 파일의 체크는 적지 않아 inbox 에 남고, 매 분 다시 해 본다.
+    /// 받아 둔 폰의 일을 넣는다. withMemos 가 거짓이면 메모의 일(체크·고치기·연결)은 손대지도 적지도 않는다(메모 폴더를 아직 안 볼 때).
+    /// 메모 창이 쓰는 중인 메모·잠긴 파일의 일은 적지 않아 inbox 에 남고, 매 분 다시 해 본다.
     /// </summary>
     private PhoneApplyResult ApplyPhoneOps(bool withMemos = true)
     {
@@ -1377,14 +1377,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         return result;
     }
 
-    /// <summary>쓰는 중이라 마지막으로 남긴 폰 메모 체크(메모 id → 개수). 메모 창이 띠로 알린다.</summary>
+    /// <summary>쓰는 중이라 마지막으로 남긴 폰 메모 일(체크·고치기·고정 등, 메모 id → 개수). 메모 창이 띠로 알린다.</summary>
     private IReadOnlyDictionary<Guid, int> _phoneHeld = new Dictionary<Guid, int>();
 
-    /// <summary>쓰는 중이라 남긴 폰 메모 체크 수가 바뀌었을 때. 메모 창이 띠를 맞춘다.</summary>
+    /// <summary>쓰는 중이라 남긴 폰 메모 일 수가 바뀌었을 때. 메모 창이 띠를 맞춘다.</summary>
     public event Action? PhoneHeldChanged;
 
-    /// <summary>그 메모를 쓰는 중이라 기다리고 있는 폰 체크 수.</summary>
-    public int PhoneChecksWaiting(Guid memoId) => _phoneHeld.GetValueOrDefault(memoId);
+    /// <summary>그 메모를 쓰는 중이라 기다리고 있는 폰의 일(체크·고치기·고정·매일·모두 풀기·삭제) 수.</summary>
+    public int PhoneEditsWaiting(Guid memoId) => _phoneHeld.GetValueOrDefault(memoId);
 
     private void SetPhoneHeld(IReadOnlyDictionary<Guid, int>? held)
     {
@@ -1396,7 +1396,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// 메모 창이 메모를 쓰는 중으로 잡거나 놓았다. 폰 화면의 HeldMemos 를 곧 맞추고(2초 뒤),
-    /// 놓은 메모에 기다리던 폰 체크가 있으면 분 단위 확인을 기다리지 않고 바로 넣는다.
+    /// 놓은 메모에 기다리던 폰의 일이 있으면 분 단위 확인을 기다리지 않고 바로 넣는다.
     /// </summary>
     public void MemoHoldChanged()
     {
@@ -1455,14 +1455,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RebuildAll();
         RefreshStreakSummary();
 
-        // 메모 파일을 고쳤다. 목록과, 읽기 모드로 열려 있는 메모 창이 다시 읽는다(쓰는 중인 메모는 애초에 건드리지 않았다).
-        if (result.MemoChecked > 0)
+        // 메모 파일을 고쳤다(체크·고치기·새 메모·충돌 사본·고정·매일·삭제). 목록과, 읽기 모드로 열려 있는 메모 창이 다시 읽는다
+        // (쓰는 중인 메모는 애초에 건드리지 않았다). RefreshMemos 가 📝 연결도 맞춘다.
+        if (result.MemoFilesChanged)
         {
             RefreshMemos();
             MemosChanged?.Invoke();
         }
+        else if (result.MemoLinked > 0)
+        {
+            // 위젯의 '메모 연결'과 같은 길. 메모 창의 "연결: …" 줄도 따라온다.
+            RefreshMemoLinks();
+        }
 
-        Announce(DescribePhone(result));
+        Announce(PhoneLinkEngine.Describe(result));
     }
 
     /// <summary>폰이 볼 오늘 화면을 쓴다. 폰이 연결을 안 했으면, 또는 내용이 그대로면 아무것도 안 한다.</summary>
@@ -1473,19 +1479,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         var memos = _phoneMemos.Build(Memos.Memos, Memos.Load);
         _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos, HeldForWriting()));
-    }
-
-    private static string DescribePhone(PhoneApplyResult result)
-    {
-        var parts = new List<string>();
-        if (result.Added > 0) parts.Add($"추가 {result.Added}");
-        if (result.Checked > 0) parts.Add($"완료 {result.Checked}");
-        if (result.Unchecked > 0) parts.Add($"완료 취소 {result.Unchecked}");
-        if (result.Edited > 0) parts.Add($"수정 {result.Edited}");
-        if (result.Deleted > 0) parts.Add($"삭제 {result.Deleted}");
-        if (result.MemoChecked > 0) parts.Add($"메모 체크 {result.MemoChecked}");
-
-        return "폰에서 가져옴 · " + string.Join(" · ", parts);
     }
 
     /// <summary>

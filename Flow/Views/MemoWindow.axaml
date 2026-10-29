@@ -457,7 +457,7 @@
               </Panel>
             </DockPanel>
 
-            <!-- 띠: 충돌·지워짐·저장 실패가 위, 쓰는 중이라 기다리는 휴대폰 체크가 아래(둘 다 있으면 쌓인다) -->
+            <!-- 띠: 충돌·지워짐·저장 실패가 위, 쓰는 중이라 기다리는 휴대폰의 일(체크·고치기 등)이 아래(둘 다 있으면 쌓인다) -->
             <StackPanel Grid.Row="1">
               <Border IsVisible="{Binding HasBanner}"
                       Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
