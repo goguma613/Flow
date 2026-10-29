@@ -17,5 +17,8 @@ public sealed record MemoDocument(Guid Id, bool HasHeader, bool Pinned, bool Dai
 
 public enum MemoLineKind { Blank, Text, Heading1, Heading2, Numbered, Bullet, Check }
 
-/// <summary>본문 한 줄의 분류. Marker 는 번호 단계의 "3." 이고 그 밖은 null, Text 는 기호를 뗀 글이다.</summary>
-public sealed record MemoLine(int Index, MemoLineKind Kind, string Text, string? Marker, bool Checked);
+/// <summary>
+/// 본문 한 줄의 분류. Marker 는 번호 단계의 "3." 이고 그 밖은 null, Text 는 기호를 뗀 글이다.
+/// Indent 는 체크·번호·점 줄의 들여쓰기 단계(그 밖은 0).
+/// </summary>
+public sealed record MemoLine(int Index, MemoLineKind Kind, string Text, string? Marker, bool Checked, int Indent = 0);

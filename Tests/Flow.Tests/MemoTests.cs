@@ -71,6 +71,33 @@ internal static partial class Program
         Check("이름: 다 지워짐", MemoFormat.FileStem("???"), "메모");
         Check("이름: 앞뒤 점·공백", MemoFormat.FileStem(" .절차. "), "절차");
         Check("첫머리", MemoFormat.PreviewOf("제목\n\n  첫째   줄\n둘째"), "첫째 줄 둘째");
+        // 목록 줄에 보일 때는 줄 머리 기호를 뗀다
+        Check("기호 떼기: #", MemoFormat.PlainLine("# 큰소제목"), "큰소제목");
+        Check("기호 떼기: ##", MemoFormat.PlainLine("## 소제목"), "소제목");
+        Check("기호 떼기: 번호", MemoFormat.PlainLine("12. 번호"), "번호");
+        Check("기호 떼기: 점 -", MemoFormat.PlainLine("  - 점"), "점");
+        Check("기호 떼기: 점 *", MemoFormat.PlainLine("* 별"), "별");
+        Check("기호 떼기: [ ]", MemoFormat.PlainLine("[ ] 체크"), "체크");
+        Check("기호 떼기: [x]", MemoFormat.PlainLine("[x] 끝냄"), "끝냄");
+        Check("기호 떼기: []", MemoFormat.PlainLine("[] 붙인 체크"), "붙인 체크");
+        Check("기호 떼기: - [ ]", MemoFormat.PlainLine("\t- [X] 들여쓴 체크"), "들여쓴 체크");
+        Check("기호 떼기: 기호만", MemoFormat.PlainLine("[ ]"), "");
+        Check("기호 떼기: ## 만", MemoFormat.PlainLine("## "), "");
+        Check("기호 떼기: 태그는 그대로", MemoFormat.PlainLine("#AK넷 메모"), "#AK넷 메모");
+        Check("기호 떼기: ### 는 그대로", MemoFormat.PlainLine("### 셋"), "### 셋");
+        Check("기호 떼기: 소수는 그대로", MemoFormat.PlainLine("3.14 원주율"), "3.14 원주율");
+        Check("기호 떼기: 줄표는 그대로", MemoFormat.PlainLine("-5도"), "-5도");
+        Check("기호 떼기: 보통 글", MemoFormat.PlainLine("  보통 글  "), "보통 글");
+        Check("목록 제목: # 뗌", MemoFormat.PlainTitle("# 배포 절차"), "배포 절차");
+        Check("목록 제목: 떼서 비면 그대로", MemoFormat.PlainTitle("[ ]"), "[ ]");
+        Check("첫머리: 기호 뗌", MemoFormat.PreviewOf("# 제목\n## 소제목\n# 큰소제목\n1. 번호\n- 점\n- [ ] 체크\n[x] 끝\n[]\n#태그"),
+            "소제목 큰소제목 번호 점 체크 끝 #태그");
+        Check("제목은 원래 줄 그대로(파일 이름·검색)", MemoFormat.TitleOf("# 배포 절차\n본문"), "# 배포 절차");
+        Check("들여쓰기 단계", (MemoFormat.Classify(0, "- 점").Indent, MemoFormat.Classify(0, "  - 점").Indent,
+            MemoFormat.Classify(0, "\t[ ] 체크").Indent, MemoFormat.Classify(0, "    1. 번호").Indent, MemoFormat.Classify(0, "   - 점").Indent),
+            (0, 1, 2, 2, 1));
+        Check("들여쓰기 6단계까지", MemoFormat.IndentOf(new string(' ', 40) + "- 점"), 6);
+        Check("보통 글은 들여쓰기 0", MemoFormat.Classify(0, "    글").Indent, 0);
         Check("제목 뒤에 붙이기", MemoFormat.AppendToTitle("\n제목\n본문", " (충돌 사본)"), "\n제목 (충돌 사본)\n본문");
         Check("경로 id 는 결정적", MemoFormat.IdFromPath("memos/a.md"), MemoFormat.IdFromPath("MEMOS/A.md"));
     }

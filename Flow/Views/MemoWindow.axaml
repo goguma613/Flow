@@ -33,23 +33,86 @@
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="Foreground" Value="{StaticResource TextBodyBrush}" />
     </Style>
+    <!-- 번호·점·체크 기호 칸. 셋 다 같은 너비(24)라 글이 같은 자리에서 시작한다. -->
     <Style Selector="TextBlock.memomarker">
       <Setter Property="FontSize" Value="14" />
       <Setter Property="LineHeight" Value="22" />
-      <Setter Property="MinWidth" Value="22" />
       <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Margin" Value="0,0,4,0" />
+    </Style>
+    <Style Selector="TextBlock.memomarker.dot">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="TextAlignment" Value="Center" />
     </Style>
 
-    <!-- 체크 줄: 행 버튼 모양을 빌리되 줄 사이를 좁게 -->
+    <!-- 체크 줄: 줄 전체가 눌리는 단추지만 위아래 틈은 다른 줄과 같게(1 + 22 + 1) -->
     <Style Selector="Button.row.memocheck">
-      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="VerticalContentAlignment" Value="Top" />
     </Style>
     <Style Selector="Button.row.memocheck TextBlock.title">
+      <Setter Property="FontSize" Value="14" />
       <Setter Property="MaxLines" Value="0" />
       <Setter Property="LineHeight" Value="22" />
+      <Setter Property="VerticalAlignment" Value="Top" />
     </Style>
+    <!-- 체크 원: 14px 에 가는 선. 첫 줄(22px) 가운데에 선다. -->
     <Style Selector="Button.row.memocheck Border.ring">
-      <Setter Property="Margin" Value="0,1,0,0" />
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="BorderThickness" Value="1.2" />
+      <Setter Property="BorderBrush" Value="{StaticResource TextSecondaryBrush}" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+    <Style Selector="Button.row.memocheck:pointerover Border.ring">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    </Style>
+    <Style Selector="Button.row.memocheck.done Border.ring">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    </Style>
+
+    <!-- 목록 줄의 고정 표시: 도구 줄과 같은 핀 그림, 작게 -->
+    <Style Selector="Path.rowpin">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="Stroke" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Fill" Value="{StaticResource AccentBrush}" />
+      <Setter Property="StrokeThickness" Value="1.2" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- 사용법 판 -->
+    <Style Selector="TextBlock.helphead">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+      <Setter Property="Margin" Value="0,0,0,3" />
+    </Style>
+    <Style Selector="TextBlock.helpline">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="LineHeight" Value="20" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.helpcode">
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Malgun Gothic, monospace" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,3,12,3" />
+    </Style>
+    <Style Selector="TextBlock.helplabel">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{StaticResource TextBodyBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,3,28,3" />
     </Style>
 
     <!-- 쓰기 모드 입력칸 -->
@@ -77,10 +140,11 @@
       <Setter Property="Background" Value="Transparent" />
     </Style>
 
-    <!-- 창 테두리: 위젯과 같은 둥근 어두운 판. 최대화하면 모서리를 편다. -->
+    <!-- 창 테두리: 위젯과 같은 둥근 어두운 판(불투명). 최대화하면 모서리를 편다. -->
     <Style Selector="Border.frame">
       <Setter Property="CornerRadius" Value="16" />
-      <Setter Property="Background" Value="#F217171A" />
+      <!-- 위젯 판과 같은 색이되 비치지 않게. 둥근 모서리 바깥만 창이 투명하다. -->
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
       <Setter Property="ClipToBounds" Value="True" />
@@ -88,7 +152,6 @@
     <Style Selector="Border.frame.maximized">
       <Setter Property="CornerRadius" Value="0" />
       <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Background" Value="#FA17171A" />
     </Style>
 
     <!-- 최대화 단추는 상태에 따라 그림을 바꾼다 -->
@@ -262,8 +325,8 @@
                               <TextBlock Text="↻" FontSize="12" IsVisible="{Binding IsDaily}"
                                          Foreground="{StaticResource TextSecondaryBrush}"
                                          ToolTip.Tip="매일 초기화" />
-                              <TextBlock Text="📌" FontSize="11" IsVisible="{Binding IsPinned}"
-                                         ToolTip.Tip="고정" />
+                              <Path Classes="rowpin" Data="{StaticResource PinIcon}" IsVisible="{Binding IsPinned}"
+                                    ToolTip.Tip="고정" />
                             </StackPanel>
                           </Grid>
                         </Button>
@@ -332,6 +395,7 @@
                         ToolTip.Tip="삭제 (휴지통으로)">
                   <Path Data="{StaticResource TrashIcon}" Width="14" Height="14" Stretch="Uniform" />
                 </Button>
+                <Button Classes="icon" Content="?" Command="{Binding ToggleHelpCommand}" ToolTip.Tip="사용법" />
               </StackPanel>
 
               <Panel>
@@ -480,30 +544,48 @@
                                    Foreground="{StaticResource TextPrimaryBrush}" />
                       </DataTemplate>
 
+                      <!-- 번호·점·체크: [들여쓰기][기호 칸 24][글]. 줄 높이는 모두 1 + 22 + 1. -->
                       <DataTemplate x:Key="Numbered" DataType="vm:MemoLineView">
-                        <Grid ColumnDefinitions="Auto,*" Margin="0,1">
-                          <TextBlock Classes="memomarker" Text="{Binding Marker}" Margin="0,0,6,0" />
-                          <TextBlock Grid.Column="1" Classes="memotext" Text="{Binding Text}" />
+                        <Grid Margin="0,1">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" MinWidth="24" />
+                            <ColumnDefinition Width="*" />
+                          </Grid.ColumnDefinitions>
+                          <Border Width="{Binding IndentWidth}" />
+                          <TextBlock Grid.Column="1" Classes="memomarker" Text="{Binding Marker}" />
+                          <TextBlock Grid.Column="2" Classes="memotext" Text="{Binding Text}" />
                         </Grid>
                       </DataTemplate>
 
                       <DataTemplate x:Key="Bullet" DataType="vm:MemoLineView">
-                        <Grid ColumnDefinitions="Auto,*" Margin="0,1">
-                          <TextBlock Classes="memomarker" Text="•" MinWidth="16" Margin="4,0,4,0" />
-                          <TextBlock Grid.Column="1" Classes="memotext" Text="{Binding Text}" />
+                        <Grid Margin="0,1">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" MinWidth="24" />
+                            <ColumnDefinition Width="*" />
+                          </Grid.ColumnDefinitions>
+                          <Border Width="{Binding IndentWidth}" />
+                          <TextBlock Grid.Column="1" Classes="memomarker dot" Text="•" />
+                          <TextBlock Grid.Column="2" Classes="memotext" Text="{Binding Text}" />
                         </Grid>
                       </DataTemplate>
 
                       <DataTemplate x:Key="Check" DataType="vm:MemoLineView">
                         <Button Classes="row memocheck" Classes.done="{Binding Checked}"
                                 Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}">
-                          <Grid ColumnDefinitions="Auto,*">
-                            <Border Classes="ring">
-                              <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
+                          <Grid>
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto" />
+                              <ColumnDefinition Width="Auto" MinWidth="24" />
+                              <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="{Binding IndentWidth}" />
+                            <Border Grid.Column="1" Classes="ring">
+                              <Path Data="{StaticResource CheckIcon}" Width="8" Height="8" Stretch="Uniform"
                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Grid.Column="1" Classes="title" Text="{Binding Text}"
-                                       Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="2" Classes="title" Text="{Binding Text}" />
                           </Grid>
                         </Button>
                       </DataTemplate>
@@ -522,6 +604,81 @@
             </Panel>
           </Grid>
         </Grid>
+
+        <!-- ════════ 사용법 판: ? 단추로 열고, ✕ · Esc · 바깥을 누르면 닫는다. 제목 줄은 가리지 않는다. ════════ -->
+        <Panel Grid.Row="1" IsVisible="{Binding IsHelpOpen}">
+          <Border Name="HelpScrim" Background="#B30C0C0E" />
+          <Border Background="#181820" CornerRadius="14"
+                  BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+                  BoxShadow="0 10 30 0 #80000000"
+                  MaxWidth="440" Margin="24,6,24,22"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Center">
+            <DockPanel Margin="18,14,12,16">
+              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                <TextBlock Text="메모 쓰는 법" FontSize="16" FontWeight="Medium" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextPrimaryBrush}" />
+                <Button Grid.Column="1" Classes="icon" Command="{Binding CloseHelpCommand}" ToolTip.Tip="닫기 (Esc)">
+                  <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+                </Button>
+              </Grid>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+                <StackPanel Spacing="14">
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="쓰기와 읽기" />
+                    <TextBlock Classes="helpline" Text="본문을 누르면 바로 고칠 수 있어요." />
+                    <TextBlock Classes="helpline" Text="다 쓰면 Esc. 저장은 알아서 돼요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="모양 내기" />
+                    <TextBlock Classes="helpline" Text="위쪽 버튼으로 소제목·번호·점·체크를 붙여요." />
+                    <TextBlock Classes="helpline" Text="직접 적어도 똑같이 바뀌어요." />
+                    <Border Classes="helpblock" Margin="0,6,0,0" HorizontalAlignment="Left">
+                      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto" RowDefinitions="Auto,Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="helpcode" Text="#" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Classes="helplabel" Text="큰 소제목" />
+                        <TextBlock Grid.Row="0" Grid.Column="2" Classes="helpcode" Text="##" />
+                        <TextBlock Grid.Row="0" Grid.Column="3" Classes="helplabel" Text="소제목" Margin="0,3" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="helpcode" Text="1." />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Classes="helplabel" Text="번호" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Classes="helpcode" Text="-" />
+                        <TextBlock Grid.Row="1" Grid.Column="3" Classes="helplabel" Text="점" Margin="0,3" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Classes="helpcode" Text="[ ]" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Classes="helplabel" Text="체크" />
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="목록 이어 쓰기" />
+                    <TextBlock Classes="helpline" Text="번호·점·체크 줄에서 Enter를 치면 다음 줄도 이어져요." />
+                    <TextBlock Classes="helpline" Text="빈 줄에서 한 번 더 Enter를 치면 목록이 끝나요." />
+                    <TextBlock Classes="helpline" Text="줄만 바꾸고 싶으면 Shift + Enter." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="태그와 찾기" />
+                    <TextBlock Classes="helpline" Text="제목 아래 '+ 태그 추가'에 적고 Enter." />
+                    <TextBlock Classes="helpline" Text="왼쪽 검색칸에 #태그를 치면 그 태그 메모만 보여요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="고정과 삭제" />
+                    <TextBlock Classes="helpline" Text="고정하면 목록 맨 위에 와요." />
+                    <TextBlock Classes="helpline" Text="지운 메모는 휴지통에 30일 동안 남아요." />
+                  </StackPanel>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="helphead" Text="단축키" />
+                    <Border Classes="helpblock" Margin="0,6,0,0" HorizontalAlignment="Left">
+                      <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="helpcode" Text="Ctrl + E" MinWidth="76" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Classes="helplabel" Text="쓰기 ↔ 읽기" Margin="0,3" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="helpcode" Text="Esc" MinWidth="76" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Classes="helplabel" Text="읽기로 돌아가기" Margin="0,3" />
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+                </StackPanel>
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
+        </Panel>
       </Grid>
     </Border>
 

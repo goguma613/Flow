@@ -79,6 +79,15 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _modeText = "쓰기";
     [ObservableProperty] private string _listEmptyText = "";
 
+    /// <summary>오른쪽 위 ? 단추로 여는 사용법 판.</summary>
+    [ObservableProperty] private bool _isHelpOpen;
+
+    [RelayCommand]
+    private void ToggleHelp() => IsHelpOpen = !IsHelpOpen;
+
+    [RelayCommand]
+    private void CloseHelp() => IsHelpOpen = false;
+
     public MemoEditorViewModel(MainViewModel main)
     {
         Main = main;
@@ -499,7 +508,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
         WindowTitle = HasMemo ? DisplayTitle(_state.Body) + " — " + AppTitle : AppTitle;
         BarTitle = IsTrashView
-            ? (SelectedTrash is { } shown ? StripHeading(shown.Title) + " · 휴지통" : "휴지통")
+            ? (SelectedTrash is { } shown ? shown.Title + " · 휴지통" : "휴지통")
             : HasMemo ? DisplayTitle(_state.Body) : "";
         HasBarTitle = BarTitle.Length > 0;
         ModeText = IsEditing ? "읽기" : "쓰기";
@@ -524,16 +533,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         ListEmptyText = Main.Memos.Memos.Count == 0 ? "아직 메모가 없습니다" : "찾는 메모가 없습니다";
     }
 
-    /// <summary>제목 줄이 소제목(# · ##)이면 기호를 뗀 글. 읽기 모드 제목과 같다.</summary>
-    private static string DisplayTitle(string body) => StripHeading(MemoFormat.TitleOf(body));
-
-    private static string StripHeading(string title)
-    {
-        var line = MemoFormat.Classify(0, title);
-        return line.Kind is MemoLineKind.Heading1 or MemoLineKind.Heading2 && line.Text.Trim().Length > 0
-            ? line.Text.Trim()
-            : title;
-    }
+    /// <summary>제목 줄에서 줄 머리 기호(# · ## · 1. · - · [ ])를 뗀 글. 목록 줄의 제목과 같다.</summary>
+    private static string DisplayTitle(string body) => MemoFormat.PlainTitle(MemoFormat.TitleOf(body));
 
     /// <summary>읽기 모드 화면을 본문으로 다시 만든다. 첫 비어 있지 않은 줄은 제목으로 따로 보인다.</summary>
     private void Render(string body, bool readOnly)
@@ -624,13 +625,20 @@ public sealed partial class MemoLineView : ObservableObject
         Marker = line.Marker ?? "";
         Checked = line.Checked;
         CanToggle = canToggle;
+        IndentWidth = line.Indent * IndentStep;
     }
+
+    /// <summary>들여쓰기 한 단계의 너비. 기호 칸(24)과 같아 아래 단계의 기호가 위 줄 글자 밑에 선다.</summary>
+    public const double IndentStep = 24;
 
     public int Index { get; }
     public MemoLineKind Kind { get; }
     public string Text { get; }
     public string Marker { get; }
     public bool Checked { get; }
+
+    /// <summary>체크·번호·점 줄을 들여쓴 만큼 기호와 글을 함께 미는 너비.</summary>
+    public double IndentWidth { get; }
 
     /// <summary>휴지통에서 볼 때는 체크를 누를 수 없다.</summary>
     public bool CanToggle { get; }
@@ -681,7 +689,7 @@ public sealed partial class MemoTrashRow : ObservableObject
         _owner = owner;
         _path = summary.Path;
         Id = summary.Id;
-        Title = summary.Title;
+        Title = MemoFormat.PlainTitle(summary.Title);
         Preview = summary.Unreadable ? "읽지 못함" : summary.Preview;
         Tags = summary.Tags;
     }

@@ -78,6 +78,15 @@ public partial class MemoWindow : Window
 
         if (_tagBox is not null) _tagBox.KeyDown += OnTagBoxKeyDown;
 
+        // 사용법 판 바깥(어둡게 덮은 곳)을 누르면 닫는다. 판 안을 누른 것은 여기까지 오지 않는다.
+        var helpScrim = this.FindControl<Border>("HelpScrim");
+        if (helpScrim is not null)
+            helpScrim.PointerPressed += (_, e) =>
+            {
+                _vm.CloseHelpCommand.Execute(null);
+                e.Handled = true;
+            };
+
         HookChrome();
 
         _placementSaveTimer = new DispatcherTimer { Interval = PlacementSaveDelay };
@@ -135,6 +144,14 @@ public partial class MemoWindow : Window
 
     private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
     {
+        // 사용법 판이 떠 있으면 Esc 는 판만 닫는다(쓰기 모드는 그대로).
+        if (e.Key == Key.Escape && _vm.IsHelpOpen)
+        {
+            _vm.IsHelpOpen = false;
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             if (_vm.IsEditing) LeaveEditingSoon();
