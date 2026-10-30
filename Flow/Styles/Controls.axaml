@@ -534,6 +534,18 @@
   <Style Selector="Button.chip.tag.active /template/ Border#bg">
     <Setter Property="Background" Value="{StaticResource AccentDimBrush}" />
   </Style>
+  <!-- 위젯 아래 고정 메모 칩: 테두리로 목록 글과 구별 -->
+  <Style Selector="Button.chip.pinmemo">
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderSoftBrush}" />
+  </Style>
+  <Style Selector="Button.chip.pinmemo /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+  </Style>
+  <Style Selector="Button.chip.pinmemo:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+  </Style>
   <!-- 주된 동작(되살리기 · 쓰기를 마치는 완료) -->
   <Style Selector="Button.chip.accent">
     <Setter Property="Foreground" Value="{StaticResource PanelBrush}" />

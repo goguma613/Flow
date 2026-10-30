@@ -136,6 +136,12 @@
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
     </Style>
+    <!-- 제목칸: 읽기 화면의 제목과 같은 크기 -->
+    <Style Selector="TextBox.memoeditor.memotitle">
+      <Setter Property="FontSize" Value="22" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="AcceptsReturn" Value="False" />
+    </Style>
     <Style Selector="TextBox.memoeditor:pointerover /template/ Border#PART_BorderElement">
       <Setter Property="Background" Value="Transparent" />
     </Style>
@@ -502,6 +508,10 @@
               </Border>
             </StackPanel>
 
+            <!-- 쓰기 모드 제목칸: 읽기 제목과 같은 자리 · 같은 크기. 파일에는 그대로 '첫 줄이 제목'으로 이어 저장한다. -->
+            <TextBox Name="TitleBox" Grid.Row="2" Classes="memoeditor memotitle" IsVisible="{Binding ShowWriter}"
+                     Text="{Binding EditTitle}" PlaceholderText="제목" Margin="28,6,20,0" />
+
             <!-- 읽기 모드 제목 -->
             <TextBlock Name="ReadTitleText" Grid.Row="2" Text="{Binding ReadTitle}" IsVisible="{Binding ShowReader}"
                        FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
@@ -651,9 +661,9 @@
                 </ScrollViewer>
               </Panel>
 
-              <!-- 쓰기 모드. 적은 글 그대로. -->
+              <!-- 쓰기 모드 본문칸(제목 줄 아래). 제목칸은 위 읽기 제목 자리에 있다. -->
               <TextBox Name="Writer" Classes="memoeditor" IsVisible="{Binding ShowWriter}"
-                       Text="{Binding EditText}" Margin="28,8,20,16" />
+                       PlaceholderText="내용" Text="{Binding EditText}" Margin="28,8,20,16" />
 
             </Panel>
           </Grid>

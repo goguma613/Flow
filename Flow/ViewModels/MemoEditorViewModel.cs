@@ -46,7 +46,15 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>읽기 화면을 마지막으로 그린 본문. 같으면 다시 그리지 않는다.</summary>
     private string? _renderedBody;
 
+    /// <summary>쓰기 모드의 본문칸(제목 줄 아래). 제목은 EditTitle — 저장할 때 둘을 다시 '첫 줄이 제목'인 본문으로 잇는다.</summary>
     [ObservableProperty] private string _editText = "";
+
+    /// <summary>쓰기 모드의 제목칸(첫 줄, 큰 소제목 기호 "# " 는 떼고 보인다).</summary>
+    [ObservableProperty] private string _editTitle = "";
+
+    /// <summary>제목칸에서 뗀 기호와 제목 · 본문 사이 줄바꿈. 이을 때 그대로 되돌려 파일이 쓸데없이 바뀌지 않게.</summary>
+    private string _titleMark = "";
+    private string _titleGap = "";
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private bool _hasMemo;
     [ObservableProperty] private bool _isPinned;
@@ -244,10 +252,18 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         Sync();
     }
 
-    partial void OnEditTextChanged(string value)
+    partial void OnEditTextChanged(string value) => OnWriterEdited();
+
+    partial void OnEditTitleChanged(string value) => OnWriterEdited();
+
+    /// <summary>제목칸 · 본문칸을 이은 지금 쓰던 본문.</summary>
+    private string ComposedEdit(string? title = null, string? text = null)
+        => MemoEditing.JoinTitle(new MemoEditing.TitleParts(_titleMark, title ?? EditTitle, _titleGap, text ?? EditText));
+
+    private void OnWriterEdited()
     {
         if (_syncing || !IsEditing) return;
-        _state.Edit(value);
+        _state.Edit(ComposedEdit());
         // '모두 풀기'가 쓰던 글 기준으로 켜지고 꺼지게.
         HasChecked = _state.HasChecked;
         if (!_state.IsDirty) return;
@@ -261,7 +277,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// <summary>새 메모의 본문. 쓰기 칸이 열리면 통째로 골라 두어 바로 제목을 치면 바뀐다.</summary>
     public const string NewMemoBody = "새 메모";
 
-    /// <summary>쓰기 칸이 열릴 때 글을 통째로 고를지(+ 새 메모). 창이 한 번 쓰고 끈다.</summary>
+    /// <summary>쓰기 칸이 열릴 때 제목칸을 통째로 골라 둘지(+ 새 메모). 창이 한 번 쓰고 끈다.</summary>
     public bool SelectAllOnEdit { get; set; }
 
     /// <summary>+ 새 메모: 지금 글을 저장하고 새 메모를 만들어 쓰기 모드로 연다.</summary>
@@ -304,10 +320,11 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
     /// 쓰기 칸에 지금 들어 있는 글을 받아 둔다. 한글 조합이 끝나며 들어온 마지막 글자가
     /// 바인딩보다 늦게 와도 잃지 않게, 모드를 바꾸거나 닫기 직전에 창이 부른다.
     /// </summary>
-    public void TakeWriterText(string? text)
+    public void TakeWriterText(string? title, string? text)
     {
-        if (!IsEditing || text is null || Normalize(text) == _state.Body) return;
-        _state.Edit(text);
+        if (!IsEditing || (title is null && text is null)) return;
+        var body = ComposedEdit(title, text);
+        if (body != _state.Body) _state.Edit(body);
     }
 
     public void LeaveEditing()
@@ -586,7 +603,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         HasBanner = !string.IsNullOrEmpty(Banner);
 
         // 충돌로 원본을 다시 읽었으면 쓰기 칸도 그것을 보여야 한다. 같은 글이면 건드리지 않는다(커서 보존).
-        if (IsEditing && Normalize(EditText) != _state.Body) SetEditText(_state.Body);
+        if (IsEditing && ComposedEdit() != _state.Body) SetEditText(_state.Body);
 
         if (IsTrashView)
         {
@@ -686,10 +703,18 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         while (ReadLines.Count > 0 && ReadLines[0].Kind == MemoLineKind.Blank) ReadLines.RemoveAt(0);
     }
 
+    /// <summary>본문을 제목칸 · 본문칸에 나눠 넣는다(입력으로 치지 않는다).</summary>
     private void SetEditText(string text)
     {
+        var parts = MemoEditing.SplitTitle(Normalize(text));
         _syncing = true;
-        try { EditText = text; }
+        try
+        {
+            _titleMark = parts.Mark;
+            _titleGap = parts.Gap;
+            EditTitle = parts.Title;
+            EditText = parts.Rest;
+        }
         finally { _syncing = false; }
     }
 

@@ -506,13 +506,17 @@
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.unreadable="{Binding IsUnreadable}"
                             Command="{Binding OpenCommand}">
+                      <!-- 제목과 흐린 미리보기를 한 줄에. 각각 따로 그린다 — 한 글 상자 안의 조각(Run)에 묶으면
+                           줄을 바꿔 끼울 때 제목이 비어 보이는 일이 있었다. 제목이 길면 미리보기 자리를 먼저 내준다. -->
                       <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="title" MaxLines="1" TextWrapping="NoWrap">
-                          <Run Text="{Binding Title}" />
-                          <Run Text="   " />
-                          <Run Text="{Binding Preview}" FontSize="12"
-                               Foreground="{StaticResource TextMutedBrush}" />
-                        </TextBlock>
+                        <DockPanel>
+                          <TextBlock DockPanel.Dock="Left" Classes="title" MaxLines="1" TextWrapping="NoWrap"
+                                     TextTrimming="CharacterEllipsis" Text="{Binding Title}" />
+                          <TextBlock Text="{Binding Preview}" FontSize="12"
+                                     MaxLines="1" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                     Margin="10,0,0,0" VerticalAlignment="Center"
+                                     Foreground="{StaticResource TextMutedBrush}" />
+                        </DockPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
                                     Margin="8,0,0,0" VerticalAlignment="Center">
                           <TextBlock Text="↻" FontSize="12" IsVisible="{Binding IsDaily}"
@@ -617,6 +621,33 @@
                 Classes="addshell" Classes.compact="{Binding IsCompact}"
                 IsVisible="{Binding BottomVisible}">
           <StackPanel Spacing="6">
+            <!-- 고정 메모: 어느 탭에서든 바로 연다(메모 탭에서는 목록 맨 위에 있어 숨긴다). 넘치면 옆으로 민다. -->
+            <ScrollViewer IsVisible="{Binding ShowPinnedMemos}"
+                          HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding PinnedMemos}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="5" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:MemoRow">
+                    <Button Classes="chip pinmemo" Command="{Binding OpenCommand}"
+                            ToolTip.Tip="{Binding Title}" Padding="9,5">
+                      <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Path Data="{StaticResource PinIcon}" Width="10" Height="10" Stretch="Uniform"
+                              Stroke="{StaticResource AccentBrush}" Fill="{StaticResource AccentBrush}"
+                              StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+                              VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Title}" MaxWidth="118" MaxLines="1"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextBodyBrush}" />
+                      </StackPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
             <TextBlock Text="{Binding QuickAddHint}"
                        FontSize="11"
                        Foreground="{StaticResource AccentBrush}"
