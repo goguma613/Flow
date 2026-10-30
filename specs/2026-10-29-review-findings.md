@@ -30,8 +30,8 @@
 
 정리
 
-- [ ] 12. `IsMemoFile` 3곳, 줄바꿈 맞추기 6곳 중복 → `MemoFormat` 으로.
-- [ ] 13. `SetPinned/SetTags/SetDaily/UncheckAll/Update/SetLineChecked` 같은 틀 → `Rewrite(id, edit)` 하나로. `MemoEditorState` 필드 비우기 3곳 → `ClearCurrent()`.
+- [x] 12. `IsMemoFile` 3곳, 줄바꿈 맞추기 6곳 중복 → `MemoFormat` 으로.
+- [x] 13. `SetPinned/SetTags/SetDaily/UncheckAll/Update/SetLineChecked` 같은 틀 → `Rewrite(id, edit)` 하나로. `MemoEditorState` 필드 비우기 3곳 → `ClearCurrent()`.
 
 ## 디자인 (Sonnet 점검 — 폰은 화면을 찍어 봄, PC 는 AXAML 을 읽음)
 
@@ -112,8 +112,8 @@
 - [ ] S3. **한 바퀴 짧게** (S, 중계 그대로) — 휴대폰: 보내기 성공 12–15초 뒤 한 번 더 받기. PC: `RefreshMemoList` 와 메모 훑기 변경 때도 2초 타이머(메모 변경 최대 1분 대기 없앰). 선택: inbox 가 바뀐 뒤 2분간 3초마다 보기, 폰 일을 넣은 뒤 바로 쓰기.
 - [ ] S4. **화면 파일에 AppliedOps 를 필요한 만큼만** (M, 위험 중간, 시험 필요) — data.json 에는 45일 그대로, 화면 파일에는 최근 7일 + 마지막으로 읽은 inbox 에 아직 있는 것만. 휴대폰 임시 글 판별(`draftSaved`/`pruneMemoDrafts`, `app.js:2254-2300`)이 그대로 되는지 확인.
 - [ ] S5. **바뀐 게 없으면 휴대폰이 일을 덜 하기** (S) — 받은 `GeneratedAt` 이 같으면 localStorage 쓰기 · 다시 그리기 건너뛰고 상태 줄만. 선택: 5분 조용하면 60초마다.
-- [ ] S6. **PC 에 휴대폰 연동 상태** (M) — 연동 폴더 있음 · 마지막 inbox 받은 때 · 화면 파일 쓴 때/못 씀 · 기다리는 일 수.
-- [ ] S7. **디스크에 저장된 뒤에만 '처리함'으로 알리기** (S) — `DataStore.Flush` 가 실패(드라이브가 파일 잠금)하면 저장이 빠지는데 AppliedOps 는 화면 파일로 나가 휴대폰이 일을 지움 → 그 뒤 PC 가 꺼지면 잃음. 저장 대기 중이거나 마지막 저장 뒤 `LastError` 면 `PushToPhone` 미루기(`DataStore.cs:220-252`).
+- [x] S6. **PC 에 휴대폰 연동 상태** (M) — 연동 폴더 있음 · 마지막 inbox 받은 때 · 화면 파일 쓴 때/못 씀 · 기다리는 일 수.
+- [x] S7. **디스크에 저장된 뒤에만 '처리함'으로 알리기** (S) — `DataStore.Flush` 가 실패(드라이브가 파일 잠금)하면 저장이 빠지는데 AppliedOps 는 화면 파일로 나가 휴대폰이 일을 지움 → 그 뒤 PC 가 꺼지면 잃음. 저장 대기 중이거나 마지막 저장 뒤 `LastError` 면 `PushToPhone` 미루기(`DataStore.cs:220-252`).
 - [ ] S8. (선택, 중계 바꿀 때만) **relay v2** — `since=<stamp>` 를 받아 화면 파일이 그대로면 `{ok, same:true, inbox}` 만, `handle` 을 try/catch 로 감싸 HTML 오류 대신 `{ok:false, error:'busy'}`, 폴더 · 파일 id 를 PropertiesService 에 기억. 옛 휴대폰도 그대로 됨. 다시 배포해야 해서 이것만으로는 비추천.
 
 비추천: PC 가 주기적으로 '살아 있음' 쓰기(매번 화면 파일 전체 다시 올림), 메모 본문을 따로 파일로(중계 · 권한 바꿔야 함).

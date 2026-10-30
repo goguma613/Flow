@@ -235,6 +235,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _phonePollTimer = new DispatcherTimer { Interval = PhonePollInterval };
         _phonePollTimer.Tick += (_, _) => PollPhone();
         _phonePollTimer.Start();
+        RefreshPhoneLinkStatus();
 
         // 고정 주기로 돌면 앱을 켠 시점에 따라 분 경계와 어긋난다.
         // 21:22 알림이 21:22:28에 울리는 식인데, 사람은 그걸 늦다고 느낀다.
@@ -1343,7 +1344,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void Persist()
     {
         _store.RequestSave(_data);
+        SchedulePhoneView();
+    }
 
+    /// <summary>폰 화면 파일을 2초 뒤에 맞춘다(그 사이 또 바뀌면 다시 2초).</summary>
+    private void SchedulePhoneView()
+    {
         _phoneViewTimer.Stop();
         _phoneViewTimer.Start();
     }
@@ -1414,8 +1420,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public void MemoHoldChanged()
     {
-        _phoneViewTimer.Stop();
-        _phoneViewTimer.Start();
+        SchedulePhoneView();
 
         if (_phoneHeld.Count == 0) return;
         Dispatcher.UIThread.Post(() =>
@@ -1437,6 +1442,46 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         ApplyFromPhone();
         PushToPhone();
+        RefreshPhoneLinkStatus();
+    }
+
+    /// <summary>설정 · 앱의 '휴대폰 연동' 한 줄과 풀이. 분마다, 폰의 일이 들어올 때, 그 묶음을 펼 때 맞춘다.</summary>
+    [ObservableProperty] private string _phoneLinkHeadline = "";
+    [ObservableProperty] private string _phoneLinkStatus = "";
+
+    private void RefreshPhoneLinkStatus()
+    {
+        static string When(DateTime? at)
+        {
+            if (at is not { } t) return "아직 없음";
+            var minutes = (int)(DateTime.Now - t).TotalMinutes;
+            return t.ToString("HH:mm") + (minutes < 1 ? " (방금)" : minutes < 60 ? $" ({minutes}분 전)" : "");
+        }
+
+        if (_store.WaitingForFolder)
+        {
+            PhoneLinkHeadline = "저장 폴더 기다리는 중";
+            PhoneLinkStatus = "저장 폴더가 붙으면 휴대폰과 다시 주고받습니다.";
+        }
+        else if (_phone.FindFolder() is null)
+        {
+            PhoneLinkHeadline = "연결 안 됨";
+            PhoneLinkStatus = "휴대폰 Flow 에서 연결하면 데이터 폴더 옆에 'Flow 폰' 폴더가 생깁니다. 데이터 폴더가 구글 드라이브에 있을 때만 됩니다.";
+        }
+        else if (!_phone.HasView())
+        {
+            PhoneLinkHeadline = "연결 준비 중";
+            PhoneLinkStatus = "'Flow 폰' 폴더는 있는데 휴대폰이 아직 화면 파일을 만들지 않았습니다. 휴대폰에서 연결을 마쳐 주세요.";
+        }
+        else
+        {
+            var applied = new HashSet<Guid>(_data.PhoneOpsApplied.Select(a => a.Id));
+            var waiting = _phoneOps?.Count(op => !applied.Contains(op.Id)) ?? 0;
+            PhoneLinkHeadline = _phone.ViewWriteFailed ? "화면 파일을 못 씀" : "연결됨";
+            PhoneLinkStatus = $"휴대폰 일 받은 때 {When(_phone.InboxReadAt)} · 화면 보낸 때 {When(_phone.ViewWrittenAt)}"
+                + (waiting > 0 ? $" · 기다리는 일 {waiting}개" : "")
+                + (_phone.ViewWriteFailed ? "\n드라이브가 파일을 잡고 있는 것 같습니다 · 다시 해 봅니다." : "");
+        }
     }
 
     /// <summary>
@@ -1453,6 +1498,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         _phoneOps = ops;
         ApplyFromPhone();
+        RefreshPhoneLinkStatus();
     }
 
     /// <summary>받아 둔 폰의 일을 넣는다. 바뀐 게 있으면 저장하고(폰 화면도 2초 뒤 따라 씀) 목록을 다시 그린다.</summary>
@@ -1490,6 +1536,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         // 폰을 연결하지 않았으면 메모 본문을 읽을 까닭이 없다.
         if (_store.WaitingForFolder || !_phone.HasView()) return;
+
+        // 폰의 일을 '처리함'(AppliedOps)으로 알리는 것은 data.json 에 남은 뒤에만. 저장이 빠진 채 알리면 폰은 그 일을 지우고,
+        // 그 뒤 PC 가 꺼지면 어디에도 없다. 못 남겼으면 한 번 더 해 보고, 그래도 안 되면 다음 기회(분마다 · 다음 변경)에.
+        if (!_store.IsSaved)
+        {
+            _store.RequestSave(_data);
+            _store.Flush();
+            if (!_store.IsSaved) return;
+        }
 
         var memos = _phoneMemos.Build(Memos.Memos, Memos.Load);
         _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos, HeldForWriting()));
@@ -1800,6 +1855,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>태그 줄. 컴팩트에서는 접지만, 눌러 둔 태그가 있으면 풀 길이 보여야 하므로 남긴다.</summary>
     public bool ShowMemoTags => HasMemoTags && (!IsCompact || HasMemoTag);
 
+    private int _memoStamp;
+
+    /// <summary>폰 화면에 가는 메모 값(판 · 머리말 · 고친 때)의 지문. 바뀌었는지만 본다.</summary>
+    private static int MemoStamp(IReadOnlyList<MemoSummary> all)
+    {
+        var hash = new HashCode();
+        foreach (var m in all)
+        {
+            hash.Add(m.Id);
+            hash.Add(m.Rev);
+            hash.Add(m.Pinned);
+            hash.Add(m.Daily);
+            hash.Add(m.Reset);
+            hash.Add(m.Updated);
+            hash.Add(string.Join("\u0001", m.Tags));
+        }
+        return hash.ToHashCode();
+    }
+
     /// <summary>메모 창이 저장·고정·삭제·되살리기를 한 뒤 목록을 다시 맞춘다.</summary>
     public void RefreshMemoList() => RefreshMemos();
 
@@ -1811,6 +1885,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var all = Memos.Memos;
         RefreshMemoLinks(all);
+
+        // 메모가 바뀌었으면(메모 창 저장 · 체크 · 고정 · 삭제 · 빠른 메모 · 다른 곳에서 고친 것) 폰 화면도 2초 뒤에 —
+        // 분마다 맞추기를 기다리면 휴대폰에 최대 1분 늦게 간다. 검색 · 태그만 바꾼 것은 그대로라 넘어간다.
+        var stamp = MemoStamp(all);
+        if (stamp != _memoStamp)
+        {
+            _memoStamp = stamp;
+            SchedulePhoneView();
+        }
 
         // 눌러 둔 태그가 다른 곳에서 사라졌으면 풀어 준다. 풀면 이 함수가 다시 불린다.
         var tags = MemoQuery.AllTags(all);
@@ -1887,6 +1970,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         CancelHotKeyCapture();
         OpenSettingsGroup = OpenSettingsGroup == wanted ? -1 : wanted;
+        if (IsAppGroupOpen) RefreshPhoneLinkStatus();
     }
 
     [RelayCommand]

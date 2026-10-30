@@ -1133,6 +1133,17 @@
                   <Border Classes="groupline" />
 
                   <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settinglabel" Text="휴대폰 연동" VerticalAlignment="Center" />
+                    <Border Grid.Column="1" Classes="badge">
+                      <TextBlock Text="{Binding PhoneLinkHeadline}" FontSize="11"
+                                 Foreground="{StaticResource TextSecondaryBrush}" />
+                    </Border>
+                  </Grid>
+                  <TextBlock Classes="settinghint" Text="{Binding PhoneLinkStatus}" />
+
+                  <Border Classes="groupline" />
+
+                  <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Classes="settinglabel" Text="자동 업데이트" />
                     <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding AutoUpdate}" />
                   </Grid>

@@ -47,6 +47,15 @@ public sealed class PhoneLinkStore
     private (DateTime WrittenAt, long Length)? _inboxStamp;
     private string? _lastViewBody;
 
+    /// <summary>폰의 inbox 가 바뀐 것을 마지막으로 읽은 때(이 PC 시각). 설정의 연동 상태에 보인다.</summary>
+    public DateTime? InboxReadAt { get; private set; }
+
+    /// <summary>화면 파일을 마지막으로 바꿔 쓴 때. 내용이 같아 안 쓴 때는 그대로.</summary>
+    public DateTime? ViewWrittenAt { get; private set; }
+
+    /// <summary>마지막으로 화면 파일을 쓰려다 못 썼는지(드라이브가 잡고 있음 등).</summary>
+    public bool ViewWriteFailed { get; private set; }
+
     public PhoneLinkStore(string dataDirectory)
     {
         _dataDirectory = dataDirectory;
@@ -97,6 +106,7 @@ public sealed class PhoneLinkStore
             if (inbox is null) return null;
 
             _inboxStamp = stamp;
+            InboxReadAt = DateTime.Now;
             return inbox.Ops;
         }
         catch (Exception)
@@ -157,11 +167,14 @@ public sealed class PhoneLinkStore
             }
 
             _lastViewBody = body;
+            ViewWrittenAt = DateTime.Now;
+            ViewWriteFailed = false;
             return true;
         }
         catch (Exception)
         {
             // 드라이브가 잠시 잡고 있거나 빠졌다. 다음 변경 때 다시 쓴다.
+            ViewWriteFailed = true;
             return false;
         }
     }

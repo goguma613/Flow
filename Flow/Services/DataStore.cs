@@ -245,11 +245,13 @@ public sealed class DataStore : IDisposable
 
             // 방금 우리가 쓴 모습을 기억한다. 이것과 달라지면 남이 바꾼 것이다.
             RememberStamp();
+            _lastSaveFailed = false;
         }
         catch (Exception ex)
         {
             // 저장 실패가 앱을 죽여선 안 되지만, 흔적은 남긴다.
             LastError = ex;
+            _lastSaveFailed = true;
             TryLog(ex);
         }
     }
@@ -345,6 +347,24 @@ public sealed class DataStore : IDisposable
 
     /// <summary>마지막 저장 실패. 정상일 때는 null.</summary>
     public Exception? LastError { get; private set; }
+
+    private volatile bool _lastSaveFailed;
+
+    /// <summary>
+    /// 예약된 저장이 없고 마지막 저장이 성공했는지 — 메모리의 데이터가 디스크에 다 남았는지.
+    /// 폰에 '처리했다'고 알리기 전에 본다.
+    /// </summary>
+    public bool IsSaved
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_pending is not null) return false;
+            }
+            return !_lastSaveFailed;
+        }
+    }
 
     private static void TryLog(Exception ex)
     {
