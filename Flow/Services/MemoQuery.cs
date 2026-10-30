@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace Flow.Services;
@@ -9,6 +10,27 @@ namespace Flow.Services;
 public static class MemoQuery
 {
     private const StringComparison Cmp = StringComparison.CurrentCultureIgnoreCase;
+
+    private static readonly StringComparer Korean = CreateKorean();
+
+    /// <summary>
+    /// 이름 순서(태그 · 같은 시각의 제목). PC 의 문화권과 상관없이 폰(localeCompare 'ko')과 같게 한글이 먼저,
+    /// 그다음 한국어 문화권 비교(대소문자 무시). 한국어 문화권이 없는 PC 에서도 한글이 먼저인 것은 같다.
+    /// </summary>
+    public static readonly IComparer<string> NameOrder = Comparer<string>.Create((a, b) =>
+    {
+        var script = StartsHangul(b).CompareTo(StartsHangul(a));
+        return script != 0 ? script : Korean.Compare(a, b);
+    });
+
+    private static StringComparer CreateKorean()
+    {
+        try { return StringComparer.Create(CultureInfo.GetCultureInfo("ko-KR"), ignoreCase: true); }
+        catch (CultureNotFoundException) { return StringComparer.OrdinalIgnoreCase; }
+    }
+
+    private static bool StartsHangul(string s)
+        => s.Length > 0 && s[0] is >= '가' and <= '힣' or >= 'ᄀ' and <= 'ᇿ' or >= '㄰' and <= '㆏';
 
     /// <summary>
     /// 검색어를 공백으로 나눈 낱말이 모두 (제목 또는 본문)에 들어 있는 메모. 대소문자는 무시한다.
@@ -50,7 +72,7 @@ public static class MemoQuery
         return result
             .OrderByDescending(m => m.Pinned)
             .ThenByDescending(m => m.Updated)
-            .ThenBy(m => m.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(m => m.Title, NameOrder)
             .ToList();
     }
 
@@ -70,7 +92,7 @@ public static class MemoQuery
         }
         return counts
             .OrderByDescending(kv => kv.Value)
-            .ThenBy(kv => names[kv.Key], StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(kv => names[kv.Key], NameOrder)
             .Select(kv => names[kv.Key])
             .ToList();
     }

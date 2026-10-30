@@ -73,7 +73,8 @@ public sealed class DataStore : IDisposable
     {
         // 시험할 때 실제 사용 데이터를 건드리지 않도록 강제로 지정할 수 있다.
         var overridden = Environment.GetEnvironmentVariable("FLOW_DATA_DIR");
-        if (!string.IsNullOrWhiteSpace(overridden)) return overridden;
+        // C:/… 처럼 써도 다른 경로(백업 목록 등)와 견줄 수 있게 정식 모양으로 바꾼다.
+        if (!string.IsNullOrWhiteSpace(overridden)) return System.IO.Path.GetFullPath(overridden);
 
         // 사용자가 직접 고른 폴더가 있으면 그곳. 클라우드 폴더를 가리킬 때 쓴다.
         // 폴더가 지금 없더라도 그대로 가리킨다 — 없으면 Load 가 기다린다.

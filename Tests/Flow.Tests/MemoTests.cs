@@ -524,7 +524,8 @@ internal static partial class Program
         Check("검색: 낱말 모두", Titles(MemoQuery.Filter(list, "ak넷 정산", null, id => bodies[id])), "AK넷 정산");
         Check("검색칸의 #태그", Titles(MemoQuery.Filter(list, "#정산", null, id => bodies[id])), "정산 절차,AK넷 정산");
         Check("태그 인자", Titles(MemoQuery.Filter(list, null, "AK넷", id => bodies[id])), "AK넷 배포,AK넷 정산");
-        Check("모든 태그", string.Join(",", MemoQuery.AllTags(list)), "AK넷,정산");
+        Check("모든 태그 (같은 수면 폰처럼 한글 먼저)", string.Join(",", MemoQuery.AllTags(list)), "정산,AK넷");
+        Check("이름 순서는 문화권과 상관없이 한글 먼저 · 대소문자 무시", string.Join(",", new[] { "beta", "정산", "Alpha", "가나" }.OrderBy(x => x, MemoQuery.NameOrder)), "가나,정산,Alpha,beta");
 
         // 추가: 태그 대소문자, 본문 읽기 최소화, 같은 시각 정렬
         Check("태그는 대소문자 무시", Titles(MemoQuery.Filter(list, "#ak넷", null, id => bodies[id])), "AK넷 배포,AK넷 정산");
