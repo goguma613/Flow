@@ -241,6 +241,11 @@ public static class MemoFormat
         return string.Concat(parts);
     }
 
+    private static readonly Regex CheckedLineRx = new(@"(?:^|(?<=[\r\n]))[ \t]*(?:-[^\S\r\n]+)?\[[xX]\]", RegexOptions.Compiled);
+
+    /// <summary>줄 머리에 체크된 칸이 하나라도 있는지(UncheckAll 이 바꿀 것이 있는지). 본문을 복사하지 않는다.</summary>
+    public static bool HasChecked(string body) => CheckedLineRx.IsMatch(body);
+
     public static string UncheckAll(string body)
     {
         var parts = LineBreak.Split(body);

@@ -225,7 +225,10 @@ public sealed class PhoneMemoCache
                 }
             }
 
-            var memo = PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body);
+            // 본문(판)도 머리말 값도 그대로면 지난번 것을 다시 쓴다 — 매번 모든 메모를 다시 요약하지 않게.
+            var memo = known.Sent is { } sent && sent.Rev == known.Rev && SameHeader(sent, summary)
+                ? sent
+                : PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body);
             _bodies[summary.Id] = (known.Rev, known.Body, memo);
             result.Add(memo);
         }
@@ -233,6 +236,10 @@ public sealed class PhoneMemoCache
         foreach (var gone in _bodies.Keys.Where(id => !live.Contains(id)).ToList()) _bodies.Remove(gone);
         return result;
     }
+
+    private static bool SameHeader(PhoneMemo sent, MemoSummary summary)
+        => sent.Pinned == summary.Pinned && sent.Daily == summary.Daily && sent.Reset == summary.Reset
+           && sent.Updated == summary.Updated && sent.Tags.SequenceEqual(summary.Tags);
 }
 
 /// <summary>

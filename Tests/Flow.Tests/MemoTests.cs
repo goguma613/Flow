@@ -544,6 +544,45 @@ internal static partial class Program
         Directory.Delete(store.Folder, true);
         Check("memos 폴더만 지우면 목록 비움", (store.Scan(), store.Memos.Count), (true, 0));
         Directory.Delete(root, true);
+
+        MemoCacheTests();
+    }
+
+    /// <summary>글자마다 · 저장마다 파일을 다시 읽거나 본문을 복사하지 않게 들고 있는 것들.</summary>
+    private static void MemoCacheTests()
+    {
+        Check("체크 있음", MemoFormat.HasChecked("제목\n- [ ] 하나\n  - [x] 둘"), true);
+        Check("대문자 X 도", MemoFormat.HasChecked("제목\r\n[X] 하나"), true);
+        Check("빈 칸만이면 없음", MemoFormat.HasChecked("제목\n[ ] 하나\n- [] 둘"), false);
+        Check("줄 머리가 아니면 없음", MemoFormat.HasChecked("글 [x] 중간"), false);
+        Check("옛 맥 줄바꿈도", MemoFormat.HasChecked("제목\r[x] 하나"), true);
+        foreach (var body in new[] { "a\n[x] b", "a\n[ ] b", "- [x] a", "a [x]", "\n\n  [X]", "-  [x] 띄움" })
+            Check("HasChecked = UncheckAll 이 바꿈: " + body.Replace("\n", "⏎"), MemoFormat.HasChecked(body), MemoFormat.UncheckAll(body) != body);
+
+        var root = Path.Combine(DataStore.Directory, "memotest-cache");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 5, 9, 0, 0));
+        var m = store.Create("기억할 메모\n찾을 낱말")!;
+        Check("만든 본문을 기억", store.BodyOf(m.Doc.Id), "기억할 메모\n찾을 낱말");
+        store.Save(m.Doc.Id, "기억할 메모\n바뀐 낱말", m.Rev);
+        Check("저장한 본문을 기억", store.BodyOf(m.Doc.Id), "기억할 메모\n바뀐 낱말");
+        Check("모르는 id 는 null", store.BodyOf(Guid.NewGuid()), null);
+        Check("휴지통 수 0", store.TrashCount(), 0);
+        store.Delete(m.Doc.Id);
+        Check("휴지통 수 1", store.TrashCount(), 1);
+        Check("지운 메모 본문은 모름", store.BodyOf(m.Doc.Id), null);
+
+        // 폰 화면 요약: 판도 머리말도 같으면 지난번 것을 그대로
+        var kept = store.Create("폰 메모\n본문")!;
+        store.Scan();
+        var cache = new PhoneMemoCache();
+        var first = cache.Build(store.Memos, store.Load).Single();
+        var second = cache.Build(store.Memos, store.Load).Single();
+        Check("같으면 같은 요약 객체", ReferenceEquals(first, second), true);
+        store.SetPinned(kept.Doc.Id, true);
+        var third = cache.Build(store.Memos, store.Load).Single();
+        Check("머리말이 바뀌면 새로", (ReferenceEquals(second, third), third.Pinned), (false, true));
+        Directory.Delete(root, true);
     }
 
     private static void MemoQueryTests()

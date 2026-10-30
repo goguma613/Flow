@@ -1774,7 +1774,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void ToggleMemoTag(string tag)
         => MemoTag = string.Equals(MemoTag, tag, StringComparison.CurrentCultureIgnoreCase) ? null : tag;
 
-    partial void OnMemoSearchChanged(string value) => RefreshMemos();
+    private DispatcherTimer? _memoSearchTimer;
+
+    /// <summary>글자마다 목록을 다시 만들지 않고, 치기를 0.15초 멈추면 한 번 거른다.</summary>
+    partial void OnMemoSearchChanged(string value)
+    {
+        if (_memoSearchTimer is null)
+        {
+            _memoSearchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            _memoSearchTimer.Tick += (_, _) =>
+            {
+                _memoSearchTimer.Stop();
+                RefreshMemos();
+            };
+        }
+        _memoSearchTimer.Stop();
+        if (value.Length == 0) RefreshMemos();   // 지우면 바로 다 보인다
+        else _memoSearchTimer.Start();
+    }
 
     partial void OnMemoTagChanged(string? value) => RefreshMemos();
 
@@ -1803,18 +1820,33 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var shown = MemoQuery.Filter(all, MemoSearch, MemoTag, id => Memos.Load(id)?.Doc.Body);
+        // 본문은 훑을 때 읽어 둔 것으로 거른다 — 글자마다 모든 메모 파일을 다시 읽지 않게.
+        var shown = MemoQuery.Filter(all, MemoSearch, MemoTag, Memos.BodyOf);
 
-        MemoRows.Clear();
-        foreach (var summary in shown) MemoRows.Add(new MemoRow(summary, this));
-
-        MemoTags.Clear();
-        MemoTagChips.Clear();
-        foreach (var tag in tags)
+        // 자동 저장마다 불린다. 순서가 같으면 바뀐 줄만 바꿔 목록(위젯 · 메모 창)이 통째로 다시 그려지지 않게 한다.
+        if (MemoRows.Count == shown.Count && MemoRows.Select(r => r.Id).SequenceEqual(shown.Select(s => s.Id)))
         {
-            MemoTags.Add(tag);
-            MemoTagChips.Add(new MemoTagChip(tag,
-                string.Equals(tag, MemoTag, StringComparison.CurrentCultureIgnoreCase), this));
+            for (var i = 0; i < shown.Count; i++)
+                if (!MemoRows[i].Shows(shown[i])) MemoRows[i] = new MemoRow(shown[i], this);
+        }
+        else
+        {
+            MemoRows.Clear();
+            foreach (var summary in shown) MemoRows.Add(new MemoRow(summary, this));
+        }
+
+        bool Active(string tag) => string.Equals(tag, MemoTag, StringComparison.CurrentCultureIgnoreCase);
+        var sameTags = MemoTagChips.Count == tags.Count
+            && MemoTagChips.Select(c => (c.Tag, c.IsActive)).SequenceEqual(tags.Select(t => (t, Active(t))));
+        if (!sameTags)
+        {
+            MemoTags.Clear();
+            MemoTagChips.Clear();
+            foreach (var tag in tags)
+            {
+                MemoTags.Add(tag);
+                MemoTagChips.Add(new MemoTagChip(tag, Active(tag), this));
+            }
         }
         HasMemoTags = tags.Count > 0;
 

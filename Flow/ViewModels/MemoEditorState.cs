@@ -39,7 +39,7 @@ public sealed class MemoEditorState
     public bool IsDaily { get; private set; }
 
     /// <summary>본문에 체크된 칸이 하나라도 있는지('모두 풀기'를 켤지). 쓰던 글 기준.</summary>
-    public bool HasChecked => CurrentId is not null && MemoFormat.UncheckAll(Body) != Body;
+    public bool HasChecked => CurrentId is not null && MemoFormat.HasChecked(Body);
 
     /// <summary>머리말 tags(# 없이). 본문 #태그는 들어 있지 않다.</summary>
     public IReadOnlyList<string> Tags { get; private set; } = Array.Empty<string>();

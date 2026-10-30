@@ -62,6 +62,8 @@ public sealed class MemoStore
         public long Size;
         public long Ticks;
         public MemoSummary Summary = null!;
+        /// <summary>마지막으로 읽은 본문. 검색이 글자마다 파일을 다시 읽지 않게 들고 있는다.</summary>
+        public string Body = "";
         public bool Unreadable;
         public bool Hidden;
     }
@@ -151,7 +153,7 @@ public sealed class MemoStore
                 _entries[path] = new Entry
                 {
                     Path = path, Size = size, Ticks = ticks,
-                    Summary = Summarize(doc, path, fi.LastWriteTime),
+                    Summary = Summarize(doc, path, fi.LastWriteTime), Body = doc.Body,
                 };
                 changed = true;
             }
@@ -223,6 +225,13 @@ public sealed class MemoStore
             return null;
         }
     }
+
+    /// <summary>
+    /// 마지막으로 훑거나 쓴 때의 본문(파일을 읽지 않는다 — 검색용). 모르거나 읽지 못한 메모면 null.
+    /// 다른 곳에서 고친 것은 다음 훑기 뒤에 보인다.
+    /// </summary>
+    public string? BodyOf(Guid id)
+        => TryFind(id, out var e) && !e!.Unreadable ? e.Body : null;
 
     public MemoFile? Create(string body) => CreateAs(Guid.NewGuid(), body);
 
@@ -302,8 +311,11 @@ public sealed class MemoStore
             if (located is (_, var due) && due.Daily && day is { } d && (due.Reset is not { } reset || reset < d))
                 return new SaveResult(SaveOutcome.Failed, null, null);
 
+            // 판은 한 번만 잰다(본문 전체의 SHA-256).
+            var currentRev = located is { } l ? MemoFormat.RevOf(l.Doc.Body) : null;
+
             // 덮지 못하고 새 메모로 남길 차례인데 newId 의 메모가 벌써 있다 — 같은 일이 두 번 왔다.
-            var overwrites = located is { } l && MemoFormat.RevOf(l.Doc.Body) == baseRev;
+            var overwrites = currentRev == baseRev;
             if (!overwrites && newId is { } fresh && Has(fresh)) return new SaveResult(SaveOutcome.Unchanged, null, null);
 
             if (located is not (var e, var current))
@@ -314,8 +326,7 @@ public sealed class MemoStore
                     : new SaveResult(SaveOutcome.Missing, null, made.Doc.Id);
             }
 
-            var currentRev = MemoFormat.RevOf(current.Body);
-            if (currentRev != baseRev)
+            if (!overwrites)
             {
                 var copyBody = MemoFormat.AppendToTitle(body, conflictSuffix
                     ?? " (충돌 사본 " + _now().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + ")");
@@ -346,7 +357,7 @@ public sealed class MemoStore
             }
 
             WriteDoc(path, doc);
-            Remember(path, doc);
+            Remember(path, doc, newRev);
             return new SaveResult(SaveOutcome.Saved, newRev, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -633,6 +644,9 @@ public sealed class MemoStore
         }
     }
 
+    /// <summary>휴지통의 메모 파일 수. 읽지 않고 센다(단추 라벨용).</summary>
+    public int TrashCount() => TrashFiles().Count();
+
     public IReadOnlyList<MemoSummary> Trash()
     {
         var result = new List<MemoSummary>();
@@ -815,18 +829,19 @@ public sealed class MemoStore
 
     private static bool SameName(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    private static MemoSummary Summarize(MemoDocument doc, string path, DateTime updated)
+    /// <summary>rev 를 이미 쟀으면 넘긴다(다시 재지 않게).</summary>
+    private static MemoSummary Summarize(MemoDocument doc, string path, DateTime updated, string? rev = null)
         => new(doc.Id, path, MemoFormat.TitleOf(doc.Body), MemoFormat.PreviewOf(doc.Body),
-            MemoFormat.TagsOfDoc(doc), doc.Pinned, doc.Daily, updated, MemoFormat.RevOf(doc.Body), false, doc.Reset);
+            MemoFormat.TagsOfDoc(doc), doc.Pinned, doc.Daily, updated, rev ?? MemoFormat.RevOf(doc.Body), false, doc.Reset);
 
     /// <summary>스스로 쓴 파일의 (크기, 고친 시각)을 기억해 바로 다음 훑기가 제 쓰기를 바뀜으로 읽지 않게 한다.</summary>
-    private void Remember(string path, MemoDocument doc)
+    private void Remember(string path, MemoDocument doc, string? rev = null)
     {
         var fi = new FileInfo(path);
         _entries[path] = new Entry
         {
             Path = path, Size = fi.Length, Ticks = fi.LastWriteTimeUtc.Ticks,
-            Summary = Summarize(doc, path, fi.LastWriteTime),
+            Summary = Summarize(doc, path, fi.LastWriteTime, rev), Body = doc.Body,
         };
     }
 
