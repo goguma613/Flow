@@ -1677,20 +1677,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var input = QuickAddText?.Trim();
         if (string.IsNullOrWhiteSpace(input)) return;
 
-        var file = Memos.Create(input);
-        if (file is null)
-        {
-            // 글은 그대로 둔다. 폴더가 돌아오면 다시 Enter 만 누르면 된다.
-            Announce("저장 폴더를 기다리는 중이라 메모를 만들 수 없습니다");
-            return;
-        }
+        // 못 만들었으면 글은 그대로 둔다. 폴더가 돌아오면 다시 Enter 만 누르면 된다.
+        if (CreateMemo(input) is not { } id) return;
 
         QuickAddText = "";
-        // 방금 만든 것이 필터에 가려지지 않게 한다.
+        MemoOpenRequested?.Invoke(id);
+    }
+
+    /// <summary>
+    /// 새 메모를 만든다(위젯 메모 탭 · 메모 창의 + 새 메모). 방금 만든 것이 검색 · 태그에 가려지지 않게 거르기를 푼다.
+    /// 못 만들면(저장 폴더를 기다리는 중) 알리고 null.
+    /// </summary>
+    public Guid? CreateMemo(string body)
+    {
+        var file = Memos.Create(body);
+        if (file is null)
+        {
+            Announce("저장 폴더를 기다리는 중이라 메모를 만들 수 없습니다");
+            return null;
+        }
+
         MemoSearch = "";
         MemoTag = null;
         RefreshMemos();
-        MemoOpenRequested?.Invoke(file.Doc.Id);
+        return file.Doc.Id;
     }
 
     [RelayCommand]

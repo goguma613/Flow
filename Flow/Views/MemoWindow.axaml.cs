@@ -35,7 +35,13 @@ public partial class MemoWindow : Window
     private readonly Control? _titleBar;
     private readonly Control? _grips;
     private readonly Button? _maximizeButton;
+    private readonly WrapPanel? _formatBar;
+    private readonly Grid? _toolRow;
+    private readonly Control? _toolRight;
     private bool _placementRestored;
+
+    /// <summary>서식 단추를 이름까지 한 줄에 놓는 데 드는 너비. 이름을 보이는 동안 잰다.</summary>
+    private double _formatBarWide;
 
     /// <summary>위젯이 끝나며 닫는 중. 이때만은 저장하지 못한 글이 있어도 닫는다(한 번 저장은 해 본다).</summary>
     private bool _exiting;
@@ -69,6 +75,10 @@ public partial class MemoWindow : Window
         _titleBar = this.FindControl<Control>("TitleBar");
         _grips = this.FindControl<Control>("Grips");
         _maximizeButton = this.FindControl<Button>("MaximizeButton");
+        _formatBar = this.FindControl<WrapPanel>("FormatBar");
+        _toolRow = this.FindControl<Grid>("ToolRow");
+        _toolRight = this.FindControl<Control>("ToolRight");
+        if (_formatBar is not null) _formatBar.LayoutUpdated += OnFormatBarLayout;
 
         if (_tagBox is not null) _tagBox.KeyDown += OnTagBoxKeyDown;
 
@@ -144,6 +154,12 @@ public partial class MemoWindow : Window
         {
             if (_writer is null || !_writer.IsVisible) return;
             _writer.Focus();
+            // + 새 메모: '새 메모' 를 통째로 골라 두어 바로 제목을 치면 바뀐다.
+            if (_vm.SelectAllOnEdit)
+            {
+                _vm.SelectAllOnEdit = false;
+                _writer.SelectAll();
+            }
         }, DispatcherPriority.Background);
     }
 
@@ -222,6 +238,32 @@ public partial class MemoWindow : Window
             return;
         }
         action();
+    }
+
+    /// <summary>
+    /// 창이 좁아 서식 단추가 이름까지 오른쪽 단추 옆에 안 들어가면 이름을 숨기고 기호만 둔다(이름은 풍선 도움말에 남는다) —
+    /// 두 줄로 넘어가면 도구 줄이 들쭉날쭉하고 본문이 밀린다. 기호만으로도 안 들어가면(가장 좁은 창) 아랫줄로 내린다.
+    /// 넓어지면 다시 보인다.
+    /// </summary>
+    private void OnFormatBarLayout(object? sender, EventArgs e)
+    {
+        if (_formatBar is null || _toolRow is null || _toolRight is null || !_formatBar.IsVisible) return;
+        var row = _toolRow.Bounds.Width;
+        if (row <= 0) return;
+
+        var narrow = _formatBar.Classes.Contains("narrow");
+        if (!narrow) _formatBarWide = _formatBar.Children.Where(c => c.IsVisible).Sum(c => c.DesiredSize.Width);
+        // 기호만 두면 단추 하나가 30 남짓(+ 틈 2).
+        var glyphs = _formatBar.Children.Count(c => c.IsVisible) * 34.0;
+        var beside = row - _toolRight.Bounds.Width - 8;   // 오른쪽 단추 옆에 남는 자리(WrapPanel 오른쪽 틈 8)
+
+        bool wantNarrow, wantTight;
+        if (_formatBarWide <= beside) (wantNarrow, wantTight) = (false, false);
+        else if (glyphs <= beside) (wantNarrow, wantTight) = (true, false);
+        else (wantNarrow, wantTight) = (_formatBarWide > row - 8, true);   // 아랫줄은 온 너비를 쓴다
+
+        if (wantNarrow != narrow) _formatBar.Classes.Set("narrow", wantNarrow);
+        if (wantTight != _toolRow.Classes.Contains("tight")) _toolRow.Classes.Set("tight", wantTight);
     }
 
     /// <summary>쓰기 칸이 보이면 포커스만 돌려준다. 커서 자리는 쓰기 칸이 기억한 그대로.</summary>

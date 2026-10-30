@@ -33,6 +33,16 @@
     <SolidColorBrush x:Key="LowBrush" Color="#378ADD" />
     <SolidColorBrush x:Key="OverdueBgBrush" Color="#3A1E1E" />
     <SolidColorBrush x:Key="OverdueTextBrush" Color="#F09595" />
+    <!-- 알림 띠: 주의(충돌 · 저장 실패)는 노랑, 안내(휴대폰 일 기다림)는 파랑 -->
+    <SolidColorBrush x:Key="WarnBgBrush" Color="#3A321C" />
+    <SolidColorBrush x:Key="WarnBorderBrush" Color="#6B5523" />
+    <SolidColorBrush x:Key="WarnTextBrush" Color="#F3D48B" />
+    <SolidColorBrush x:Key="InfoBgBrush" Color="#1E2A3A" />
+    <SolidColorBrush x:Key="InfoBorderBrush" Color="#2F4A6B" />
+    <SolidColorBrush x:Key="InfoTextBrush" Color="#A9C8F0" />
+    <!-- 창 위에 뜨는 판(사용법 · 되돌리기 · 설정)과 그 뒤를 가리는 막 -->
+    <SolidColorBrush x:Key="DialogBrush" Color="#181820" />
+    <SolidColorBrush x:Key="ScrimBrush" Color="#B30C0C0E" />
 
     <SolidColorBrush x:Key="Heat0Brush" Color="#232329" />
     <SolidColorBrush x:Key="Heat1Brush" Color="#1F4A3C" />
@@ -516,6 +526,39 @@
   </Style>
   <Style Selector="Button.chip.active /template/ Border#bg">
     <Setter Property="Background" Value="{StaticResource SurfaceActiveBrush}" />
+  </Style>
+  <!-- 고른 태그 칩은 강조색(다른 고르기 칩 — 투명도 등 — 은 위의 회색 그대로) -->
+  <Style Selector="Button.chip.tag.active">
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+  </Style>
+  <Style Selector="Button.chip.tag.active /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource AccentDimBrush}" />
+  </Style>
+  <!-- 주된 동작(되살리기 · 쓰기를 마치는 완료) -->
+  <Style Selector="Button.chip.accent">
+    <Setter Property="Foreground" Value="{StaticResource PanelBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Button.chip.accent /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+  </Style>
+  <Style Selector="Button.chip.accent:pointerover /template/ Border#bg">
+    <Setter Property="Background" Value="#6FD6B3" />
+  </Style>
+  <!-- 누르는 동안: 칩 · 아이콘 · 글 단추가 눌린 것이 보이게 -->
+  <Style Selector="Button.chip:pressed /template/ Border#bg, Button.link:pressed /template/ Border#bg">
+    <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+  </Style>
+  <Style Selector="Button.chip.accent:pressed /template/ Border#bg">
+    <Setter Property="Background" Value="#4DB592" />
+  </Style>
+  <Style Selector="Button.icon:pressed /template/ Border#bg">
+    <Setter Property="Background" Value="#1A4038" />
+  </Style>
+  <!-- 키보드(Tab)로 옮겨 왔을 때만 테두리. 마우스로 누를 때는 보이지 않는다. -->
+  <Style Selector="Button.icon:focus-visible /template/ Border#bg, Button.chip:focus-visible /template/ Border#bg, Button.row:focus-visible /template/ Border#bg, Button.link:focus-visible /template/ Border#bg, Button.tab:focus-visible /template/ Border#bg">
+    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
   </Style>
   <Style Selector="TextBlock.settinglabel">
     <Setter Property="FontSize" Value="13" />

@@ -258,6 +258,31 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
     // ───────────────────────── 명령
 
+    /// <summary>새 메모의 본문. 쓰기 칸이 열리면 통째로 골라 두어 바로 제목을 치면 바뀐다.</summary>
+    public const string NewMemoBody = "새 메모";
+
+    /// <summary>쓰기 칸이 열릴 때 글을 통째로 고를지(+ 새 메모). 창이 한 번 쓰고 끈다.</summary>
+    public bool SelectAllOnEdit { get; set; }
+
+    /// <summary>+ 새 메모: 지금 글을 저장하고 새 메모를 만들어 쓰기 모드로 연다.</summary>
+    [RelayCommand]
+    private void NewMemo()
+    {
+        IsHelpOpen = false;
+        Flush();
+        if (Main.CreateMemo(NewMemoBody) is not { } id) return;
+
+        if (IsTrashView)
+        {
+            IsTrashView = false;
+            SelectedTrash = null;
+            RefreshTrash();
+        }
+        Open(id);
+        SelectAllOnEdit = true;
+        EnterEditing();
+    }
+
     [RelayCommand]
     public void ToggleEdit()
     {
@@ -681,7 +706,8 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
         var count = IsTrashView ? TrashRows.Count : Main.Memos.TrashCount();
         TrashEmpty = count == 0;
-        TrashLabel = "휴지통 " + count;
+        // 휴지통을 보는 동안 같은 단추는 돌아가는 길이다.
+        TrashLabel = IsTrashView ? "← 메모로" : "휴지통 " + count;
     }
 
     private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
