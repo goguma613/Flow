@@ -10,8 +10,8 @@
 
 중요
 
-- [ ] 1. 백업 되살리기 뒤 그날 매일 초기화 메모가 안 풀림. 자동 백업이 초기화 전에 찍혀(`MainViewModel.cs:254→256`, `:849→852`) 어제 체크가 든 파일이 돌아오는데, `_memoResetDay == _today`·`MemoStore._resetDone` 때문에 다시 안 돈다. 휴대폰 memo-check/save 도 그날 내내 Deferred, 다음 날 Skipped. 고침: `MemoStore.ForgetDailyProgress()`(`_resetDay`·`_resetDone` 비움) → `RestoreFrom` 에서 `Memos.Scan()` 뒤 호출, `_memoResetDay = null`, `ResetDailyMemos()`.
-- [ ] 2. 날이 바뀔 때 클라우드 드라이브가 잠깐 안 보이면 `ScanFolder`(`MemoStore.cs:115-128`)가 메모를 다 지운 것으로 보고 `ResetDaily` 가 Complete → 그날 초기화 안 됨, 열린 메모에 '다른 곳에서 지워졌습니다' 띠. 고침: 폴더와 그 부모(데이터 폴더)가 없으면 `ScanFolder` 는 목록을 지우지 않고 false, `ResetDaily` 는 데이터 폴더가 없으면 `Blocked`.
+- [x] 1. 백업 되살리기 뒤 그날 매일 초기화 메모가 안 풀림. 자동 백업이 초기화 전에 찍혀(`MainViewModel.cs:254→256`, `:849→852`) 어제 체크가 든 파일이 돌아오는데, `_memoResetDay == _today`·`MemoStore._resetDone` 때문에 다시 안 돈다. 휴대폰 memo-check/save 도 그날 내내 Deferred, 다음 날 Skipped. 고침: `MemoStore.ForgetDailyProgress()`(`_resetDay`·`_resetDone` 비움) → `RestoreFrom` 에서 `Memos.Scan()` 뒤 호출, `_memoResetDay = null`, `ResetDailyMemos()`.
+- [x] 2. 날이 바뀔 때 클라우드 드라이브가 잠깐 안 보이면 `ScanFolder`(`MemoStore.cs:115-128`)가 메모를 다 지운 것으로 보고 `ResetDaily` 가 Complete → 그날 초기화 안 됨, 열린 메모에 '다른 곳에서 지워졌습니다' 띠. 고침: 폴더와 그 부모(데이터 폴더)가 없으면 `ScanFolder` 는 목록을 지우지 않고 false, `ResetDaily` 는 데이터 폴더가 없으면 `Blocked`.
 
 작은 버그
 

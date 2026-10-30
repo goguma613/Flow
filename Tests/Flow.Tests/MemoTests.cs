@@ -461,6 +461,54 @@ internal static partial class Program
         var heldRetry = store.ResetDaily(sat, _ => false);
         Check("쓰기가 끝나면 다시 해서 풂", (heldRetry.Written, heldRetry.Complete, Body(done.Doc.Id)), (1, true, "끝낼 절차\n[ ] 하나"));
         Check("쓰는 중이 아닌 메모는 skip 이 참이어도 안 셈", store.ResetDaily(sat, _ => true).Complete, true);
+
+        // 백업 되살리기: 어제 체크가 든 파일이 돌아와도 오늘 끝낸 것으로 기억하면 안 푼다 → 잊으면 다시 푼다
+        var restored = store.Load(done.Doc.Id)!;
+        var restoredText = File.ReadAllText(restored.Path)
+            .Replace("reset: " + sat.ToString("yyyy-MM-dd"), "reset: " + fri.ToString("yyyy-MM-dd"))
+            .Replace("[ ] 하나", "[x] 하나");
+        File.WriteAllText(restored.Path, restoredText);
+        store.Scan();
+        Check("되살린 뒤 잊기 전엔 안 풂", store.ResetDaily(sat).Written, 0);
+        store.ForgetDailyProgress();
+        var afterRestore = store.ResetDaily(sat);
+        Check("잊으면 되살린 메모를 다시 풂", (afterRestore.Written, afterRestore.Complete, Body(done.Doc.Id), ResetOn(done.Doc.Id, sat)),
+            (1, true, "끝낼 절차\n[ ] 하나", true));
+
+        MemoDriveGoneTests();
+    }
+
+    /// <summary>날이 바뀔 때 클라우드 드라이브가 잠깐 빠져 데이터 폴더째 안 보이면 지운 것으로 보지 않는다.</summary>
+    private static void MemoDriveGoneTests()
+    {
+        var root = Path.Combine(DataStore.Directory, "memotest-drive-gone");
+        var away = root + "-away";
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        if (Directory.Exists(away)) Directory.Delete(away, true);
+
+        var clock = new DateTime(2026, 10, 5, 9, 0, 0);
+        var store = new MemoStore(root, () => true, () => clock);
+        var daily = store.Create("드라이브 절차\n[x] 하나")!;
+        store.Create("평범한 메모");
+        store.SetDaily(daily.Doc.Id, true, Mon);
+        store.Scan();
+
+        Directory.Move(root, away);   // 드라이브가 빠짐
+        Check("데이터 폴더가 없으면 훑어도 바뀜 없음", store.Scan(), false);
+        Check("목록은 그대로", store.Memos.Count, 2);
+        var gone = store.ResetDaily(Tue);
+        Check("데이터 폴더가 없으면 초기화는 Blocked", (gone.IsBlocked, gone.Complete), (true, false));
+        Check("없을 때 읽기는 null 이지만 목록은 그대로", (store.Load(daily.Doc.Id) is null, store.Memos.Count), (true, 2));
+
+        Directory.Move(away, root);   // 돌아옴
+        var back = store.ResetDaily(Tue);
+        Check("돌아오면 풂", (back.Written, back.Complete), (1, true));
+        Check("그때 체크 풀림", store.Load(daily.Doc.Id)!.Doc.Body.Replace("\r\n", "\n"), "드라이브 절차\n[ ] 하나");
+
+        // memos 폴더만 없고 데이터 폴더는 있으면 정말 다 지운 것이다
+        Directory.Delete(store.Folder, true);
+        Check("memos 폴더만 지우면 목록 비움", (store.Scan(), store.Memos.Count), (true, 0));
+        Directory.Delete(root, true);
     }
 
     private static void MemoQueryTests()

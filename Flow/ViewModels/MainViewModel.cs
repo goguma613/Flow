@@ -1253,6 +1253,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RefreshMemos();
         MemosChanged?.Invoke();
 
+        // 자동 백업은 매일 초기화 전에 찍혀, 되살린 메모에는 어제 체크가 들어 있을 수 있다.
+        // 오늘 끝낸 것으로 기억해 두면 그날 다시 안 풀리고(폰의 메모 일도 그날 내내 미뤄진다) — 잊고 다시 푼다.
+        Memos.ForgetDailyProgress();
+        _memoResetDay = null;
+        ResetDailyMemos();
+
         IsRestoreOpen = false;
         Announce(result.Outcome == RestoreOutcome.MemosPartial
             ? $"되돌렸지만 메모 {result.FailedMemos}개는 되돌리지 못했습니다"
