@@ -39,6 +39,12 @@ public sealed partial class MemoRow : ObservableObject
     /// <summary>잠겼거나 덜 받아진 파일. 흐리게 보이고 열리지 않는다.</summary>
     public bool IsUnreadable { get; }
 
+    /// <summary>이 요약으로 만들어도 보이는 것이 같은지(목록을 다시 맞출 때 바뀐 줄만 바꾸려고).</summary>
+    public bool Shows(MemoSummary summary)
+        => summary.Id == Id && MemoFormat.PlainTitle(summary.Title) == Title
+           && (summary.Unreadable ? "읽지 못함" : summary.Preview) == Preview
+           && summary.Pinned == IsPinned && summary.Daily == IsDaily && summary.Unreadable == IsUnreadable;
+
     [RelayCommand]
     private void Open() => _owner.OpenMemo(Id);
 }

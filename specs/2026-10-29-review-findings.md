@@ -15,35 +15,35 @@
 
 작은 버그
 
-- [ ] 6. 휴지통 되살리기(`MemoStore.cs:633-656`): 다른 휴지통 파일 하나가 안 읽히면 전부 실패, `WriteDoc` 뒤 휴지통 파일 지우기 실패 시 false 인데 이미 되살아남 → 다시 누르면 충돌 사본. 고침: 파일마다 try, 휴지통 삭제 실패는 성공으로.
-- [ ] 7. 휴지통 30일 비우기가 시작할 때만(`MainViewModel.cs:249`). 고침: `CheckRollover`(:852 옆)와 `TryRecoverDataFolder` 에서도 `Memos.PurgeTrash(_today)`.
-- [ ] 10. 매일 초기화가 수정 시각을 그대로 되돌려(`MemoStore.cs:484-491`) `reset:` 만 바뀐 파일(같은 길이)을 다른 PC 훑기가 못 알아챔. 고침: 옛 시각 + 2초. (PC 1대라 낮음)
+- [x] 6. 휴지통 되살리기(`MemoStore.cs:633-656`): 다른 휴지통 파일 하나가 안 읽히면 전부 실패, `WriteDoc` 뒤 휴지통 파일 지우기 실패 시 false 인데 이미 되살아남 → 다시 누르면 충돌 사본. 고침: 파일마다 try, 휴지통 삭제 실패는 성공으로.
+- [x] 7. 휴지통 30일 비우기가 시작할 때만(`MainViewModel.cs:249`). 고침: `CheckRollover`(:852 옆)와 `TryRecoverDataFolder` 에서도 `Memos.PurgeTrash(_today)`.
+- [x] 10. 매일 초기화가 수정 시각을 그대로 되돌려(`MemoStore.cs:484-491`) `reset:` 만 바뀐 파일(같은 길이)을 다른 PC 훑기가 못 알아챔. 고침: 옛 시각 + 2초. (PC 1대라 낮음)
 
 최적화
 
-- [ ] 3. 검색 글자마다 모든 메모 파일을 다시 읽음(`MainViewModel.cs:1763, 1792`, `MemoStore.cs:205-216`, `TryFind` 선형). 고침: `Entry` 에 Body 보관 + `BodyOf(id)`, `Dictionary<Guid, Entry>` 색인, 검색 150ms 늦추기.
-- [ ] 4. 자동 저장마다 메모 목록 두 곳을 처음부터 다시 만듦(`MemoEditorViewModel.cs:233-236`, `MainViewModel.cs:1794-1804`). 고침: 순서가 같으면 바뀐 줄만 바꿈, 태그 칩은 같으면 그대로.
-- [ ] 5. 글자마다 '모두 풀기' 가능 여부를 본문 전체 복사로 계산(`MemoEditorState.cs:42`). 고침: 체크된 줄 정규식 `IsMatch`.
-- [ ] 8. 폰 화면 쓸 때 모든 메모를 다시 요약 · 직렬화 두 번(`PhoneLinkEngine.cs:228-229`, `PhoneLinkStore.cs:142-149`). 고침: 같은 요약이면 재사용, 직렬화 한 번.
-- [ ] 9. 목록이 바뀔 때마다 휴지통 전체를 읽고 해시(`MemoEditorViewModel.cs:226-231`, `MemoStore.cs:242-257`). 고침: 휴지통 보기일 때만, 라벨은 파일 수.
-- [ ] 11. 저장 한 번에 같은 파일 판(Rev)을 여러 번 계산(`MemoStore.cs:297, 308, 319, 340`).
+- [x] 3. 검색 글자마다 모든 메모 파일을 다시 읽음(`MainViewModel.cs:1763, 1792`, `MemoStore.cs:205-216`, `TryFind` 선형). 고침: `Entry` 에 Body 보관 + `BodyOf(id)`, `Dictionary<Guid, Entry>` 색인, 검색 150ms 늦추기.
+- [x] 4. 자동 저장마다 메모 목록 두 곳을 처음부터 다시 만듦(`MemoEditorViewModel.cs:233-236`, `MainViewModel.cs:1794-1804`). 고침: 순서가 같으면 바뀐 줄만 바꿈, 태그 칩은 같으면 그대로.
+- [x] 5. 글자마다 '모두 풀기' 가능 여부를 본문 전체 복사로 계산(`MemoEditorState.cs:42`). 고침: 체크된 줄 정규식 `IsMatch`.
+- [x] 8. 폰 화면 쓸 때 모든 메모를 다시 요약 · 직렬화 두 번(`PhoneLinkEngine.cs:228-229`, `PhoneLinkStore.cs:142-149`). 고침: 같은 요약이면 재사용, 직렬화 한 번.
+- [x] 9. 목록이 바뀔 때마다 휴지통 전체를 읽고 해시(`MemoEditorViewModel.cs:226-231`, `MemoStore.cs:242-257`). 고침: 휴지통 보기일 때만, 라벨은 파일 수.
+- [x] 11. 저장 한 번에 같은 파일 판(Rev)을 여러 번 계산(`MemoStore.cs:297, 308, 319, 340`).
 
 정리
 
-- [ ] 12. `IsMemoFile` 3곳, 줄바꿈 맞추기 6곳 중복 → `MemoFormat` 으로.
-- [ ] 13. `SetPinned/SetTags/SetDaily/UncheckAll/Update/SetLineChecked` 같은 틀 → `Rewrite(id, edit)` 하나로. `MemoEditorState` 필드 비우기 3곳 → `ClearCurrent()`.
+- [x] 12. `IsMemoFile` 3곳, 줄바꿈 맞추기 6곳 중복 → `MemoFormat` 으로.
+- [x] 13. `SetPinned/SetTags/SetDaily/UncheckAll/Update/SetLineChecked` 같은 틀 → `Rewrite(id, edit)` 하나로. `MemoEditorState` 필드 비우기 3곳 → `ClearCurrent()`.
 
 ## 디자인 (Sonnet 점검 — 폰은 화면을 찍어 봄, PC 는 AXAML 을 읽음)
 
 확실한 결함
 
-- [ ] D2. 폰: 길게 누르기 창 · 연결 고르기의 `취소`가 `삭제`/`저장`보다 5px 아래(`.ghost` 의 margin-top 12px 가 `.sheet-actions` 에도 걸림, `style.css:307`). 고침: `.sheet-actions .ghost { margin:0; height:auto }`.
-- [ ] D3. 폰: 누르는 자리가 44px 보다 작음 — 📝 31x27(`style.css:499`), 탭 64x32, 메모 체크 줄 36, 칩 30, 머리 단추 38. 고침: 📝 보이지 않는 누름 영역 넓히기, `.m-check` min-height 44, 머리 단추 44.
-- [ ] D4. 폰: 흐린 글 대비 부족 — 메모 미리보기 · `.sheet-note` 가 `--text-muted`(3.5:1), `.hint` 가 `--text-disabled`(2.0:1). 고침: 미리보기 · 안내는 `--text-secondary`, `.hint` 는 최소 `--text-muted`.
-- [ ] D5. 폰: `…` 메뉴 · 고르기 목록 글 시작 위치가 어긋남(📌 ↻ ○ 너비 다름, 머리글과 11px 차). 고침: 아이콘 20px 고정 칸, 머리글 왼쪽 14px, `삭제` 앞 간격.
-- [ ] D6. 폰: 메모 목록에서 고정 메모 제목만 오른쪽으로 밀림(앞의 📌). 고침: 📌 를 ↻ 옆 오른쪽으로(PC 와 같게). 미리보기가 태그 줄(`#…`)로 시작하면 그 줄 건너뛰기.
-- [ ] D8. PC: 빈 휴지통이면 "휴지통이 비어 있습니다"가 왼쪽 · 오른쪽 두 번(`MemoEditorViewModel.cs:627-629`). 오른쪽은 "지운 메모는 30일 동안 남아요".
-- [ ] D9. PC: 메모가 하나도 없을 때 왼쪽 "아직 메모가 없습니다" + 오른쪽 "왼쪽에서 메모를 고르세요"가 어긋남. 오른쪽을 "새 메모는 위젯 메모 탭 아래 입력칸에서 만들어요"로.
+- [x] D2. 폰: 길게 누르기 창 · 연결 고르기의 `취소`가 `삭제`/`저장`보다 5px 아래(`.ghost` 의 margin-top 12px 가 `.sheet-actions` 에도 걸림, `style.css:307`). 고침: `.sheet-actions .ghost { margin:0; height:auto }`.
+- [x] D3. 폰: 누르는 자리가 44px 보다 작음 — 📝 31x27(`style.css:499`), 탭 64x32, 메모 체크 줄 36, 칩 30, 머리 단추 38. 고침: 📝 보이지 않는 누름 영역 넓히기, `.m-check` min-height 44, 머리 단추 44.
+- [x] D4. 폰: 흐린 글 대비 부족 — 메모 미리보기 · `.sheet-note` 가 `--text-muted`(3.5:1), `.hint` 가 `--text-disabled`(2.0:1). 고침: 미리보기 · 안내는 `--text-secondary`, `.hint` 는 최소 `--text-muted`.
+- [x] D5. 폰: `…` 메뉴 · 고르기 목록 글 시작 위치가 어긋남(📌 ↻ ○ 너비 다름, 머리글과 11px 차). 고침: 아이콘 20px 고정 칸, 머리글 왼쪽 14px, `삭제` 앞 간격.
+- [x] D6. 폰: 메모 목록에서 고정 메모 제목만 오른쪽으로 밀림(앞의 📌). 고침: 📌 를 ↻ 옆 오른쪽으로(PC 와 같게). 미리보기가 태그 줄(`#…`)로 시작하면 그 줄 건너뛰기.
+- [x] D8. PC: 빈 휴지통이면 "휴지통이 비어 있습니다"가 왼쪽 · 오른쪽 두 번(`MemoEditorViewModel.cs:627-629`). 오른쪽은 "지운 메모는 30일 동안 남아요".
+- [x] D9. PC: 메모가 하나도 없을 때 왼쪽 "아직 메모가 없습니다" + 오른쪽 "왼쪽에서 메모를 고르세요"가 어긋남. 오른쪽을 "새 메모는 위젯 메모 탭 아래 입력칸에서 만들어요"로.
 
 고를 것(취향)
 
@@ -74,17 +74,17 @@
 
 최적화
 
-- [ ] P7. `composeMemos` 가 바뀔 때마다 모든 메모의 모든 줄을 분류(`app.js:921-927`) — 메모 300개 × 81줄에서 36ms, 체크 한 번 + 그리기 110ms(옛 아이폰은 몇 배). 고침: 줄 분류는 연 메모만(필요할 때). 화면이 그대로면 `applyView` · localStorage 저장 건너뛰기(동기화 S5 와 같음).
-- [ ] P8. 새로고침마다 화면을 두 번 통째로 다시 그림(바쁨 표시 켜기 · 끄기, `app.js:473-474, 500`) — 그 순간 누른 체크가 씹힐 수 있음. 고침: 바쁨은 아이콘 클래스만, 바뀐 게 있을 때만 다시 그리기.
-- [ ] P9. 검색 글자마다 메모마다 미리보기 · 소문자 변환을 다시 함(`app.js:1266-1267, 729-735`). 고침: 합친 메모 객체에 미리보기 · 검색용 글을 캐시.
+- [x] P7. `composeMemos` 가 바뀔 때마다 모든 메모의 모든 줄을 분류(`app.js:921-927`) — 메모 300개 × 81줄에서 36ms, 체크 한 번 + 그리기 110ms(옛 아이폰은 몇 배). 고침: 줄 분류는 연 메모만(필요할 때). 화면이 그대로면 `applyView` · localStorage 저장 건너뛰기(동기화 S5 와 같음).
+- [x] P8. 새로고침마다 화면을 두 번 통째로 다시 그림(바쁨 표시 켜기 · 끄기, `app.js:473-474, 500`) — 그 순간 누른 체크가 씹힐 수 있음. 고침: 바쁨은 아이콘 클래스만, 바뀐 게 있을 때만 다시 그리기.
+- [x] P9. 검색 글자마다 메모마다 미리보기 · 소문자 변환을 다시 함(`app.js:1266-1267, 729-735`). 고침: 합친 메모 객체에 미리보기 · 검색용 글을 캐시.
 
 정리
 
-- [ ] P10. `'tab'` 처리의 죽은 갈래(`app.js:1929-1933`).
-- [ ] P11. `'v13'` 이 세 군데(`app.js:1071, 1216, 1498`) + index.html → `APP_VERSION` 하나로. `memoDiag()` 가 `diagnostics()` 일부와 겹침.
-- [ ] P12. 열쇠 받고 보내기 세 줄이 세 번 복사(`app.js:1975, 1986, 2008`) → `await sendEdits()`.
-- [ ] P13. style.css: `.sheet-actions .grow` 는 전역 `.grow` 와 중복, `.menu-item.danger` 색이 `.sheet-actions .danger` 와 중복, `menu-sheet` · `m-num` 클래스는 CSS · JS 어디서도 안 씀.
-- [ ] P14. (조건부) v10–v12 임시 글 호환 코드(`app.js:2352-2366`) — main 은 v9 → v13 이라 그런 임시 글이 없음. 지워도 됨.
+- [x] P10. `'tab'` 처리의 죽은 갈래(`app.js:1929-1933`).
+- [x] P11. `'v13'` 이 세 군데(`app.js:1071, 1216, 1498`) + index.html → `APP_VERSION` 하나로. `memoDiag()` 가 `diagnostics()` 일부와 겹침.
+- [x] P12. 열쇠 받고 보내기 세 줄이 세 번 복사(`app.js:1975, 1986, 2008`) → `await sendEdits()`.
+- [x] P13. style.css: `.sheet-actions .grow` 는 전역 `.grow` 와 중복, `.menu-item.danger` 색이 `.sheet-actions .danger` 와 중복, `menu-sheet` · `m-num` 클래스는 CSS · JS 어디서도 안 씀.
+- [x] P14. (조건부) v10–v12 임시 글 호환 코드(`app.js:2352-2366`) — main 은 v9 → v13 이라 그런 임시 글이 없음. 지워도 됨.
 
 잘 된 것: 메모에서 온 글은 모두 `esc()`(XSS 없음), 옛 사파리에서 안 되는 것 안 씀, 줄바꿈 정리, SHA-256 은 저장 · 열 때만, 두 번 보내기 막음, 새로고침이 글 칸 · 한글 조합을 안 건드림.
 실기기로만 확인 가능: 한글 조합 중에 서식 줄 누르기(Gboard · iOS).
@@ -107,13 +107,13 @@
 
 ### 제안 (좋은 순서)
 
-- [ ] S1. **휴대폰 연결 상태를 정직하게** (S, 중계 그대로) — `fetchedAt`(마지막으로 받은 때)과 `GeneratedAt`(PC 가 마지막으로 바꾼 때)을 따로 보이기. 보낸 일이 3분 넘게 AppliedOps 에 안 들어오면 "PC가 꺼져 있거나 드라이브 동기화가 멈춘 것 같습니다 · n분째". 오프라인이면 "오프라인 · 연결되면 보냅니다", 중계가 전에 됐던 적이 있으면 권한 문구 대신 "중계가 잠시 응답하지 않습니다". (`app.js` statusLine · diagnostics · relayCall)
-- [ ] S2. **숨겨질 때 · 오프라인일 때 일이 묶이지 않게** (S, 중계 그대로) — 숨겨지거나 `pagehide` 때 안 보낸 일이 있으면 바로 보냄(64KB 이하면 `fetch(..., {keepalive:true})`), `online` 이벤트에 새로고침, 중계 요청 20초 시간 제한(AbortController).
-- [ ] S3. **한 바퀴 짧게** (S, 중계 그대로) — 휴대폰: 보내기 성공 12–15초 뒤 한 번 더 받기. PC: `RefreshMemoList` 와 메모 훑기 변경 때도 2초 타이머(메모 변경 최대 1분 대기 없앰). 선택: inbox 가 바뀐 뒤 2분간 3초마다 보기, 폰 일을 넣은 뒤 바로 쓰기.
-- [ ] S4. **화면 파일에 AppliedOps 를 필요한 만큼만** (M, 위험 중간, 시험 필요) — data.json 에는 45일 그대로, 화면 파일에는 최근 7일 + 마지막으로 읽은 inbox 에 아직 있는 것만. 휴대폰 임시 글 판별(`draftSaved`/`pruneMemoDrafts`, `app.js:2254-2300`)이 그대로 되는지 확인.
-- [ ] S5. **바뀐 게 없으면 휴대폰이 일을 덜 하기** (S) — 받은 `GeneratedAt` 이 같으면 localStorage 쓰기 · 다시 그리기 건너뛰고 상태 줄만. 선택: 5분 조용하면 60초마다.
-- [ ] S6. **PC 에 휴대폰 연동 상태** (M) — 연동 폴더 있음 · 마지막 inbox 받은 때 · 화면 파일 쓴 때/못 씀 · 기다리는 일 수.
-- [ ] S7. **디스크에 저장된 뒤에만 '처리함'으로 알리기** (S) — `DataStore.Flush` 가 실패(드라이브가 파일 잠금)하면 저장이 빠지는데 AppliedOps 는 화면 파일로 나가 휴대폰이 일을 지움 → 그 뒤 PC 가 꺼지면 잃음. 저장 대기 중이거나 마지막 저장 뒤 `LastError` 면 `PushToPhone` 미루기(`DataStore.cs:220-252`).
-- [ ] S8. (선택, 중계 바꿀 때만) **relay v2** — `since=<stamp>` 를 받아 화면 파일이 그대로면 `{ok, same:true, inbox}` 만, `handle` 을 try/catch 로 감싸 HTML 오류 대신 `{ok:false, error:'busy'}`, 폴더 · 파일 id 를 PropertiesService 에 기억. 옛 휴대폰도 그대로 됨. 다시 배포해야 해서 이것만으로는 비추천.
+- [x] S1. **휴대폰 연결 상태를 정직하게** (S, 중계 그대로) — `fetchedAt`(마지막으로 받은 때)과 `GeneratedAt`(PC 가 마지막으로 바꾼 때)을 따로 보이기. 보낸 일이 3분 넘게 AppliedOps 에 안 들어오면 "PC가 꺼져 있거나 드라이브 동기화가 멈춘 것 같습니다 · n분째". 오프라인이면 "오프라인 · 연결되면 보냅니다", 중계가 전에 됐던 적이 있으면 권한 문구 대신 "중계가 잠시 응답하지 않습니다". (`app.js` statusLine · diagnostics · relayCall)
+- [x] S2. **숨겨질 때 · 오프라인일 때 일이 묶이지 않게** (S, 중계 그대로) — 숨겨지거나 `pagehide` 때 안 보낸 일이 있으면 바로 보냄(64KB 이하면 `fetch(..., {keepalive:true})`), `online` 이벤트에 새로고침, 중계 요청 20초 시간 제한(AbortController).
+- [x] S3. **한 바퀴 짧게** (S, 중계 그대로) — 휴대폰: 보내기 성공 12–15초 뒤 한 번 더 받기. PC: `RefreshMemoList` 와 메모 훑기 변경 때도 2초 타이머(메모 변경 최대 1분 대기 없앰). 선택: inbox 가 바뀐 뒤 2분간 3초마다 보기, 폰 일을 넣은 뒤 바로 쓰기.
+- [x] S4. **화면 파일에 AppliedOps 를 필요한 만큼만** (M, 위험 중간, 시험 필요) — data.json 에는 45일 그대로, 화면 파일에는 최근 7일 + 마지막으로 읽은 inbox 에 아직 있는 것만. 휴대폰 임시 글 판별(`draftSaved`/`pruneMemoDrafts`, `app.js:2254-2300`)이 그대로 되는지 확인.
+- [x] S5. **바뀐 게 없으면 휴대폰이 일을 덜 하기** (S) — 받은 `GeneratedAt` 이 같으면 localStorage 쓰기 · 다시 그리기 건너뛰고 상태 줄만. 선택: 5분 조용하면 60초마다.
+- [x] S6. **PC 에 휴대폰 연동 상태** (M) — 연동 폴더 있음 · 마지막 inbox 받은 때 · 화면 파일 쓴 때/못 씀 · 기다리는 일 수.
+- [x] S7. **디스크에 저장된 뒤에만 '처리함'으로 알리기** (S) — `DataStore.Flush` 가 실패(드라이브가 파일 잠금)하면 저장이 빠지는데 AppliedOps 는 화면 파일로 나가 휴대폰이 일을 지움 → 그 뒤 PC 가 꺼지면 잃음. 저장 대기 중이거나 마지막 저장 뒤 `LastError` 면 `PushToPhone` 미루기(`DataStore.cs:220-252`).
+- [ ] S8. (안 함 — 중계를 다시 배포해야 해서 비추천 그대로) (선택, 중계 바꿀 때만) **relay v2** — `since=<stamp>` 를 받아 화면 파일이 그대로면 `{ok, same:true, inbox}` 만, `handle` 을 try/catch 로 감싸 HTML 오류 대신 `{ok:false, error:'busy'}`, 폴더 · 파일 id 를 PropertiesService 에 기억. 옛 휴대폰도 그대로 됨. 다시 배포해야 해서 이것만으로는 비추천.
 
 비추천: PC 가 주기적으로 '살아 있음' 쓰기(매번 화면 파일 전체 다시 올림), 메모 본문을 따로 파일로(중계 · 권한 바꿔야 함).

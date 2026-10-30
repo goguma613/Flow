@@ -225,7 +225,10 @@ public sealed class PhoneMemoCache
                 }
             }
 
-            var memo = PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body);
+            // 본문(판)도 머리말 값도 그대로면 지난번 것을 다시 쓴다 — 매번 모든 메모를 다시 요약하지 않게.
+            var memo = known.Sent is { } sent && sent.Rev == known.Rev && SameHeader(sent, summary)
+                ? sent
+                : PhoneLinkEngine.ToPhoneMemo(summary, known.Rev, known.Body);
             _bodies[summary.Id] = (known.Rev, known.Body, memo);
             result.Add(memo);
         }
@@ -233,6 +236,10 @@ public sealed class PhoneMemoCache
         foreach (var gone in _bodies.Keys.Where(id => !live.Contains(id)).ToList()) _bodies.Remove(gone);
         return result;
     }
+
+    private static bool SameHeader(PhoneMemo sent, MemoSummary summary)
+        => sent.Pinned == summary.Pinned && sent.Daily == summary.Daily && sent.Reset == summary.Reset
+           && sent.Updated == summary.Updated && sent.Tags.SequenceEqual(summary.Tags);
 }
 
 /// <summary>
@@ -592,15 +599,23 @@ public static class PhoneLinkEngine
     /// 루틴·할 일의 MemoId 는 그 메모가 여기 있을 때만 채운다.
     /// heldMemos 는 PC 메모 창이 쓰는 중으로 들고 있는 메모 — 여기 있는 메모만 HeldMemos 로 알린다.
     /// </summary>
+    /// <summary>폰 화면에 반영한 일 번호를 며칠 치 넣을지(inbox 에 남은 것은 날짜와 상관없이 넣는다).</summary>
+    public const int ViewAppliedDays = 7;
+
     public static PhoneView BuildView(AppData data, DateOnly today, DateTime now, IReadOnlyList<PhoneMemo>? memos = null,
-        IEnumerable<Guid>? heldMemos = null)
+        IEnumerable<Guid>? heldMemos = null, IEnumerable<Guid>? inboxIds = null)
     {
+        // 반영한 일 번호는 data.json 에 45일 치가 있지만, 폰 화면에는 최근 것과 아직 inbox 에 남은 것만 보낸다 —
+        // 하루 50개면 45일 치가 90KB 가까이 되어 30초마다 받고 · 남기고 · 다시 그리는 화면이 그만큼 무거웠다.
+        // 폰은 inbox 에서 사라진 일을 다시 찾지 않으므로(보낸 목록은 폰에 남는다) 그 밖의 옛 번호는 쓸 데가 없다.
+        var inbox = inboxIds is null ? new HashSet<Guid>() : new HashSet<Guid>(inboxIds);
+        var since = today.AddDays(-ViewAppliedDays);
         var view = new PhoneView
         {
             GeneratedAt = now,
             Today = today,
             DayStartHour = data.Settings.DayStartHour,
-            AppliedOps = data.PhoneOpsApplied.Select(a => a.Id).ToList()
+            AppliedOps = data.PhoneOpsApplied.Where(a => a.Day >= since || inbox.Contains(a.Id)).Select(a => a.Id).ToList()
         };
 
         if (memos is not null)
@@ -676,7 +691,7 @@ public static class PhoneLinkEngine
         {
             Id = summary.Id,
             Title = string.IsNullOrWhiteSpace(title) ? MemoFormat.Untitled : title,
-            Text = body.Replace("\r\n", "\n").Replace('\r', '\n'),
+            Text = MemoFormat.Newlines(body),
             Pinned = summary.Pinned,
             Daily = summary.Daily,
             Reset = summary.Reset,

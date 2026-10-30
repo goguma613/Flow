@@ -62,7 +62,7 @@ public static class BackupService
                     var memoFolder = Path.Combine(DataStore.Directory, "memos");
                     var unreadable = new List<string>();
                     if (System.IO.Directory.Exists(memoFolder))
-                        foreach (var file in System.IO.Directory.EnumerateFiles(memoFolder).Where(IsMemoFile).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                        foreach (var file in System.IO.Directory.EnumerateFiles(memoFolder).Where(MemoFormat.IsMemoFile).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
                         {
                             // 잠긴 메모 하나 때문에 백업 전체를 버리지 않는다. 세 번 시도하고, 그래도 안 되면 표시를 남긴다.
                             if (ReadWithRetry(file) is { } bytes)
@@ -346,16 +346,9 @@ public static class BackupService
         var full = entry.FullName.Replace('\\', '/');
         if (!full.StartsWith(MemoPrefix, StringComparison.Ordinal)) return null;
         var name = full[MemoPrefix.Length..];
-        if (name.Length == 0 || name.Contains('/') || !IsMemoFile(name)) return null;
+        if (name.Length == 0 || name.Contains('/') || !MemoFormat.IsMemoFile(name)) return null;
         if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
         return name;
-    }
-
-    private static bool IsMemoFile(string path)
-    {
-        var ext = Path.GetExtension(path);
-        return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsZip(string path)

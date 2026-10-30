@@ -268,6 +268,20 @@ internal static partial class Program
                 string.Join(",", view.Tasks.Select(t => t.Title)), "급함,보통,오늘 끝냄");
             Check("예정은 따로", string.Join(",", view.Upcoming.Select(t => t.Title)), "모레,다음 주");
             Check("반영한 일 번호를 알려 줌", view.AppliedOps.Contains(appliedId), true);
+
+            // 폰 화면에는 최근 7일 치와 아직 inbox 에 남은 것만
+            var weekOld = Guid.NewGuid();
+            var oldInInbox = Guid.NewGuid();
+            var oldGone = Guid.NewGuid();
+            data.PhoneOpsApplied.Add(new AppliedPhoneOp { Id = weekOld, Day = Mon.AddDays(-7) });
+            data.PhoneOpsApplied.Add(new AppliedPhoneOp { Id = oldInInbox, Day = Mon.AddDays(-20) });
+            data.PhoneOpsApplied.Add(new AppliedPhoneOp { Id = oldGone, Day = Mon.AddDays(-20) });
+            var trimmed = PhoneLinkEngine.BuildView(data, Mon, Mon.ToDateTime(new TimeOnly(9, 0)), inboxIds: [oldInInbox]);
+            Check("7일 안 · inbox 에 남은 것만",
+                (trimmed.AppliedOps.Contains(appliedId), trimmed.AppliedOps.Contains(weekOld), trimmed.AppliedOps.Contains(oldInInbox), trimmed.AppliedOps.Contains(oldGone)),
+                (true, true, true, false));
+            Check("data.json 에는 그대로", data.PhoneOpsApplied.Count, 4);
+            data.PhoneOpsApplied.RemoveAll(a => a.Id != appliedId);
             Check("기준 시각을 알려 줌", view.DayStartHour, 4);
 
             var json = JsonSerializer.Serialize(view, AppJsonContext.Default.PhoneView);

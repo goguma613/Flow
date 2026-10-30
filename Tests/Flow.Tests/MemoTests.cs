@@ -178,6 +178,30 @@ internal static partial class Program
         Check("deleted 기록", File.ReadAllText(store.Trash().First().Path).Contains("deleted: 2026-10-29"), true);
         Check("되살리기", store.RestoreFromTrash(c.Doc.Id), true);
         Check("deleted 지워짐", File.ReadAllText(store.Load(c.Doc.Id)!.Path).Contains("deleted:"), false);
+
+        // 다른 휴지통 파일 하나가 안 읽혀도 되살린다
+        var stuck = store.Create("잠길 휴지통 메모\n내용")!;
+        store.Delete(stuck.Doc.Id);
+        store.Delete(c.Doc.Id);
+        var stuckPath = store.Trash().First(m => m.Id == stuck.Doc.Id).Path;
+        using (new FileStream(stuckPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Check("다른 휴지통 파일이 잠겨도 되살림", store.RestoreFromTrash(c.Doc.Id), true);
+        Check("되살린 메모가 목록에", store.Memos.Count(m => m.Id == c.Doc.Id), 1);
+
+        // 되살린 뒤 휴지통 파일을 못 지워도 성공 · 다시 눌러도 사본 없이 휴지통만 비움
+        store.Delete(c.Doc.Id);
+        var cTrash = store.Trash().First(m => m.Id == c.Doc.Id).Path;
+        using (new FileStream(cTrash, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Check("휴지통 파일을 못 지워도 성공", store.RestoreFromTrash(c.Doc.Id), true);
+        Check("휴지통에 남음", store.Trash().Count(m => m.Id == c.Doc.Id), 1);
+        Check("다시 되살리기도 성공", store.RestoreFromTrash(c.Doc.Id), true);
+        store.Scan();
+        Check("사본 없이 하나", store.Memos.Count(m => m.Id == c.Doc.Id), 1);
+        Check("휴지통에서 빠짐", store.Trash().Count(m => m.Id == c.Doc.Id), 0);
+        store.RestoreFromTrash(stuck.Doc.Id);
+        store.Delete(stuck.Doc.Id);
+        store.PurgeTrash(new DateOnly(2027, 1, 1));
+
         store.Delete(c.Doc.Id);
         Check("30일 안은 남김", store.PurgeTrash(new DateOnly(2026, 11, 28)), 0);
         Check("30일 지나면 지움", store.PurgeTrash(new DateOnly(2026, 11, 29)), 1);
@@ -438,8 +462,19 @@ internal static partial class Program
         var wed = store.ResetDaily(Wed);
         Check("다음 날 셋 다 씀", (wed.Written, wed.Complete), (3, true));
         Check("reset 은 적힘", (ResetOn(quiet.Doc.Id, Wed), Body(quiet.Doc.Id)), (true, "조용한 절차\n[ ] 하나"));
-        Check("reset 만 바뀌면 Updated 그대로", store.Memos.First(x => x.Id == quiet.Doc.Id).Updated, old);
-        Check("파일 시각도 그대로", File.GetLastWriteTime(store.Load(quiet.Doc.Id)!.Path), old);
+        // 딱 그대로가 아니라 2초 뒤 — 같은 길이로 reset 만 바뀐 것을 다른 PC 훑기가 알아채게
+        Check("reset 만 바뀌면 Updated 는 2초 뒤", store.Memos.First(x => x.Id == quiet.Doc.Id).Updated, old.AddSeconds(2));
+        Check("파일 시각도 2초 뒤", File.GetLastWriteTime(store.Load(quiet.Doc.Id)!.Path), old.AddSeconds(2));
+        var otherPc = new MemoStore(root, () => true, () => clock);
+        otherPc.Scan();
+        var quietPath = store.Load(quiet.Doc.Id)!.Path;
+        var quietText = File.ReadAllText(quietPath);
+        string ResetLineOf(DateOnly day) => "reset: " + day.ToString("yyyy-MM-dd");
+        File.WriteAllText(quietPath, quietText.Replace(ResetLineOf(Wed), ResetLineOf(Thu)));
+        File.SetLastWriteTime(quietPath, old.AddSeconds(4));   // 다음 날 다른 PC 가 푼 모양: 같은 길이, 2초 뒤
+        Check("같은 길이로 reset 만 바뀐 것을 다른 PC 가 알아챔", otherPc.Scan(), true);
+        File.WriteAllText(quietPath, quietText);               // 되돌려 둔다(아래 시험은 Wed 상태에서)
+        File.SetLastWriteTime(quietPath, old.AddSeconds(2));
         Check("체크를 푼 메모는 시각이 바뀜", store.Memos.First(x => x.Id == done.Doc.Id).Updated == old, false);
         Check("시각을 되돌린 뒤 Scan 은 바뀜 없음", store.Scan(), false);
 
@@ -508,6 +543,45 @@ internal static partial class Program
         // memos 폴더만 없고 데이터 폴더는 있으면 정말 다 지운 것이다
         Directory.Delete(store.Folder, true);
         Check("memos 폴더만 지우면 목록 비움", (store.Scan(), store.Memos.Count), (true, 0));
+        Directory.Delete(root, true);
+
+        MemoCacheTests();
+    }
+
+    /// <summary>글자마다 · 저장마다 파일을 다시 읽거나 본문을 복사하지 않게 들고 있는 것들.</summary>
+    private static void MemoCacheTests()
+    {
+        Check("체크 있음", MemoFormat.HasChecked("제목\n- [ ] 하나\n  - [x] 둘"), true);
+        Check("대문자 X 도", MemoFormat.HasChecked("제목\r\n[X] 하나"), true);
+        Check("빈 칸만이면 없음", MemoFormat.HasChecked("제목\n[ ] 하나\n- [] 둘"), false);
+        Check("줄 머리가 아니면 없음", MemoFormat.HasChecked("글 [x] 중간"), false);
+        Check("옛 맥 줄바꿈도", MemoFormat.HasChecked("제목\r[x] 하나"), true);
+        foreach (var body in new[] { "a\n[x] b", "a\n[ ] b", "- [x] a", "a [x]", "\n\n  [X]", "-  [x] 띄움" })
+            Check("HasChecked = UncheckAll 이 바꿈: " + body.Replace("\n", "⏎"), MemoFormat.HasChecked(body), MemoFormat.UncheckAll(body) != body);
+
+        var root = Path.Combine(DataStore.Directory, "memotest-cache");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var store = new MemoStore(root, () => true, () => new DateTime(2026, 10, 5, 9, 0, 0));
+        var m = store.Create("기억할 메모\n찾을 낱말")!;
+        Check("만든 본문을 기억", store.BodyOf(m.Doc.Id), "기억할 메모\n찾을 낱말");
+        store.Save(m.Doc.Id, "기억할 메모\n바뀐 낱말", m.Rev);
+        Check("저장한 본문을 기억", store.BodyOf(m.Doc.Id), "기억할 메모\n바뀐 낱말");
+        Check("모르는 id 는 null", store.BodyOf(Guid.NewGuid()), null);
+        Check("휴지통 수 0", store.TrashCount(), 0);
+        store.Delete(m.Doc.Id);
+        Check("휴지통 수 1", store.TrashCount(), 1);
+        Check("지운 메모 본문은 모름", store.BodyOf(m.Doc.Id), null);
+
+        // 폰 화면 요약: 판도 머리말도 같으면 지난번 것을 그대로
+        var kept = store.Create("폰 메모\n본문")!;
+        store.Scan();
+        var cache = new PhoneMemoCache();
+        var first = cache.Build(store.Memos, store.Load).Single();
+        var second = cache.Build(store.Memos, store.Load).Single();
+        Check("같으면 같은 요약 객체", ReferenceEquals(first, second), true);
+        store.SetPinned(kept.Doc.Id, true);
+        var third = cache.Build(store.Memos, store.Load).Single();
+        Check("머리말이 바뀌면 새로", (ReferenceEquals(second, third), third.Pinned), (false, true));
         Directory.Delete(root, true);
     }
 

@@ -132,7 +132,7 @@ public static class DataLocation
 
         foreach (var file in Directory.GetFiles(from))
         {
-            if (!IsMemoFile(file)) continue;
+            if (!MemoFormat.IsMemoFile(file)) continue;
             try
             {
                 Directory.CreateDirectory(to);
@@ -160,13 +160,6 @@ public static class DataLocation
 
     private static bool SameContent(string a, string b)
         => File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b).AsSpan());
-
-    private static bool IsMemoFile(string path)
-    {
-        var ext = Path.GetExtension(path);
-        return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
-    }
 
     private static DataLocationPointer? Read()
     {

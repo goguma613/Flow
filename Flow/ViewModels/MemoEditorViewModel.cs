@@ -624,10 +624,12 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         ShowEmptyPane = !ShowReader && !ShowWriter;
         CanEditTags = !IsTrashView && HasMemo;
         ShowTagField = IsTrashView ? SelectedTrash is not null && TagChips.Count > 0 : HasMemo;
+        // 왼쪽 목록이 이미 '비어 있습니다'를 말하면 오른쪽은 같은 말을 되풀이하지 않고 다음에 할 것을 알린다.
+        var noMemos = Main.Memos.Memos.Count == 0;
         EmptyPaneText = IsTrashView
-            ? (TrashRows.Count == 0 ? "휴지통이 비어 있습니다" : "왼쪽에서 되살릴 메모를 고르세요")
-            : "왼쪽에서 메모를 고르세요";
-        ListEmptyText = Main.Memos.Memos.Count == 0 ? "아직 메모가 없습니다" : "찾는 메모가 없습니다";
+            ? (TrashRows.Count == 0 ? "지운 메모는 30일 동안 남아요" : "왼쪽에서 되살릴 메모를 고르세요")
+            : noMemos ? "새 메모는 위젯 메모 탭 아래 입력칸에서 만들어요" : "왼쪽에서 메모를 고르세요";
+        ListEmptyText = noMemos ? "아직 메모가 없습니다" : "찾는 메모가 없습니다";
     }
 
     /// <summary>제목 줄에서 줄 머리 기호(# · ## · 1. · - · [ ])를 뗀 글. 목록 줄의 제목과 같다.</summary>
@@ -668,15 +670,18 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
 
     private void RefreshTrash()
     {
+        // 목록이 바뀔 때마다 불린다. 휴지통 파일을 다 읽는 것은 휴지통을 볼 때만, 그 밖에는 단추 라벨에 쓸 파일 수만 센다.
         var keep = SelectedTrash?.Id;
         TrashRows.Clear();
-        foreach (var summary in Main.Memos.Trash()) TrashRows.Add(new MemoTrashRow(summary, this));
+        if (IsTrashView)
+            foreach (var summary in Main.Memos.Trash()) TrashRows.Add(new MemoTrashRow(summary, this));
 
         SelectedTrash = keep is { } id ? TrashRows.FirstOrDefault(r => r.Id == id) : null;
         if (SelectedTrash is { } selected) selected.IsSelected = true;
 
-        TrashEmpty = TrashRows.Count == 0;
-        TrashLabel = "휴지통 " + TrashRows.Count;
+        var count = IsTrashView ? TrashRows.Count : Main.Memos.TrashCount();
+        TrashEmpty = count == 0;
+        TrashLabel = "휴지통 " + count;
     }
 
     private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -692,7 +697,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         foreach (var row in Main.MemoRows) row.IsCurrent = row.Id == current;
     }
 
-    private static string Normalize(string? text) => (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+    private static string Normalize(string? text) => MemoFormat.Newlines(text ?? "");
 
     public void Dispose()
     {
@@ -803,7 +808,7 @@ public sealed partial class MemoTrashRow : ObservableObject
     {
         try
         {
-            return MemoFormat.Parse(File.ReadAllText(_path), Id).Body.Replace("\r\n", "\n").Replace('\r', '\n');
+            return MemoFormat.Newlines(MemoFormat.Parse(File.ReadAllText(_path), Id).Body);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
