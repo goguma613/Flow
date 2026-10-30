@@ -69,12 +69,7 @@ public sealed class MemoEditorState
         var file = _store.Load(id);
         if (file is null)
         {
-            CurrentId = null;
-            Body = "";
-            Pinned = false;
-            IsDaily = false;
-            Tags = Array.Empty<string>();
-            _baseRev = null;
+            ClearCurrent();
             // 잠겼거나 덜 받아진 파일은 목록에 남아 있다. 지워졌다고 하면 안 된다.
             Banner = _store.Memos.Any(m => m.Id == id) ? UnreadableBanner : DeletedBanner;
             return pre;
@@ -95,12 +90,7 @@ public sealed class MemoEditorState
         Flush();
         if (IsDirty) return;
 
-        CurrentId = null;
-        Body = "";
-        Pinned = false;
-        IsDaily = false;
-        Tags = Array.Empty<string>();
-        _baseRev = null;
+        ClearCurrent();
         Banner = null;
     }
 
@@ -247,14 +237,20 @@ public sealed class MemoEditorState
         if (IsDirty || CurrentId != id) return false;
         if (!_store.Delete(id)) return false;
 
+        ClearCurrent();
+        Banner = pre?.Outcome == SaveOutcome.Conflict ? ConflictBanner : null;
+        return true;
+    }
+
+    /// <summary>연 메모가 없는 상태로(띠는 부른 쪽이 정한다).</summary>
+    private void ClearCurrent()
+    {
         CurrentId = null;
         Body = "";
         Pinned = false;
         IsDaily = false;
         Tags = Array.Empty<string>();
         _baseRev = null;
-        Banner = pre?.Outcome == SaveOutcome.Conflict ? ConflictBanner : null;
-        return true;
     }
 
     public void ClearBanner() => Banner = null;
@@ -286,5 +282,5 @@ public sealed class MemoEditorState
         if (Banner == DeletedBanner) Banner = null;
     }
 
-    private static string Normalize(string body) => body.Replace("\r\n", "\n").Replace('\r', '\n');
+    private static string Normalize(string body) => MemoFormat.Newlines(body);
 }

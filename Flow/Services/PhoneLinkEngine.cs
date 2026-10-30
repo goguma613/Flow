@@ -683,7 +683,7 @@ public static class PhoneLinkEngine
         {
             Id = summary.Id,
             Title = string.IsNullOrWhiteSpace(title) ? MemoFormat.Untitled : title,
-            Text = body.Replace("\r\n", "\n").Replace('\r', '\n'),
+            Text = MemoFormat.Newlines(body),
             Pinned = summary.Pinned,
             Daily = summary.Daily,
             Reset = summary.Reset,

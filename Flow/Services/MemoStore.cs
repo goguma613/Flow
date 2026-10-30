@@ -120,7 +120,7 @@ public sealed class MemoStore
             if (Directory.Exists(Folder))
             {
                 foreach (var p in Directory.EnumerateFiles(Folder))
-                    if (IsMemoFile(p)) files[p] = new FileInfo(p);
+                    if (MemoFormat.IsMemoFile(p)) files[p] = new FileInfo(p);
             }
             else if (!Directory.Exists(DataFolder))
             {
@@ -367,34 +367,55 @@ public sealed class MemoStore
     }
 
     public bool SetPinned(Guid id, bool pinned)
-    {
-        if (!_canWrite()) return false;
-        try
-        {
-            if (Locate(id) is not (var e, var doc)) return false;
-            if (doc.HasHeader && doc.Pinned == pinned) return true;
-            doc = doc with { Id = id, HasHeader = true, Pinned = pinned };
-            WriteDoc(e.Path, doc);
-            Remember(e.Path, doc);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
+        => Rewrite(id, doc => doc.HasHeader && doc.Pinned == pinned
+            ? Edit.Already
+            : Edit.Write(doc with { Pinned = pinned })) == MemoCheckResult.Applied;
 
     /// <summary>
     /// 휴대폰에서 온 고치기 하나(고정·매일 초기화·체크 모두 풀기). change 가 고친 문서를 돌려주면 쓰고 Applied,
     /// null 이면(이미 그 상태) Skipped. 메모가 없으면(휴지통 포함) Skipped, 쓸 수 없거나 읽지·쓰지 못하면 Deferred.
     /// </summary>
     public MemoCheckResult Update(Guid id, Func<MemoDocument, MemoDocument?> change)
+        => Rewrite(id, doc => change(doc) is { } changed ? Edit.Write(changed) : Edit.Stop(MemoCheckResult.Skipped));
+
+    /// <summary>머리말 tags 만 고친다. 본문·판은 그대로. 잘못된 이름은 버리고 중복은 하나로 한다.</summary>
+    public bool SetTags(Guid id, IReadOnlyList<string> tags)
+    {
+        var clean = tags.Select(MemoFormat.NormalizeTag).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return Rewrite(id, doc => doc.HasHeader && (doc.Tags ?? Array.Empty<string>()).SequenceEqual(clean)
+            ? Edit.Already
+            : Edit.Write(doc with { Tags = clean })) == MemoCheckResult.Applied;
+    }
+
+    /// <summary>머리말 daily 만 고친다(판 그대로). 켤 때 reset 을 today 로 적어 켠 날 바로 풀리지 않게 한다. 끌 때 reset 은 둔다.</summary>
+    public bool SetDaily(Guid id, bool daily, DateOnly today)
+        => Rewrite(id, doc => doc.HasHeader && doc.Daily == daily && (!daily || doc.Reset == today)
+            ? Edit.Already
+            : Edit.Write(doc with { Daily = daily, Reset = daily ? today : doc.Reset })) == MemoCheckResult.Applied;
+
+    /// <summary>Rewrite 의 edit 이 돌려주는 것: 쓸 문서(Doc), 또는 쓰지 않고 끝낼 결과.</summary>
+    private readonly record struct Edit(MemoDocument? Doc, MemoCheckResult Result)
+    {
+        public static Edit Write(MemoDocument doc) => new(doc, MemoCheckResult.Applied);
+        public static Edit Stop(MemoCheckResult result) => new(null, result);
+
+        /// <summary>이미 그 상태 — 쓰지 않고 해낸 것으로 친다.</summary>
+        public static Edit Already => Stop(MemoCheckResult.Applied);
+    }
+
+    /// <summary>
+    /// 메모 하나를 읽어 고쳐 쓰는 틀. edit 이 문서를 돌려주면 머리말을 달아 쓰고 Applied, 아니면 그 결과 그대로.
+    /// 메모가 없으면 Skipped, 쓸 수 없거나 읽지·쓰지 못하면 Deferred.
+    /// </summary>
+    private MemoCheckResult Rewrite(Guid id, Func<MemoDocument, Edit> edit)
     {
         if (!_canWrite()) return MemoCheckResult.Deferred;
         try
         {
             if (Locate(id) is not (var e, var doc)) return MemoCheckResult.Skipped;
-            if (change(doc) is not { } changed) return MemoCheckResult.Skipped;
+            var r = edit(doc);
+            if (r.Doc is not { } changed) return r.Result;
             changed = changed with { Id = id, HasHeader = true };
             WriteDoc(e.Path, changed);
             Remember(e.Path, changed);
@@ -403,46 +424,6 @@ public sealed class MemoStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return MemoCheckResult.Deferred;
-        }
-    }
-
-    /// <summary>머리말 tags 만 고친다. 본문·판은 그대로. 잘못된 이름은 버리고 중복은 하나로 한다.</summary>
-    public bool SetTags(Guid id, IReadOnlyList<string> tags)
-    {
-        if (!_canWrite()) return false;
-        try
-        {
-            if (Locate(id) is not (var e, var doc)) return false;
-            var clean = tags.Select(MemoFormat.NormalizeTag).OfType<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if (doc.HasHeader && (doc.Tags ?? Array.Empty<string>()).SequenceEqual(clean)) return true;
-            doc = doc with { Id = id, HasHeader = true, Tags = clean };
-            WriteDoc(e.Path, doc);
-            Remember(e.Path, doc);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>머리말 daily 만 고친다(판 그대로). 켤 때 reset 을 today 로 적어 켠 날 바로 풀리지 않게 한다. 끌 때 reset 은 둔다.</summary>
-    public bool SetDaily(Guid id, bool daily, DateOnly today)
-    {
-        if (!_canWrite()) return false;
-        try
-        {
-            if (Locate(id) is not (var e, var doc)) return false;
-            if (doc.HasHeader && doc.Daily == daily && (!daily || doc.Reset == today)) return true;
-            doc = doc with { Id = id, HasHeader = true, Daily = daily, Reset = daily ? today : doc.Reset };
-            WriteDoc(e.Path, doc);
-            Remember(e.Path, doc);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
         }
     }
 
@@ -551,23 +532,9 @@ public sealed class MemoStore
 
     /// <summary>본문 체크를 지금 모두 풀고 저장한다(판이 바뀐다). 풀 것이 없거나 메모가 없거나 쓸 수 없으면 false.</summary>
     public bool UncheckAll(Guid id)
-    {
-        if (!_canWrite()) return false;
-        try
-        {
-            if (Locate(id) is not (var e, var doc)) return false;
-            var body = MemoFormat.UncheckAll(doc.Body);
-            if (body == doc.Body) return false;
-            doc = doc with { Id = id, HasHeader = true, Body = body };
-            WriteDoc(e.Path, doc);
-            Remember(e.Path, doc);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
+        => Rewrite(id, doc => MemoFormat.UncheckAll(doc.Body) is var body && body != doc.Body
+            ? Edit.Write(doc with { Body = body })
+            : Edit.Stop(MemoCheckResult.Skipped)) == MemoCheckResult.Applied;
 
     /// <summary>
     /// 휴대폰의 메모 체크 하나를 맞춘다. line 줄이 체크 줄이고 글이 text 와 같으면 그 줄을, 아니면(줄이 밀렸다)
@@ -578,37 +545,25 @@ public sealed class MemoStore
     /// </summary>
     public MemoCheckResult SetLineChecked(Guid id, string? text, int? line, bool isChecked, DateOnly? day = null)
     {
-        if (!_canWrite()) return MemoCheckResult.Deferred;
-        try
-        {
-            if (Locate(id) is not (var e, var doc)) return MemoCheckResult.Skipped;
+        var want = (text ?? "").Trim();
+        bool Matches(MemoLine l) => l.Kind == MemoLineKind.Check && l.Text.Trim() == want;
 
+        return Rewrite(id, doc =>
+        {
             if (doc.Daily && day is { } d)
             {
-                if (doc.Reset is { } reset && d < reset) return MemoCheckResult.Skipped;
-                if (doc.Reset is not { } done || done < d) return MemoCheckResult.Deferred;
+                if (doc.Reset is { } reset && d < reset) return Edit.Stop(MemoCheckResult.Skipped);
+                if (doc.Reset is not { } done || done < d) return Edit.Stop(MemoCheckResult.Deferred);
             }
 
-            var want = (text ?? "").Trim();
             var lines = MemoFormat.Lines(doc.Body);
-            bool Matches(MemoLine l) => l.Kind == MemoLineKind.Check && l.Text.Trim() == want;
-
             var target = line is { } n && n >= 0 && n < lines.Count && Matches(lines[n]) ? lines[n] : null;
             target ??= lines.FirstOrDefault(Matches);
-            if (target is null || target.Checked == isChecked) return MemoCheckResult.Skipped;
+            if (target is null || target.Checked == isChecked) return Edit.Stop(MemoCheckResult.Skipped);
 
             var body = MemoFormat.SetChecked(doc.Body, target.Index, isChecked);
-            if (body == doc.Body) return MemoCheckResult.Skipped;
-
-            doc = doc with { Id = id, HasHeader = true, Body = body };
-            WriteDoc(e.Path, doc);
-            Remember(e.Path, doc);
-            return MemoCheckResult.Applied;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return MemoCheckResult.Deferred;
-        }
+            return body == doc.Body ? Edit.Stop(MemoCheckResult.Skipped) : Edit.Write(doc with { Body = body });
+        });
     }
 
     // ───────────────────────── 휴지통
@@ -760,7 +715,7 @@ public sealed class MemoStore
         try
         {
             if (!Directory.Exists(TrashFolder)) return Array.Empty<string>();
-            return Directory.EnumerateFiles(TrashFolder).Where(IsMemoFile).ToList();
+            return Directory.EnumerateFiles(TrashFolder).Where(MemoFormat.IsMemoFile).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -816,13 +771,6 @@ public sealed class MemoStore
 
     private string Relative(string path) => System.IO.Path.GetRelativePath(Folder, path);
 
-    private static bool IsMemoFile(string path)
-    {
-        var ext = System.IO.Path.GetExtension(path);
-        return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
-    }
-
     /// <summary>파일 이름감: 제목에서 #태그를 빼고 FileStem 으로 다듬는다.</summary>
     private static string StemOf(string body)
         => MemoFormat.FileStem(Regex.Replace(TagInTitle.Replace(MemoFormat.TitleOf(body), ""), @"\s+", " "));
@@ -862,7 +810,7 @@ public sealed class MemoStore
     /// <summary>본문 줄바꿈을 \r\n 으로 맞춰 BOM 없는 UTF-8 로, 이름.tmp 에 쓴 뒤 바꿔친다.</summary>
     private static void WriteDoc(string path, MemoDocument doc)
     {
-        var body = doc.Body.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
+        var body = MemoFormat.Newlines(doc.Body).Replace("\n", "\r\n");
         var text = MemoFormat.Serialize(doc with { Body = body });
         var tmp = path + ".tmp";
         var bak = path + ".bak";

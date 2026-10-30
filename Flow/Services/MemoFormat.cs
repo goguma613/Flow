@@ -15,6 +15,17 @@ namespace Flow.Services;
 /// </summary>
 public static class MemoFormat
 {
+    /// <summary>메모 파일(.md · .txt)인지. 메모 폴더 훑기 · 백업 · 폴더 옮기기가 같은 규칙을 쓴다.</summary>
+    public static bool IsMemoFile(string path)
+    {
+        var ext = System.IO.Path.GetExtension(path);
+        return ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>줄바꿈을 모두 \n 으로 맞춘다(\r\n · \r).</summary>
+    public static string Newlines(string text) => text.Replace("\r\n", "\n").Replace('\r', '\n');
+
     public const string Untitled = "제목 없음";
     private const string DateFormat = "yyyy-MM-dd";
 
@@ -145,7 +156,7 @@ public static class MemoFormat
     /// <summary>본문을 줄바꿈 \n 으로 맞춘 SHA-256 의 소문자 16진 앞 16자.</summary>
     public static string RevOf(string body)
     {
-        var normalized = body.Replace("\r\n", "\n").Replace('\r', '\n');
+        var normalized = Newlines(body);
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexString(hash).ToLowerInvariant()[..16];
     }

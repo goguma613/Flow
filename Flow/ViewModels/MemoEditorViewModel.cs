@@ -697,7 +697,7 @@ public sealed partial class MemoEditorViewModel : ObservableObject, IDisposable
         foreach (var row in Main.MemoRows) row.IsCurrent = row.Id == current;
     }
 
-    private static string Normalize(string? text) => (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+    private static string Normalize(string? text) => MemoFormat.Newlines(text ?? "");
 
     public void Dispose()
     {
@@ -808,7 +808,7 @@ public sealed partial class MemoTrashRow : ObservableObject
     {
         try
         {
-            return MemoFormat.Parse(File.ReadAllText(_path), Id).Body.Replace("\r\n", "\n").Replace('\r', '\n');
+            return MemoFormat.Newlines(MemoFormat.Parse(File.ReadAllText(_path), Id).Body);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
