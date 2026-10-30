@@ -112,6 +112,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 /* ───────── 목록 */
 
 .list { flex: 1; padding: 4px 14px calc(96px + var(--safe-bottom)); }
+/* 아래에 고정 메모 줄이 생기면 그만큼 목록 끝을 더 띄운다 */
+body:has(.composer.with-pins) .list { padding-bottom: calc(146px + var(--safe-bottom)); }
 
 .section-label {
   margin: 18px 6px 4px;
@@ -210,6 +212,35 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   padding: 10px 14px calc(10px + var(--safe-bottom));
   background: linear-gradient(rgba(23, 23, 26, 0), var(--panel) 30%);
 }
+
+/* 고정 메모 줄: 빠른 추가 바로 위, 한 줄로 옆으로 민다 */
+.pin-strip {
+  max-width: 532px;
+  margin: 0 auto 8px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.pin-strip::-webkit-scrollbar { display: none; }
+.pin-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 38px;
+  max-width: 200px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--text-body);
+}
+.pin-chip:active { background: var(--pressed); }
+.pin-chip span:first-child { font-size: 11px; }
+.pin-chip-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .composer form {
   max-width: 532px;
@@ -718,6 +749,22 @@ body.memo-editing #app { display: none; }
   overflow-wrap: anywhere;
 }
 #memo-text::placeholder { color: var(--text-muted); }
+/* 제목칸: 본문칸 위 한 줄, 읽기 화면의 제목처럼 크게 */
+.memo-title-input {
+  width: 100%;
+  margin: 0;
+  padding: 14px 18px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.memo-title-input::placeholder { color: var(--text-muted); font-weight: 500; }
 .format-bar {
   display: grid;
   grid-template-columns: repeat(7, 1fr);

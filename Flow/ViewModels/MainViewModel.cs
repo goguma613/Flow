@@ -353,6 +353,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<HeatCell> Heatmap { get; } = [];
     public ObservableCollection<BackupRow> Backups { get; } = [];
     public ObservableCollection<MemoRow> MemoRows { get; } = [];
+
+    /// <summary>고정한 메모. 위젯 아래(입력칸 위)에 늘 보여 바로 연다. 메모 탭에서는 목록 맨 위에 있으니 숨긴다.</summary>
+    public ObservableCollection<MemoRow> PinnedMemos { get; } = [];
+
+    public bool ShowPinnedMemos => PinnedMemos.Count > 0 && !IsMemoTab;
     public ObservableCollection<string> MemoTags { get; } = [];
     public ObservableCollection<MemoTagChip> MemoTagChips { get; } = [];
 
@@ -455,6 +460,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsRoutineTab));
         OnPropertyChanged(nameof(IsUpcomingTab));
         OnPropertyChanged(nameof(IsMemoTab));
+        OnPropertyChanged(nameof(ShowPinnedMemos));
 
         QuickAddPlaceholder = value switch
         {
@@ -1868,6 +1874,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private int _memoStamp;
 
+    /// <summary>위젯 아래 고정 메모 줄. 검색 · 태그와 상관없이 고정한 것 모두(최근 고친 순). 같으면 그대로 둔다.</summary>
+    private void RefreshPinnedMemos(IReadOnlyList<MemoSummary> all)
+    {
+        var pinned = all.Where(m => m.Pinned && !m.Unreadable).ToList();   // Memos 는 이미 최근 고친 순
+        var same = PinnedMemos.Count == pinned.Count
+            && PinnedMemos.Zip(pinned).All(p => p.First.Shows(p.Second));
+        if (same) return;
+
+        PinnedMemos.Clear();
+        foreach (var m in pinned) PinnedMemos.Add(new MemoRow(m, this));
+        OnPropertyChanged(nameof(ShowPinnedMemos));
+    }
+
     /// <summary>폰 화면에 가는 메모 값(판 · 머리말 · 고친 때)의 지문. 바뀌었는지만 본다.</summary>
     private static int MemoStamp(IReadOnlyList<MemoSummary> all)
     {
@@ -1913,6 +1932,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             MemoTag = null;
             return;
         }
+
+        RefreshPinnedMemos(all);
 
         // 본문은 훑을 때 읽어 둔 것으로 거른다 — 글자마다 모든 메모 파일을 다시 읽지 않게.
         var shown = MemoQuery.Filter(all, MemoSearch, MemoTag, Memos.BodyOf);

@@ -30,6 +30,7 @@ public partial class MemoWindow : Window
     private readonly MemoEditorViewModel _vm;
     private readonly DispatcherTimer _placementSaveTimer;
     private readonly TextBox? _writer;
+    private readonly TextBox? _titleBox;
     private readonly TextBox? _tagBox;
     private readonly Border? _frame;
     private readonly Control? _titleBar;
@@ -70,6 +71,8 @@ public partial class MemoWindow : Window
         if (settings.MemoWindowHeight >= MinHeight) Height = settings.MemoWindowHeight;
 
         _writer = this.FindControl<TextBox>("Writer");
+        _titleBox = this.FindControl<TextBox>("TitleBox");
+        if (_titleBox is not null) _titleBox.KeyDown += OnTitleBoxKeyDown;
         _tagBox = this.FindControl<TextBox>("TagBox");
         _frame = this.FindControl<Border>("Frame");
         _titleBar = this.FindControl<Control>("TitleBar");
@@ -134,7 +137,7 @@ public partial class MemoWindow : Window
 
     private void OnFlushRequested()
     {
-        _vm.TakeWriterText(_writer?.Text);
+        _vm.TakeWriterText(_titleBox?.Text, _writer?.Text);
         _vm.PrepareForRestore();
     }
 
@@ -153,13 +156,15 @@ public partial class MemoWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             if (_writer is null || !_writer.IsVisible) return;
-            _writer.Focus();
-            // + 새 메모: '새 메모' 를 통째로 골라 두어 바로 제목을 치면 바뀐다.
-            if (_vm.SelectAllOnEdit)
+            // + 새 메모: 제목칸의 '새 메모' 를 통째로 골라 두어 바로 제목을 치면 바뀐다.
+            if (_vm.SelectAllOnEdit && _titleBox is not null)
             {
                 _vm.SelectAllOnEdit = false;
-                _writer.SelectAll();
+                _titleBox.Focus();
+                _titleBox.SelectAll();
+                return;
             }
+            _writer.Focus();
         }, DispatcherPriority.Background);
     }
 
@@ -216,14 +221,14 @@ public partial class MemoWindow : Window
     /// <summary>↻ 단추. 쓰던 글(조합 중인 글자 포함)을 먼저 넘긴 뒤 켜고 끈다. 저장은 상태가 먼저 한다.</summary>
     private void OnDailyClick(object? sender, RoutedEventArgs e) => AfterComposition(() =>
     {
-        _vm.TakeWriterText(_writer?.Text);
+        _vm.TakeWriterText(_titleBox?.Text, _writer?.Text);
         _vm.ToggleDaily();
     });
 
     /// <summary>'모두 풀기' 단추. 쓰던 글을 먼저 넘겨, 저장한 뒤 푼다(쓰던 글이 사라지지 않게).</summary>
     private void OnUncheckAllClick(object? sender, RoutedEventArgs e) => AfterComposition(() =>
     {
-        _vm.TakeWriterText(_writer?.Text);
+        _vm.TakeWriterText(_titleBox?.Text, _writer?.Text);
         _vm.UncheckAll();
     });
 
@@ -266,13 +271,24 @@ public partial class MemoWindow : Window
         if (wantTight != _toolRow.Classes.Contains("tight")) _toolRow.Classes.Set("tight", wantTight);
     }
 
+    /// <summary>제목칸에서 Enter · ↓ 는 본문칸 맨 앞으로 간다(제목은 한 줄).</summary>
+    private void OnTitleBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Down) || _writer is null || _titleBox is null) return;
+        if (e.Key == Key.Enter && IsComposing(_titleBox)) return;
+        e.Handled = true;
+        _writer.Focus();
+        _writer.CaretIndex = 0;
+    }
+
     /// <summary>쓰기 칸이 보이면 포커스만 돌려준다. 커서 자리는 쓰기 칸이 기억한 그대로.</summary>
     private void FocusWriterSoon()
     {
         Dispatcher.UIThread.Post(() =>
         {
             if (_writer is null || !_writer.IsVisible || _vm.IsHelpOpen) return;
-            if (_writer.IsKeyboardFocusWithin || _tagBox?.IsKeyboardFocusWithin == true) return;
+            if (_writer.IsKeyboardFocusWithin || _tagBox?.IsKeyboardFocusWithin == true
+                || _titleBox?.IsKeyboardFocusWithin == true) return;
             _writer.Focus();
         }, DispatcherPriority.Background);
     }
@@ -291,9 +307,10 @@ public partial class MemoWindow : Window
 
         if (!_vm.IsEditing)
         {
-            var appended = MemoEditing.Append(_vm.Body, kind);
             _vm.EnterEditing();
             if (!_vm.IsEditing) return;
+            // 서식은 본문칸에만 — 제목칸 아래 글 끝에 새 줄을 붙인다.
+            var appended = MemoEditing.Append(_vm.EditText, kind);
             ApplyWriterEdit(appended);
             FocusWriterSoon(appended);
             return;
@@ -509,7 +526,7 @@ public partial class MemoWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
-            _vm.TakeWriterText(_writer?.Text);
+            _vm.TakeWriterText(_titleBox?.Text, _writer?.Text);
             _vm.LeaveEditing();
         }, DispatcherPriority.Background);
     }
@@ -523,7 +540,7 @@ public partial class MemoWindow : Window
 
         if (_vm is not null)
         {
-            _vm.TakeWriterText(_writer?.Text);
+            _vm.TakeWriterText(_titleBox?.Text, _writer?.Text);
             _vm.Flush();
 
             // 저장 못 한 글은 버리지 않는다. 사람이 닫을 때는 창을 남기고 띠로 알린다.

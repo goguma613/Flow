@@ -27,6 +27,44 @@ public static class MemoEditing
     private static readonly Regex BulletRx = new(@"^(?<i>[ \t]*)(?<b>[-*])\s+", RegexOptions.Compiled);
     private static readonly Regex IndentRx = new(@"^[ \t]*", RegexOptions.Compiled);
 
+    // ───────────────────────── 제목칸 · 본문칸 (쓰기 모드)
+
+    /// <summary>
+    /// 본문을 쓰기 화면의 제목칸과 본문칸으로 나눈 것. 파일은 그대로 '첫 줄이 제목'이고, 나누기는 화면에서만 한다
+    /// (휴대폰 · 예전 메모와 그대로 맞는다). Mark 는 첫 줄 앞의 큰 소제목 기호("# "), Gap 은 제목과 본문 사이 줄바꿈
+    /// ("\n" 또는 빈 줄을 둔 "\n\n", 본문이 없으면 ""). Join(Split(x)) == x.
+    /// </summary>
+    public readonly record struct TitleParts(string Mark, string Title, string Gap, string Rest);
+
+    private static readonly Regex TitleMarkRx = new(@"^#[ \t]+", RegexOptions.Compiled);
+
+    /// <summary>본문(줄바꿈은 \n 으로 맞춘 것)을 제목칸 · 본문칸으로 나눈다.</summary>
+    public static TitleParts SplitTitle(string body)
+    {
+        var at = body.IndexOf('\n');
+        var first = at < 0 ? body : body[..at];
+        var mark = TitleMarkRx.Match(first) is { Success: true } m ? m.Value : "";
+        var title = first[mark.Length..];
+        if (at < 0) return new TitleParts(mark, title, "", "");
+
+        var after = body[(at + 1)..];
+        return after.StartsWith('\n')
+            ? new TitleParts(mark, title, "\n\n", after[1..])
+            : new TitleParts(mark, title, "\n", after);
+    }
+
+    /// <summary>
+    /// 제목칸 · 본문칸을 다시 본문 하나로. 제목칸에 붙여 넣은 줄바꿈은 띄어쓰기로 바꾼다(제목은 한 줄).
+    /// 제목만 있던 메모에 본문을 처음 쓰면 사이를 줄바꿈 하나로 잇는다.
+    /// </summary>
+    public static string JoinTitle(TitleParts parts)
+    {
+        var title = parts.Title.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+        var rest = MemoFormat.Newlines(parts.Rest);
+        var gap = rest.Length > 0 && parts.Gap.Length == 0 ? "\n" : parts.Gap;
+        return parts.Mark + title + gap + rest;
+    }
+
     /// <summary>줄 머리. Length 는 들여쓰기까지 포함한 기호 전체 길이. 기호가 없으면 Kind 가 Text·Blank 이고 Length 는 들여쓰기.</summary>
     private readonly record struct Head(MemoLineKind Kind, string Indent, int Length, int Number, string Prefix);
 

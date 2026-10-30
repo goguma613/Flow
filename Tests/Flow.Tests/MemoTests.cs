@@ -849,6 +849,20 @@ internal static partial class Program
 
     private static void MemoEditingTests()
     {
+        // 제목칸 · 본문칸 나누기 — 이으면 언제나 원래 본문 그대로
+        string Parts(string body) { var p = MemoEditing.SplitTitle(body); return $"[{p.Mark}|{p.Title}|{p.Gap.Replace("\n", "⏎")}|{p.Rest.Replace("\n", "⏎")}]"; }
+        Check("제목만", Parts("장보기"), "[|장보기||]");
+        Check("제목 + 빈 줄 + 본문", Parts("장보기\n\n우유\n빵"), "[|장보기|⏎⏎|우유⏎빵]");
+        Check("제목 바로 아래 본문", Parts("장보기\n우유"), "[|장보기|⏎|우유]");
+        Check("큰 소제목 기호는 떼어 둠", Parts("# 김윤학 고객 기록\n\n* 총 5회차"), "[# |김윤학 고객 기록|⏎⏎|* 총 5회차]");
+        Check("## 는 제목 기호가 아님", Parts("## 소제목\n글"), "[|## 소제목|⏎|글]");
+        foreach (var body in new[] { "장보기", "장보기\n", "장보기\n\n우유", "# 제목\n\n\n본문", "", "\n본문", "아침 루틴 #루틴\n[x] 물" })
+            Check("나눴다 이으면 그대로: " + body.Replace("\n", "⏎"), MemoEditing.JoinTitle(MemoEditing.SplitTitle(body)), body);
+        Check("제목만 있던 메모에 본문을 쓰면 줄바꿈 하나로",
+            MemoEditing.JoinTitle(MemoEditing.SplitTitle("장보기") with { Rest = "우유" }), "장보기\n우유");
+        Check("제목칸에 붙여 넣은 줄바꿈은 띄어쓰기",
+            MemoEditing.JoinTitle(new MemoEditing.TitleParts("", "두 줄\r\n제목", "\n\n", "본문")), "두 줄 제목\n\n본문");
+
         // 켜기 · 끄기 · 바꾸기
         Check("점 켜기", Tog("제목\n사과|", MemoLineKind.Bullet), "제목\n- 사과|");
         Check("점 끄기", Tog("제목\n- 사과|", MemoLineKind.Bullet), "제목\n사과|");

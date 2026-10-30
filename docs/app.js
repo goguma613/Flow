@@ -27,7 +27,7 @@ const VIEW_NAME = 'phone-view.json';
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 /** 화면 맨 아래 진단 줄에 보이는 판. 고칠 때마다 index.html 의 ?v= 와 함께 올린다. */
-const APP_VERSION = 'v16';
+const APP_VERSION = 'v17';
 
 /** 켜져 있는 동안 이만큼마다 PC 쪽 변경을 가져온다. */
 const REFRESH_EVERY_MS = 30_000;
@@ -1128,6 +1128,17 @@ function render() {
   renderToday();
 }
 
+/**
+ * 오늘 화면 아래(빠른 추가 위)의 고정 메모 줄 — PC 위젯과 같다. 누르면 그 메모를 연다.
+ * 고정한 메모가 없거나 PC 가 메모를 안 보내면 빈 글.
+ */
+function pinnedMemoStrip() {
+  const pinned = (composeMemos() ?? []).filter(m => m.Pinned).sort(memoOrder);
+  if (!pinned.length) return '';
+  return `<div class="pin-strip" aria-label="고정 메모">${pinned.map(m =>
+    `<button type="button" class="pin-chip" data-act="memo-open" data-memo="${esc(m.Id)}"><span aria-hidden="true">📌</span><span class="pin-chip-title">${esc(m.Title)}</span></button>`).join('')}</div>`;
+}
+
 /** 위의 '오늘 | 메모' 탭. */
 function tabsHtml(active) {
   const tab = (name, label) =>
@@ -1356,7 +1367,8 @@ function renderToday() {
       ${diagnostics()}
     </main>
 
-    <div class="composer">
+    <div class="composer${pinnedMemoStrip() ? ' with-pins' : ''}">
+      ${pinnedMemoStrip()}
       <form data-act="add" autocomplete="off">
         <span class="plus">+</span>
         <input id="compose" enterkeyhint="send" placeholder="빠른 추가 — 내일 오후 3시 회의 !1" value="${esc(draft)}">
@@ -2442,6 +2454,39 @@ let shiftEnter = false;       // Shift+Enter 는 이어 쓰지 않고 그냥 줄
 let afterEditorPop = null;    // 글 칸을 닫으며 걷어 낸 기록이 돌아오면 할 일
 
 const memoArea = () => document.getElementById('memo-text');
+const titleInput = () => document.getElementById('memo-title');
+
+/**
+ * 본문을 글 칸의 제목칸 · 본문칸으로 나눈다(PC MemoEditing.SplitTitle 과 같다). 파일은 그대로 '첫 줄이 제목'이고
+ * 나누기는 화면에서만 한다. mark 는 첫 줄 앞의 큰 소제목 기호("# "), gap 은 제목과 본문 사이 줄바꿈(빈 줄을 두면 둘).
+ * joinMemoTitle(splitMemoTitle(x)) === x.
+ */
+function splitMemoTitle(body) {
+  const text = String(body ?? '').replace(/\r\n?/g, '\n');
+  const at = text.indexOf('\n');
+  const first = at < 0 ? text : text.slice(0, at);
+  const mark = /^#[ \t]+/.exec(first)?.[0] ?? '';
+  const title = first.slice(mark.length);
+  if (at < 0) return { mark, title, gap: '', rest: '' };
+  const after = text.slice(at + 1);
+  return after.startsWith('\n')
+    ? { mark, title, gap: '\n\n', rest: after.slice(1) }
+    : { mark, title, gap: '\n', rest: after };
+}
+
+/** 제목칸 · 본문칸을 다시 본문 하나로. 제목은 한 줄, 제목만 있던 메모에 본문을 처음 쓰면 줄바꿈 하나로 잇는다. */
+function joinMemoTitle({ mark, title, gap, rest }) {
+  const oneLine = String(title ?? '').replace(/[\r\n]+/g, ' ');
+  const body = String(rest ?? '').replace(/\r\n?/g, '\n');
+  return (mark ?? '') + oneLine + (body && !gap ? '\n' : (gap ?? '')) + body;
+}
+
+/** 지금 글 칸의 글 = 제목칸 + 본문칸(저장 · 임시 글 · 바뀜 비교는 늘 이것으로). */
+function editorText() {
+  const area = memoArea();
+  if (!area || !memoEdit) return memoEdit?.text ?? '';
+  return joinMemoTitle({ ...(memoEdit.parts ?? { mark: '', gap: '' }), title: titleInput()?.value ?? '', rest: area.value });
+}
 
 function memoDrafts() {
   const all = local.get('memoDrafts', {});
@@ -2454,8 +2499,8 @@ function saveMemoDraft() {
   if (!memoEdit) return false;
   const area = memoArea();
   if (area) {
-    memoEdit.text = area.value;
-    memoEdit.caret = area.selectionEnd;
+    memoEdit.text = editorText();
+    memoEdit.caret = area.selectionEnd;   // 본문칸 안의 자리
   }
   const all = memoDrafts();
   // 자리가 모자라 남겨 둔 저장 글(savedOp)은 그 일이 이 폰에 남거나 드라이브에 갈 때까지 덮지 않는다 —
@@ -2642,20 +2687,29 @@ function showMemoEditor(draft, note) {
         <button class="save-btn" data-ed="save">저장</button>
       </header>
       <div class="editor-note" id="editor-note"${note ? '' : ' hidden'}>${esc(note)}</div>
-      <textarea id="memo-text" autocomplete="off" spellcheck="false" placeholder="첫 줄이 제목이 됩니다"></textarea>
+      <input id="memo-title" class="memo-title-input" type="text" autocomplete="off" enterkeyhint="next" placeholder="제목">
+      <textarea id="memo-text" autocomplete="off" spellcheck="false" placeholder="내용"></textarea>
       <div class="format-bar" role="toolbar" aria-label="서식">
         ${FORMATS.map(f => `<button data-fmt="${f.kind}" aria-label="${f.label}"><b>${esc(f.mark)}</b><small>${esc(f.name)}</small></button>`).join('')}
       </div>
     </div>`;
   const area = memoArea();
-  area.value = draft.text ?? '';
+  const parts = splitMemoTitle(draft.text ?? '');
+  memoEdit.parts = { mark: parts.mark, gap: parts.gap };
+  titleInput().value = parts.title;
+  area.value = parts.rest;
   document.body.classList.add('memo-editing');
   editorEl.classList.add('open');
   fitEditor();
   // 안드로이드 뒤로 단추가 글 칸을 닫게 기록을 하나 쌓는다(쓰던 글은 남는다).
   history.pushState({ ...(history.state ?? {}), editor: true }, '');
   saveMemoDraft();
-  const caret = Math.min(draft.caret ?? (draft.isNew ? 0 : area.value.length), area.value.length);
+  // 새 메모(제목이 비었음)는 제목칸부터, 고치기는 본문칸 쓰던 자리에서.
+  if (!parts.title) {
+    titleInput().focus();
+    return;
+  }
+  const caret = Math.min(draft.caret ?? area.value.length, area.value.length);
   area.focus();
   area.setSelectionRange(caret, caret);
 }
@@ -2717,7 +2771,7 @@ async function saveMemoEditor() {
   const ed = memoEdit;
   const area = memoArea();
   if (!ed || !area || savingMemo) return;
-  const text = area.value;
+  const text = editorText();
 
   // 고친 것이 없으면 크기와 상관없이 그냥 닫는다(큰 메모를 열었다 닫기만 해도 막히지 않게).
   if (ed.isNew ? !text.trim() : text === ed.start) {
@@ -2755,7 +2809,7 @@ function cancelMemoEditor() {
   const ed = memoEdit;
   const area = memoArea();
   if (!ed) return;
-  if (area && area.value !== ed.start && !confirm(ed.isNew ? '쓰던 새 메모를 버릴까요?' : '고친 것을 버릴까요?')) return;
+  if (area && editorText() !== ed.start && !confirm(ed.isNew ? '쓰던 새 메모를 버릴까요?' : '고친 것을 버릴까요?')) return;
   dropMemoDraft(ed.key);
   leaveMemoEditor();
 }
@@ -2786,6 +2840,13 @@ editorEl.addEventListener('pointerdown', event => {
 
 editorEl.addEventListener('keydown', event => {
   if (event.target.id === 'memo-text' && event.key === 'Enter') shiftEnter = event.shiftKey;
+  // 제목칸에서 Enter(자판의 '다음')는 본문칸 맨 앞으로 — 제목은 한 줄이다.
+  if (event.target.id === 'memo-title' && event.key === 'Enter' && !event.isComposing) {
+    event.preventDefault();
+    const area = memoArea();
+    area?.focus();
+    area?.setSelectionRange(0, 0);
+  }
 });
 
 /**
@@ -2794,6 +2855,11 @@ editorEl.addEventListener('keydown', event => {
  */
 editorEl.addEventListener('input', event => {
   const area = event.target;
+  if (area.id === 'memo-title') {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveMemoDraft, 400);
+    return;
+  }
   if (area.id !== 'memo-text') return;
   const shift = shiftEnter;
   shiftEnter = false;
@@ -2830,7 +2896,7 @@ window.addEventListener('popstate', () => {
     // 안드로이드 뒤로: 글 칸만 닫는다. 고친 것이 있으면 남겨 두고 다시 열 때 이어서 쓴다.
     const area = memoArea();
     const key = memoEdit.key;
-    const changed = !!area && area.value !== memoEdit.start;
+    const changed = !!area && editorText() !== memoEdit.start;
     if (changed && !saveMemoDraft()) {
       // 남기지 못했다(자리 모자람) — 닫으면 글이 사라진다. 글 칸을 그대로 두고 알린다.
       history.pushState({ ...(history.state ?? {}), editor: true }, '');
