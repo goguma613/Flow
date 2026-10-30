@@ -607,7 +607,7 @@ public static class PhoneLinkEngine
             view.Memos = memos
                 .OrderByDescending(m => m.Pinned)
                 .ThenByDescending(m => m.Updated)
-                .ThenBy(m => m.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(m => m.Title, MemoQuery.NameOrder)
                 .ToList();
         var memoIds = new HashSet<Guid>(view.Memos.Select(m => m.Id));
         Guid? LinkOf(Guid? memoId) => memoId is { } id && memoIds.Contains(id) ? id : null;

@@ -80,12 +80,15 @@ public sealed class MemoStore
 
     public MemoStore(string dataDirectory, Func<bool> canWrite, Func<DateTime> now)
     {
+        DataFolder = dataDirectory;
         Folder = System.IO.Path.Combine(dataDirectory, "memos");
         TrashFolder = System.IO.Path.Combine(Folder, "휴지통");
         _canWrite = canWrite;
         _now = now;
     }
 
+    /// <summary>memos 폴더를 담은 데이터 폴더. 이것째 안 보이면 클라우드 드라이브가 잠깐 빠진 것이지 메모를 지운 것이 아니다.</summary>
+    public string DataFolder { get; }
     public string Folder { get; }
     public string TrashFolder { get; }
 
@@ -113,8 +116,14 @@ public sealed class MemoStore
         try
         {
             if (Directory.Exists(Folder))
+            {
                 foreach (var p in Directory.EnumerateFiles(Folder))
                     if (IsMemoFile(p)) files[p] = new FileInfo(p);
+            }
+            else if (!Directory.Exists(DataFolder))
+            {
+                return false;   // 드라이브가 잠깐 빠졌다 — 목록을 비우면 모든 메모가 '다른 곳에서 지워진' 것이 된다
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -435,6 +444,8 @@ public sealed class MemoStore
     public DailyResetResult ResetDaily(DateOnly today, Func<Guid, bool>? skip = null)
     {
         if (!_canWrite()) return DailyResetResult.Blocked;
+        // 데이터 폴더째 안 보이면 아무것도 볼 수 없다. 풀 것이 없다고 끝내면 그날 다시 안 푼다.
+        if (!Directory.Exists(DataFolder)) return DailyResetResult.Blocked;
         try
         {
             if (!_scanned && ScanFolder()) _changedSinceReport = true;
@@ -500,6 +511,16 @@ public sealed class MemoStore
             }
         }
         return new DailyResetResult(count, pending, false);
+    }
+
+    /// <summary>
+    /// 오늘 끝낸 매일 초기화를 잊는다. 메모 파일을 통째로 되돌린 뒤(백업 되살리기) 부른다 —
+    /// 되돌린 파일에는 어제 체크가 들었을 수 있는데, 끝낸 것으로 기억하면 그날 다시 풀지 않는다.
+    /// </summary>
+    public void ForgetDailyProgress()
+    {
+        _resetDay = null;
+        _resetDone.Clear();
     }
 
     /// <summary>그 메모가 daily 이고 오늘 아직 풀지 않았는지(롤오버에서 열린 메모를 먼저 저장할지). 읽지 못하면 false.</summary>
@@ -738,6 +759,8 @@ public sealed class MemoStore
         {
             if (!File.Exists(e.Path))
             {
+                // 데이터 폴더째 안 보이면 지운 것이 아니라 지금 못 읽는 것이다 — 부른 쪽은 다음에 다시 한다.
+                if (!Directory.Exists(DataFolder)) throw new DirectoryNotFoundException(DataFolder);
                 _entries.Remove(e.Path);
                 return null;
             }

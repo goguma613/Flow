@@ -1068,7 +1068,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v13',
+    'v14',
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -1213,7 +1213,7 @@ function renderToday() {
 
 /** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
 function memoDiag() {
-  const parts = ['v13', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
+  const parts = ['v14', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
   return `<div class="diag">${parts.join(' · ')}</div>`;
 }
 
@@ -1376,6 +1376,7 @@ function openMemo(id, fromList) {
 
 function closeMemo() {
   if (!state.memoOpen) return;
+  closeEditor();   // 메모의 … 메뉴 등이 열린 채 뒤로 가면 목록 위에 남아 누르기를 막는다
   state.memoOpen = null;
   state.tab = state.memoFrom;
   local.set('tab', state.tab);
@@ -2369,7 +2370,8 @@ async function resumeDraft(draft) {
       if (otherSave) {
         notes.push('그 사이 다른 곳에서 이 메모를 고쳤습니다 · 저장하면 충돌 사본이 생길 수 있습니다');
       } else {
-        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text, startOps: pendingSavesOf(draft.id) };
+        const startOps = pendingSavesOf(draft.id);   // 판을 재기 전에(그 사이 새로고침이 와도 시작 글과 맞게)
+        draft = { ...draft, base: await memoBaseOf(memo), pcRev: sent?.Rev ?? null, start: memo.Text, startOps };
         notes.push('그 뒤 바꾼 체크 등은 저장하면 이 글대로 됩니다');
       }
     }
@@ -2385,6 +2387,12 @@ async function resumeDraft(draft) {
 async function openMemoEditor(id) {
   if (memoEdit) return;
   const key = id ?? 'new';
+  // 새 메모는 모두 'new' 한 칸에 남는다. 앞서 저장한 새 메모가 아직 메모리에만 있으면(자리 모자람)
+  // 새 메모를 또 저장할 때 그 칸을 덮어, 앱이 닫히면 앞 메모 글이 사라진다 — 보내질 때까지 새로 열지 않는다.
+  if (!id && unpersistedSave(memoDrafts().new)) {
+    toast('앞서 저장한 새 메모를 아직 휴대폰에 남기지 못했습니다(저장 공간 모자람) · 연결되어 보낸 뒤 새 메모를 써 주세요', true);
+    return;
+  }
   let draft = usableDraft(key);
   let note = '';
 
@@ -2393,8 +2401,10 @@ async function openMemoEditor(id) {
   } else if (id) {
     const memo = findMemo(id);
     if (!memo) return;
-    draft = { key, id, isNew: false, base: await memoBaseOf(memo), pcRev: sentMemo(id)?.Rev ?? null,
-      start: memo.Text, startOps: pendingSavesOf(id), text: memo.Text };
+    // 시작 글과 같은 때의 것을 판을 재기 전에 읽는다 — 재는 사이 새로고침이 오면 pcRev 만 새것이 된다.
+    const pcRev = sentMemo(id)?.Rev ?? null;
+    const startOps = pendingSavesOf(id);
+    draft = { key, id, isNew: false, base: await memoBaseOf(memo), pcRev, start: memo.Text, startOps, text: memo.Text };
     if (isHeldMemo(id)) note = HELD_NOTE;
   } else {
     draft = { key, id: uuid(), isNew: true, base: null, pcRev: null, start: '', text: '' };
@@ -2475,8 +2485,13 @@ async function queueMemoSave(ed, text) {
   }
 
   const op = { ...last, Id: uuid(), Text: text, Day: logicalToday() };
+  const before = state.pending;
   state.pending = state.pending.map(o => (o === last ? op : o));
-  return { op, saved: commitPending() };
+  if (commitPending()) return { op, saved: true };
+  // 합친 것을 남기지 못했다(자리 모자람): 이 폰에는 앞 일이 그대로 남아 있어 둘 다 가면 같은 Base 가 둘이 되어
+  // 쓸데없는 충돌 사본이 생긴다. 앞 일을 되돌리고 이 글은 앞 글을 이어 고친 저장(Base = 앞 글의 판)으로 따로 쌓는다.
+  state.pending = before;
+  return pushOp('memo-save', ed.id, text, { Base: base });
 }
 
 let savingMemo = false;      // 저장 단추를 두 번 눌러도 한 번만(합치기는 판을 재느라 잠깐 기다린다)
@@ -2610,7 +2625,13 @@ window.addEventListener('popstate', () => {
     if (changed) toast('쓰던 글은 남겨 뒀습니다 · 다시 열면 이어서 씁니다');
     return;
   }
-  closeMemo();
+  if (state.memoOpen) {
+    closeMemo();
+    return;
+  }
+  // 열린 것이 없는데 메모 · 글 칸 기록이다: 앱을 다시 열 때 맨 위만 지워 그 아래 남은 옛 기록이다.
+  // 그대로 두면 뒤로 단추가 그만큼 헛돈다 — 하나 더 걷는다.
+  if (history.state?.memo != null || history.state?.editor) history.back();
 });
 
 // ───────── 시작
@@ -2684,14 +2705,27 @@ if (DEMO) {
 
 render();
 
-// 쓰던 메모 글 칸을 연 채 앱이 닫혔으면 그대로 다시 연다(열 때와 같이 Base · PC 쓰는 중을 다시 본다).
-{
+/**
+ * 쓰던 메모 글 칸을 연 채 앱이 닫혔으면 그대로 다시 연다(열 때와 같이 Base · PC 쓰는 중을 다시 본다).
+ * 이어 쓸 것이 없으면(고친 것 없음 · 저장이 살아 있음 — usableDraft) 다시 열지 않는다: 옛 글로 열면
+ * 그 사이 PC 가 고친 것을 모른 채 저장해 쓸데없는 충돌 사본이 생긴다. PC 화면이 아직 없으면 그냥 둔다.
+ */
+function reopenMemoEditor() {
   const key = DEMO ? null : local.get('memoEditing', null);
-  const draft = key ? memoDrafts()[key] : null;
-  if (draft && state.view?.Today && !draftSaved(draft)) {
-    resumeDraft(draft).then(r => { if (!memoEdit) showMemoEditor(r.draft, r.note); });
-  } else if (key) local.remove('memoEditing');
-  if (!DEMO) pruneMemoDrafts();
+  if (!key || !state.view?.Today || memoEdit) return;
+  const draft = usableDraft(key);
+  if (!draft) {
+    dropMemoDraft(key);
+    return;
+  }
+  resumeDraft(draft).then(r => { if (!memoEdit) showMemoEditor(r.draft, r.note); });
 }
 
-refresh();
+{
+  // 화면을 자리 때문에 못 남겼으면 첫 새로고침으로 받은 뒤에 다시 연다.
+  const later = !state.view?.Today;
+  if (!later) reopenMemoEditor();
+  if (!DEMO) pruneMemoDrafts();
+  const first = refresh();
+  if (later) first.then(reopenMemoEditor);
+}

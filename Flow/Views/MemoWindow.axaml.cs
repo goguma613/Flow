@@ -70,12 +70,6 @@ public partial class MemoWindow : Window
         _grips = this.FindControl<Control>("Grips");
         _maximizeButton = this.FindControl<Button>("MaximizeButton");
 
-        var readArea = this.FindControl<Panel>("ReadArea");
-        // 체크 칸(버튼)은 눌림을 스스로 처리하므로 여기까지 오지 않는다. 나머지 글 자리는 쓰기 모드로.
-        if (readArea is not null) readArea.PointerPressed += OnReadAreaPressed;
-        var readTitle = this.FindControl<Control>("ReadTitleText");
-        if (readTitle is not null) readTitle.PointerPressed += OnReadAreaPressed;
-
         if (_tagBox is not null) _tagBox.KeyDown += OnTagBoxKeyDown;
 
         // 사용법 판 바깥(어둡게 덮은 곳)을 누르면 닫는다. 판 안을 누른 것은 여기까지 오지 않는다.
@@ -151,13 +145,6 @@ public partial class MemoWindow : Window
             if (_writer is null || !_writer.IsVisible) return;
             _writer.Focus();
         }, DispatcherPriority.Background);
-    }
-
-    private void OnReadAreaPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
-        if (_vm.IsTrashView) return;
-        _vm.EnterEditing();
     }
 
     private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
