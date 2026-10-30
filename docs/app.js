@@ -27,7 +27,7 @@ const VIEW_NAME = 'phone-view.json';
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 /** 화면 맨 아래 진단 줄에 보이는 판. 고칠 때마다 index.html 의 ?v= 와 함께 올린다. */
-const APP_VERSION = 'v15';
+const APP_VERSION = 'v16';
 
 /** 켜져 있는 동안 이만큼마다 PC 쪽 변경을 가져온다. */
 const REFRESH_EVERY_MS = 30_000;
@@ -777,6 +777,22 @@ function plainMemoLine(line) {
   return mark ? trimmed.slice(mark[0].length).trim() : trimmed;
 }
 
+/** 목록 줄 오른쪽의 고친 때. 1시간 안은 분, 오늘은 시간, 어제, 일주일 안은 n일 전, 그 밖은 날짜. */
+function memoAgo(iso) {
+  const at = Date.parse(iso);
+  if (!at) return '';
+  const minutes = Math.floor((Date.now() - at) / 60000);
+  if (minutes < 1) return '방금';
+  if (minutes < 60) return `${minutes}분 전`;
+  const then = new Date(at);
+  const today = isoDate(new Date());
+  if (isoDate(then) === today) return `${Math.floor(minutes / 60)}시간 전`;
+  const days = Math.round((parseDate(today) - parseDate(isoDate(then))) / 86400000);
+  if (days === 1) return '어제';
+  if (days < 7) return `${days}일 전`;
+  return `${then.getMonth() + 1}/${then.getDate()}`;
+}
+
 /** 태그만 있는 줄(#AK넷 #업무). 태그는 칩으로 따로 보이므로 미리보기에서 뺀다. */
 const TAG_ONLY_LINE = /^\s*(#[^\s#]+\s*)+$/;
 
@@ -1416,7 +1432,7 @@ function updateMemoList() {
           <span class="memo-row-title">${esc(m.Title)}</span>
           ${m.Pinned ? '<span class="pin" aria-label="고정">📌</span>' : ''}
           ${m.Daily ? '<span class="daily" title="매일 초기화">↻</span>' : ''}
-          ${m.waiting ? waitBadge(m.Id) : ''}
+          ${m.waiting ? waitBadge(m.Id) : `<span class="memo-row-when">${memoAgo(m.Updated)}</span>`}
         </span>
         ${preview ? `<span class="memo-row-preview">${esc(preview)}</span>` : ''}
       </button>`;
@@ -1463,8 +1479,10 @@ function renderMemoView() {
     main = '<div class="empty">이 메모는 이제 PC에 없습니다.<br>지워졌거나 휴지통으로 갔습니다.</div>';
   } else {
     // 첫 비어 있지 않은 줄은 제목으로 위에 따로 보인다. 제목 바로 아래 빈 줄은 뺀다(PC 와 같다).
+    // 태그만 있는 줄(#AK넷 #업무)은 아래 칩과 겹치니 읽기 화면에서는 숨긴다(고치기에서는 그대로 보인다).
     const titleAt = memo.lines.findIndex(l => l.kind !== 'blank');
-    const lines = titleAt < 0 ? [] : memo.lines.slice(titleAt + 1);
+    const lines = titleAt < 0 ? [] : memo.lines.slice(titleAt + 1)
+      .filter(l => !(l.kind === 'text' && TAG_ONLY_LINE.test(l.text)));
     while (lines.length && lines[0].kind === 'blank') lines.shift();
 
     const meta = [];
@@ -2319,6 +2337,52 @@ function toggleMemoFormat(text, selectionStart, selectionEnd, kind) {
 }
 
 /**
+ * 들여쓰기 · 내어쓰기 단추: 커서 줄(골랐으면 걸친 줄들, 여러 줄이면 빈 줄은 건너뜀) 앞에 두 칸을 넣거나 뺀다.
+ * 두 칸이 한 단계(memoIndent)이고 많아도 6단계(12칸)까지. 돌려주는 것: { text, start, end }.
+ */
+function indentMemoLines(text, selectionStart, selectionEnd, outdent) {
+  const s = Math.max(0, Math.min(Math.min(selectionStart, selectionEnd), text.length));
+  const e = Math.max(0, Math.min(Math.max(selectionStart, selectionEnd), text.length));
+  const lines = lineSpans(text);
+  const first = lineIndexAt(lines, s);
+  let last = lineIndexAt(lines, e);
+  if (last > first && e === lines[last].start) last--;
+
+  const delta = new Map();   // 줄 → 바뀐 글자 수(+2 · -1 · -2 · 0)
+  for (let i = first; i <= last; i++) {
+    const line = spanText(text, lines[i]);
+    if (first !== last && !line.trim()) continue;
+    const lead = /^ */.exec(line)[0].length;
+    if (outdent) delta.set(i, -Math.min(2, lead));
+    else if (lead < 12) delta.set(i, 2);
+  }
+
+  let out = '';
+  let pos = 0;
+  const newStarts = [];
+  lines.forEach((line, i) => {
+    out += text.slice(pos, line.start);
+    newStarts[i] = out.length;
+    const d = delta.get(i) ?? 0;
+    out += d > 0 ? '  ' + spanText(text, line) : text.substr(line.start - d, line.length + d);
+    pos = line.start + line.length;
+  });
+  out += text.slice(pos);
+
+  const map = at => {
+    const i = lineIndexAt(lines, at);
+    const col = Math.min(at - lines[i].start, lines[i].length);
+    const d = delta.get(i) ?? 0;
+    return newStarts[i] + Math.max(0, col + d);
+  };
+  const newStart = map(s);
+  const newEnd = s === e ? newStart : map(e);
+  return selectionStart <= selectionEnd
+    ? { text: out, start: newStart, end: newEnd }
+    : { text: out, start: newEnd, end: newStart };
+}
+
+/**
  * 체크·번호·점 줄에서 Enter(MemoEditing.ContinueList). 커서 뒤 글을 새 줄로 넘기며 같은 기호
  * (체크는 빈 칸, 번호는 다음 번호, 들여쓰기 그대로)를 붙인다. 기호만 있는 줄이면 기호를 지워 목록을 끝낸다.
  * 목록 줄이 아니거나 커서가 기호 앞·안이면 null(보통 줄바꿈). 돌려주는 것: { text, caret }.
@@ -2342,12 +2406,15 @@ function continueMemoList(text, caret) {
   return { text: text.slice(0, caret) + insert + text.slice(caret), caret: caret + insert.length };
 }
 
+/** 서식 줄의 단추. name 은 기호 밑에 작게 보이는 이름(PC 메모 창의 서식 단추와 같은 말). */
 const FORMATS = [
-  { kind: 'h1', mark: '#', label: '큰 소제목' },
-  { kind: 'h2', mark: '##', label: '작은 소제목' },
-  { kind: 'numbered', mark: '1.', label: '번호' },
-  { kind: 'bullet', mark: '-', label: '점' },
-  { kind: 'check', mark: '[ ]', label: '체크' }
+  { kind: 'h1', mark: '#', label: '큰 소제목', name: '큰 제목' },
+  { kind: 'h2', mark: '##', label: '작은 소제목', name: '소제목' },
+  { kind: 'numbered', mark: '1.', label: '번호', name: '번호' },
+  { kind: 'bullet', mark: '-', label: '점', name: '점' },
+  { kind: 'check', mark: '[ ]', label: '체크', name: '체크' },
+  { kind: 'outdent', mark: '⇤', label: '내어쓰기', name: '내어' },
+  { kind: 'indent', mark: '⇥', label: '들여쓰기', name: '들여' }
 ];
 
 const editorEl = document.createElement('div');
@@ -2577,7 +2644,7 @@ function showMemoEditor(draft, note) {
       <div class="editor-note" id="editor-note"${note ? '' : ' hidden'}>${esc(note)}</div>
       <textarea id="memo-text" autocomplete="off" spellcheck="false" placeholder="첫 줄이 제목이 됩니다"></textarea>
       <div class="format-bar" role="toolbar" aria-label="서식">
-        ${FORMATS.map(f => `<button data-fmt="${f.kind}" aria-label="${f.label}">${esc(f.mark)}</button>`).join('')}
+        ${FORMATS.map(f => `<button data-fmt="${f.kind}" aria-label="${f.label}"><b>${esc(f.mark)}</b><small>${esc(f.name)}</small></button>`).join('')}
       </div>
     </div>`;
   const area = memoArea();
@@ -2697,7 +2764,10 @@ editorEl.addEventListener('click', event => {
   const fmt = event.target.closest('[data-fmt]');
   if (fmt) {
     const area = memoArea();
-    const r = toggleMemoFormat(area.value, area.selectionStart, area.selectionEnd, fmt.dataset.fmt);
+    const kind = fmt.dataset.fmt;
+    const r = kind === 'indent' || kind === 'outdent'
+      ? indentMemoLines(area.value, area.selectionStart, area.selectionEnd, kind === 'outdent')
+      : toggleMemoFormat(area.value, area.selectionStart, area.selectionEnd, kind);
     area.value = r.text;
     area.focus();
     area.setSelectionRange(Math.min(r.start, r.end), Math.max(r.start, r.end), r.start > r.end ? 'backward' : 'forward');

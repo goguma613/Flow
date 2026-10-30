@@ -493,7 +493,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:MemoTagChip">
-                    <Button Classes="chip" Classes.active="{Binding IsActive}"
+                    <Button Classes="chip tag" Classes.active="{Binding IsActive}"
                             Content="{Binding Text}" Command="{Binding ToggleCommand}"
                             HorizontalAlignment="Left" Padding="9,4" Margin="0,0,4,4" />
                   </DataTemplate>
@@ -679,7 +679,7 @@
     <!-- ════════ 사용법 ════════ -->
     <Border IsVisible="{Binding IsHelpOpen}"
             CornerRadius="16"
-            Background="#181820"
+            Background="{StaticResource DialogBrush}"
             BorderThickness="1"
             BorderBrush="{StaticResource BorderBrush}">
       <DockPanel LastChildFill="True" Margin="16,14,16,14">
@@ -838,7 +838,7 @@
             <StackPanel Spacing="7">
               <TextBlock Classes="helpsection" Text="7 · 메모" />
               <TextBlock Classes="helpbody"
-                         Text="메모 탭 맨 아래 칸에 적고 Enter 를 누르면 새 메모가 열립니다. 첫 줄이 제목입니다. 업무 절차처럼 긴 글을 적어 두는 곳입니다." />
+                         Text="메모 탭 맨 아래 칸에 적고 Enter 를 누르면 새 메모가 열립니다(메모 창 왼쪽 위 + 로도 만듭니다). 첫 줄이 제목입니다. 업무 절차처럼 긴 글을 적어 두는 곳입니다." />
               <TextBlock Classes="helpbody"
                          Text="메모 창은 읽기 모드로 열립니다. 고치기 단추나 Ctrl+E 로 쓰기, Esc 로 읽기로 돌아옵니다. 저장은 알아서 합니다. [ ] 와 [x] 는 읽기 모드에서 눌러 체크합니다." />
               <TextBlock Classes="helpbody"
@@ -862,7 +862,7 @@
     <!-- ════════ 백업에서 되돌리기 ════════ -->
     <Border IsVisible="{Binding IsRestoreOpen}"
             CornerRadius="16"
-            Background="#181820"
+            Background="{StaticResource DialogBrush}"
             BorderThickness="1"
             BorderBrush="{StaticResource BorderBrush}">
       <DockPanel LastChildFill="True" Margin="16,14,16,14">
@@ -935,7 +935,7 @@
     <!-- ════════ 설정 ════════ -->
     <Border IsVisible="{Binding IsSettingsOpen}"
             CornerRadius="16"
-            Background="#181820"
+            Background="{StaticResource DialogBrush}"
             BorderThickness="1"
             BorderBrush="{StaticResource BorderBrush}">
       <DockPanel LastChildFill="True" Margin="16,14,16,14">

@@ -192,6 +192,20 @@
     <Style Selector="Button.format:pointerover Border.box">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
     </Style>
+    <!-- 오른쪽 단추까지 한 줄에 안 들어갈 만큼 좁으면(ToolRow.tight) 서식 단추를 아랫줄로 -->
+    <Style Selector="Grid.tight Panel#FormatHost">
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+    <!-- 창이 좁으면(FormatBar.narrow — 창이 정한다) 이름을 숨겨 서식 단추가 두 줄로 넘어가지 않게 -->
+    <Style Selector="WrapPanel.narrow TextBlock.fmtname">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="WrapPanel.narrow Button.format">
+      <Setter Property="Padding" Value="9,5" />
+      <Setter Property="MinWidth" Value="30" />
+    </Style>
 
     <!-- 태그 칩. 본문에만 적힌 태그는 테두리만 두고 흐리게. -->
     <Style Selector="Border.tagchip">
@@ -257,7 +271,7 @@
           <Border Width="16" Height="16" CornerRadius="8" Background="{StaticResource AccentBrush}"
                   VerticalAlignment="Center" IsHitTestVisible="False">
             <Path Data="{StaticResource CheckIcon}" Width="9" Height="9" Stretch="Uniform"
-                  Stroke="#17171A" StrokeThickness="1.8" StrokeLineCap="Round" StrokeJoin="Round"
+                  Stroke="{StaticResource PanelBrush}" StrokeThickness="1.8" StrokeLineCap="Round" StrokeJoin="Round"
                   HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
           <Panel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Center" IsHitTestVisible="False">
@@ -290,11 +304,18 @@
                 BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="0,0,1,0">
           <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14,4,14,10">
 
-            <Border Grid.Row="0" Classes="quickaddshell" Margin="0,0,0,8">
-              <TextBox Classes="quickadd"
-                       PlaceholderText="메모 찾기 — 제목, 본문, #태그"
-                       Text="{Binding Main.MemoSearch}" />
-            </Border>
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+              <Border Classes="quickaddshell">
+                <TextBox Classes="quickadd"
+                         PlaceholderText="메모 찾기 — 제목, 본문, #태그"
+                         Text="{Binding Main.MemoSearch}" />
+              </Border>
+              <!-- + 새 메모: 만들어 쓰기 모드로 연다('새 메모' 가 골라져 있어 바로 제목을 친다) -->
+              <Button Grid.Column="1" Classes="icon" Width="30" Height="30" Margin="6,0,0,0"
+                      VerticalAlignment="Center" Command="{Binding NewMemoCommand}" ToolTip.Tip="새 메모">
+                <Path Data="{StaticResource PlusIcon}" Width="14" Height="14" Stretch="Uniform" />
+              </Button>
+            </Grid>
 
             <ItemsControl Grid.Row="1" ItemsSource="{Binding Main.MemoTagChips}"
                           IsVisible="{Binding Main.HasMemoTags}" Margin="0,0,0,6">
@@ -305,7 +326,7 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:MemoTagChip">
-                  <Button Classes="chip" Classes.active="{Binding IsActive}"
+                  <Button Classes="chip tag" Classes.active="{Binding IsActive}"
                           Content="{Binding Text}" Command="{Binding ToggleCommand}"
                           HorizontalAlignment="Left" Padding="9,4" Margin="0,0,4,4" />
                 </DataTemplate>
@@ -375,7 +396,8 @@
               <StackPanel Orientation="Horizontal" Spacing="7">
                 <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform"
                       Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.3"
-                      StrokeLineCap="Round" StrokeJoin="Round" VerticalAlignment="Center" />
+                      StrokeLineCap="Round" StrokeJoin="Round" VerticalAlignment="Center"
+                      IsVisible="{Binding !IsTrashView}" />
                 <TextBlock Text="{Binding TrashLabel}" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
@@ -386,12 +408,13 @@
           <!-- ════════ 오른쪽: 도구 줄 · 띠 · 제목 · 태그 · 본문 ════════ -->
           <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,*">
 
-            <!-- 서식 단추(왼쪽) · 고치기/완료 · 고정 · 삭제(오른쪽). 좁으면 서식 단추가 두 줄이 된다. -->
-            <DockPanel Grid.Row="0" Margin="22,4,16,4" MinHeight="30">
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
-                <Button Classes="chip" Content="되살리기" Padding="12,5"
+            <!-- 서식 단추(왼쪽) · 고치기/완료 · 고정 · 삭제(오른쪽). 좁으면 서식 단추는 기호만, 더 좁으면 아랫줄로(창이 정한다). -->
+            <Grid Name="ToolRow" Grid.Row="0" Margin="22,4,16,4" MinHeight="30" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+              <StackPanel Name="ToolRight" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+                <Button Classes="chip accent" Content="되살리기" Padding="12,5"
                         IsVisible="{Binding ShowRestore}" Command="{Binding RestoreCommand}" />
-                <Button Classes="chip" Content="{Binding ModeText}" Padding="12,5"
+                <!-- 고치기(읽기 모드)는 보통 칩, 완료(쓰기 모드)는 강조색 — 지금 모드가 한눈에 -->
+                <Button Classes="chip" Classes.accent="{Binding IsEditing}" Content="{Binding ModeText}" Padding="12,5"
                         IsVisible="{Binding ShowToolbar}" Command="{Binding ToggleEditCommand}"
                         ToolTip.Tip="{Binding ModeTip}" />
                 <Button Classes="icon" Classes.pinned="{Binding IsPinned}"
@@ -415,56 +438,56 @@
                 <Button Classes="icon" Content="?" Focusable="False" Click="OnHelpClick" ToolTip.Tip="사용법" />
               </StackPanel>
 
-              <Panel>
+              <Panel Name="FormatHost">
                 <TextBlock Classes="meta" Text="휴지통 · 읽기 전용" IsVisible="{Binding IsTrashView}" />
-                <WrapPanel Orientation="Horizontal" IsVisible="{Binding ShowToolbar}" Margin="0,0,8,0">
+                <WrapPanel Name="FormatBar" Orientation="Horizontal" IsVisible="{Binding ShowToolbar}" Margin="0,0,8,0">
                   <Button Classes="chip format" Tag="Heading1" Click="OnFormatClick"
                           ToolTip.Tip="큰 소제목 (# ) · 쓰는 중이면 커서 줄을 바꾸고, 다시 누르면 풉니다">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                       <TextBlock Classes="glyph" Text="#" />
-                      <TextBlock Text="큰 소제목" />
+                      <TextBlock Classes="fmtname" Text="큰 소제목" />
                     </StackPanel>
                   </Button>
                   <Button Classes="chip format" Tag="Heading2" Click="OnFormatClick"
                           ToolTip.Tip="소제목 (## ) · 쓰는 중이면 커서 줄을 바꾸고, 다시 누르면 풉니다">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                       <TextBlock Classes="glyph" Text="##" />
-                      <TextBlock Text="소제목" />
+                      <TextBlock Classes="fmtname" Text="소제목" />
                     </StackPanel>
                   </Button>
                   <Button Classes="chip format" Tag="Numbered" Click="OnFormatClick"
                           ToolTip.Tip="번호 목록 (1. ) · 위 번호에 이어 매깁니다">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                       <TextBlock Classes="glyph" Text="1." />
-                      <TextBlock Text="번호" />
+                      <TextBlock Classes="fmtname" Text="번호" />
                     </StackPanel>
                   </Button>
                   <Button Classes="chip format" Tag="Bullet" Click="OnFormatClick"
                           ToolTip.Tip="점 목록 (- )">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                       <TextBlock Classes="glyph" Text="•" />
-                      <TextBlock Text="점" />
+                      <TextBlock Classes="fmtname" Text="점" />
                     </StackPanel>
                   </Button>
                   <Button Classes="chip format" Tag="Check" Click="OnFormatClick"
                           ToolTip.Tip="체크 항목 ([ ] ) · 읽기 화면에서 눌러 체크합니다">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                       <Border Classes="box" />
-                      <TextBlock Text="체크" />
+                      <TextBlock Classes="fmtname" Text="체크" />
                     </StackPanel>
                   </Button>
                 </WrapPanel>
               </Panel>
-            </DockPanel>
+            </Grid>
 
             <!-- 띠: 충돌·지워짐·저장 실패가 위, 쓰는 중이라 기다리는 휴대폰의 일(체크·고치기 등)이 아래(둘 다 있으면 쌓인다) -->
             <StackPanel Grid.Row="1">
               <Border IsVisible="{Binding HasBanner}"
-                      Background="#3A321C" BorderBrush="#6B5523" BorderThickness="1"
+                      Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBorderBrush}" BorderThickness="1"
                       CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="{Binding Banner}" FontSize="13" TextWrapping="Wrap"
-                             Foreground="#F3D48B" VerticalAlignment="Center" />
+                             Foreground="{StaticResource WarnTextBrush}" VerticalAlignment="Center" />
                   <Button Grid.Column="1" Classes="icon" Width="22" Height="22" Margin="8,0,0,0"
                           Command="{Binding DismissBannerCommand}" ToolTip.Tip="닫기">
                     <Path Data="{StaticResource CloseIcon}" Width="9" Height="9" Stretch="Uniform" />
@@ -472,10 +495,10 @@
                 </Grid>
               </Border>
               <Border IsVisible="{Binding HasPhoneWait}"
-                      Background="#1E2A3A" BorderBrush="#2F4A6B" BorderThickness="1"
+                      Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBorderBrush}" BorderThickness="1"
                       CornerRadius="8" Margin="22,2,16,8" Padding="12,8">
                 <TextBlock Text="{Binding PhoneWait}" FontSize="13" TextWrapping="Wrap"
-                           Foreground="#A9C8F0" VerticalAlignment="Center" />
+                           Foreground="{StaticResource InfoTextBrush}" VerticalAlignment="Center" />
               </Border>
             </StackPanel>
 
@@ -532,7 +555,7 @@
               </ItemsControl>
 
               <TextBlock Text="{Binding TagHint}" IsVisible="{Binding HasTagHint}"
-                         FontSize="11" Foreground="#F3D48B" Margin="0,0,0,4" />
+                         FontSize="11" Foreground="{StaticResource WarnTextBrush}" Margin="0,0,0,4" />
 
               <!-- 이 메모를 가리키는 루틴·할 일. 위젯에서 우클릭 → 메모 연결로 만든다. -->
               <TextBlock Text="{Binding LinkText}" IsVisible="{Binding HasLinks}"
@@ -570,7 +593,7 @@
                       </DataTemplate>
 
                       <DataTemplate x:Key="Heading2" DataType="vm:MemoLineView">
-                        <TextBlock Text="{Binding Text}" FontSize="15" FontWeight="Bold"
+                        <TextBlock Text="{Binding Text}" FontSize="16" FontWeight="Bold"
                                    TextWrapping="Wrap" Margin="0,8,0,3"
                                    Foreground="{StaticResource TextPrimaryBrush}" />
                       </DataTemplate>
@@ -638,8 +661,8 @@
 
         <!-- ════════ 사용법 판: ? 단추로 열고, ✕ · Esc · 바깥을 누르면 닫는다. 제목 줄은 가리지 않는다. ════════ -->
         <Panel Grid.Row="1" IsVisible="{Binding IsHelpOpen}">
-          <Border Name="HelpScrim" Background="#B30C0C0E" />
-          <Border Background="#181820" CornerRadius="14"
+          <Border Name="HelpScrim" Background="{StaticResource ScrimBrush}" />
+          <Border Background="{StaticResource DialogBrush}" CornerRadius="14"
                   BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
                   BoxShadow="0 10 30 0 #80000000"
                   MaxWidth="440" Margin="24,6,24,22"
@@ -656,6 +679,7 @@
                 <StackPanel Spacing="14">
                   <StackPanel Spacing="1">
                     <TextBlock Classes="helphead" Text="쓰기와 읽기" />
+                    <TextBlock Classes="helpline" Text="새 메모는 왼쪽 위 + 로 만들어요. 바로 제목을 치면 돼요." />
                     <TextBlock Classes="helpline" Text="고치기 단추나 Ctrl+E 로 고쳐요." />
                     <TextBlock Classes="helpline" Text="다 쓰면 Esc. 저장은 알아서 돼요." />
                   </StackPanel>
