@@ -75,8 +75,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .weekday { margin-top: 1px; font-size: 13px; color: var(--text-secondary); }
 
 .icon-btn {
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 10px;
   display: grid;
   place-items: center;
@@ -346,7 +346,7 @@ button.status:active { opacity: 0.7; }
 /* 길게 누를 때 iOS 가 글자를 고르거나 메뉴를 띄우지 않게 한다. */
 .row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
-.hint { margin: 28px 6px 0; text-align: center; font-size: 11px; color: var(--text-disabled); }
+.hint { margin: 28px 6px 0; text-align: center; font-size: 11px; color: var(--text-muted); }
 
 #sheet { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
 #sheet.open { pointer-events: auto; }
@@ -364,6 +364,8 @@ button.status:active { opacity: 0.7; }
 }
 
 .sheet-head { font-size: 13px; color: var(--text-secondary); margin: 0 2px 10px; }
+/* … 메뉴 · 연결 고르기의 머리글은 줄 글과 같은 자리(줄의 안쪽 여백 12 + 테두리 1)에서 시작한다 */
+.sheet-head.menu-head { margin-left: 13px; margin-right: 13px; }
 
 .sheet input {
   width: 100%;
@@ -396,7 +398,6 @@ button.status:active { opacity: 0.7; }
 .prio-btn.low.on { border-color: var(--low); }
 
 .sheet-actions { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
-.sheet-actions .grow { flex: 1; }
 .sheet-actions button {
   padding: 10px 16px;
   font: inherit;
@@ -407,10 +408,14 @@ button.status:active { opacity: 0.7; }
   color: var(--text-secondary);
 }
 .sheet-actions .save { background: var(--accent); color: var(--panel); font-weight: 600; }
-.sheet-actions .danger { color: var(--overdue-text); padding-left: 4px; }
+/* .ghost 의 위 여백 · 높이는 빈 화면용 — 단추 줄 안에서는 옆 단추와 높이를 맞춘다 */
+.sheet-actions .ghost { margin: 0; height: auto; }
+.sheet-actions .danger,
+.menu-item.danger { color: var(--overdue-text); }
+.sheet-actions .danger { padding-left: 4px; }
 .sheet-actions .danger.armed { background: var(--overdue-bg); border-color: var(--high); padding-left: 16px; }
 
-.sheet-note { margin: 10px 2px 0; font-size: 11px; color: var(--text-muted); min-height: 1em; }
+.sheet-note { margin: 10px 2px 0; font-size: 11px; color: var(--text-secondary); min-height: 1em; }
 
 @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -488,7 +493,8 @@ button.link { display: block; margin: 10px auto 0; font-size: 12px; color: var(-
 }
 .tab {
   min-width: 64px;
-  padding: 6px 14px;
+  min-height: 38px;
+  padding: 6px 16px;
   border-radius: 8px;
   font-size: 14px;
   color: var(--text-secondary);
@@ -497,12 +503,15 @@ button.link { display: block; margin: 10px auto 0; font-size: 12px; color: var(-
 
 /* 오늘 줄의 📝. 줄 체크와 따로 눌리도록 손가락 자리를 넉넉히 준다. */
 .memo-link {
+  position: relative;
   font-size: 15px;
   line-height: 1;
   padding: 6px 4px 6px 8px;
   margin: -6px -2px -6px 0;
   border-radius: 8px;
 }
+/* 보이지 않는 누름 영역 — 44px 남짓 */
+.memo-link::after { content: ''; position: absolute; inset: -8px -6px -8px -4px; }
 .memo-link:active { background: var(--pressed); }
 
 /* ===== 메모 목록 ===== */
@@ -528,7 +537,8 @@ button.link { display: block; margin: 10px auto 0; font-size: 12px; color: var(-
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 6px 0; }
 .chip {
-  padding: 5px 10px;
+  min-height: 34px;
+  padding: 7px 12px;
   border-radius: 999px;
   font-size: 12.5px;
   color: var(--text-secondary);
@@ -566,7 +576,7 @@ button.link { display: block; margin: 10px auto 0; font-size: 12px; color: var(-
 .memo-row .badge { flex: none; }
 .memo-row-preview {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -610,7 +620,7 @@ button.link { display: block; margin: 10px auto 0; font-size: 12px; color: var(-
 .m-body { flex: 1; min-width: 0; white-space: pre-wrap; }
 
 /* 체크 줄은 줄 전체가 손가락 자리다 */
-.m-check { padding-top: 7px; padding-bottom: 7px; border-radius: 8px; -webkit-user-select: none; user-select: none; }
+.m-check { min-height: 44px; padding-top: 11px; padding-bottom: 11px; border-radius: 8px; -webkit-user-select: none; user-select: none; }
 .m-check:active { background: var(--hover); }
 /* 체크 칸은 동그라미 — PC 메모 창, 오늘 목록의 링과 같은 모양. 20px 로 번호·점 줄의 글과 줄을 맞춘다 */
 .m-box {
@@ -735,12 +745,13 @@ body.memo-editing #app { display: none; }
 .menu-item:active { background: var(--hover); }
 .menu-item:disabled { opacity: 0.4; }
 .menu-item.accent { color: var(--accent); font-weight: 600; }
-.menu-item.danger { color: var(--overdue-text); }
+.menu-item.danger { margin-top: 8px; }
+/* 메뉴 줄 앞의 기호(📌 ↻ ○ ＋)는 너비가 저마다 달라 글 시작이 어긋난다 — 같은 칸에 넣는다 */
+.mi { flex: none; width: 20px; text-align: center; font-size: 14px; }
 .menu-item.danger.armed { background: var(--overdue-bg); border-color: var(--high); }
 .menu-item.pick.on { background: var(--surface-active); }
 .pick-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-on { flex: none; font-size: 12px; color: var(--accent); }
-.menu-item .pin { font-size: 12px; flex: none; }
 .pick-list { max-height: 45vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--border); padding-top: 4px; }
 
 .link-row {

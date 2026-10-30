@@ -26,6 +26,9 @@ const VIEW_NAME = 'phone-view.json';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 
+/** 화면 맨 아래 진단 줄에 보이는 판. 고칠 때마다 index.html 의 ?v= 와 함께 올린다. */
+const APP_VERSION = 'v15';
+
 /** 켜져 있는 동안 이만큼마다 PC 쪽 변경을 가져온다. */
 const REFRESH_EVERY_MS = 30_000;
 
@@ -251,8 +254,29 @@ async function rememberAccount() {
 class AuthError extends Error {}
 class GoneError extends Error {}
 
+/** 요청 하나의 시간 제한. 멈춘 요청이 refreshing 을 잡고 있으면 뒤의 새로고침이 다 같이 기다린다. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+/** 화면을 떠나는 중(숨겨짐 · 닫힘)인지. 그때 보내는 요청은 keepalive — 페이지가 멈춰도 끝까지 간다. */
+let leaving = false;
+
+async function timedFetch(url, init = {}) {
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS) : 0;
+  // keepalive 는 본문 64KB 까지만 된다.
+  const keepalive = leaving && typeof init.body === 'string' && utf8Bytes(init.body) < 60_000;
+  try {
+    return await fetch(url, { ...init, ...(ctrl ? { signal: ctrl.signal } : {}), ...(keepalive ? { keepalive: true } : {}) });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('응답이 20초 넘게 없습니다');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function drive(path, options = {}) {
-  const response = await fetch('https://www.googleapis.com' + path, {
+  const response = await timedFetch('https://www.googleapis.com' + path, {
     ...options,
     cache: 'no-store',
     headers: { Authorization: 'Bearer ' + state.token, ...(options.headers || {}) }
@@ -346,31 +370,54 @@ const RELAY_ERRORS = {
   parse: '중계 응답을 못 읽었습니다 — 배포의 액세스 권한이 \'모든 사용자\'인지 확인하세요'
 };
 
+/**
+ * 중계에 못 닿았거나 엉뚱한 답(JSON 아님)이 왔을 때의 말. 그냥 오프라인이거나, 전에 잘 되던 중계가 잠깐 막힌 것(잠금 시간 초과 ·
+ * 드라이브 오류)을 권한 문제로 말하지 않는다. 권한 안내는 한 번도 된 적이 없을 때만.
+ */
+function relayDownMessage(firstTime) {
+  if (navigator.onLine === false) return '오프라인 · 연결되면 보냅니다';
+  if (local.get('relayOk', false)) return '중계가 잠시 응답하지 않습니다';
+  return firstTime;
+}
+
 async function relayCall(relay, body) {
-  const response = body
-    ? await fetch(relay.url, {
-        method: 'POST',
-        // text/plain 이어야 브라우저가 사전 확인(CORS preflight) 없이 보낸다. Apps Script 는 그걸 못 받는다.
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ key: relay.key, ...body }),
-        cache: 'no-store'
-      })
-    : await fetch(`${relay.url}?key=${encodeURIComponent(relay.key)}&t=${Date.now()}`, { cache: 'no-store' })
-        .catch(() => { throw new Error('중계에 닿지 못했습니다 — 액세스 권한이 \'모든 사용자\'인지, 권한 승인을 끝냈는지 확인하세요'); });
+  let response;
+  try {
+    response = body
+      ? await timedFetch(relay.url, {
+          method: 'POST',
+          // text/plain 이어야 브라우저가 사전 확인(CORS preflight) 없이 보낸다. Apps Script 는 그걸 못 받는다.
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ key: relay.key, ...body }),
+          cache: 'no-store'
+        })
+      : await timedFetch(`${relay.url}?key=${encodeURIComponent(relay.key)}&t=${Date.now()}`, { cache: 'no-store' });
+  } catch (error) {
+    const timedOut = String(error?.message || '').startsWith('응답이');
+    throw new Error(relayDownMessage(timedOut ? error.message
+      : '중계에 닿지 못했습니다 — 액세스 권한이 \'모든 사용자\'인지, 권한 승인을 끝냈는지 확인하세요'));
+  }
 
   if (!response.ok) throw new Error('중계 ' + response.status + (response.status === 404 ? ' — 주소가 틀렸거나 배포가 지워졌습니다' : ''));
   let json;
-  try { json = await response.json(); } catch { throw new Error(RELAY_ERRORS.parse); }
+  try { json = await response.json(); } catch { throw new Error(relayDownMessage(RELAY_ERRORS.parse)); }
   if (!json?.ok) throw new Error(RELAY_ERRORS[json?.error] ?? ('중계: ' + (json?.error || '알 수 없음')));
+  if (!local.get('relayOk', false)) local.set('relayOk', true);
   return json;
 }
 
+/**
+ * 받은 화면을 들인다. PC 가 바꾼 것이 없으면(GeneratedAt 이 같음 — PC 는 내용이 바뀔 때만 파일을 쓴다)
+ * 받은 때만 적고 false: 큰 화면을 이 폰에 다시 남기거나 다시 그리지 않는다.
+ */
 function applyView(view) {
-  if (!view?.Today) return;
-  state.view = view;
+  if (!view?.Today) return false;
   state.fetchedAt = Date.now();
-  local.set('view', view);
   local.set('fetchedAt', state.fetchedAt);
+  if (state.view?.GeneratedAt && view.GeneratedAt === state.view.GeneratedAt && view.Today === state.view.Today) return false;
+  state.view = view;
+  local.set('view', view);
+  return true;
 }
 
 /**
@@ -405,6 +452,9 @@ function sameIds(a, b) {
 /** inbox 를 올리는 중인지. 올리는 중인 일은 이미 저쪽에 닿았을 수 있어 합치지(queueMemoSave) 않는다. */
 let uploading = 0;
 
+/** 일이 드라이브에 간 것을 이 폰이 처음 안 때(메모리에만). 'PC 가 너무 오래 안 받음'을 보낸 때부터 잰다. */
+const sentAt = new Map();
+
 async function syncInbox(remoteGiven) {
   const rev = state.rev;
   const applied = new Set(state.view?.AppliedOps ?? []);
@@ -416,7 +466,8 @@ async function syncInbox(remoteGiven) {
   local.set('pending', merged);
 
   let onDrive = merged.map(op => op.Id);
-  if (!remote || !sameIds(remote, merged)) {
+  const upload = !remote || !sameIds(remote, merged);
+  if (upload) {
     uploading++;
     try {
       if (state.relay) {
@@ -437,6 +488,7 @@ async function syncInbox(remoteGiven) {
   // 여기까지 왔으면 이 일들은 드라이브에 있다. '아직 폰에만 있음'과 'PC가 받기를 기다림'을 가르는 표시.
   state.sent = new Set(onDrive);
   local.set('sent', [...state.sent]);
+  for (const id of onDrive) if (!sentAt.has(id)) sentAt.set(id, Date.now());
   pruneMemoDrafts();   // 자리가 모자라 남겨 둔 저장 글이 이제 드라이브에 갔으면 버린다
 
   if (state.rev === rev) {
@@ -445,6 +497,7 @@ async function syncInbox(remoteGiven) {
   } else {
     scheduleFlush();
   }
+  return upload && merged.length > 0;   // 보낼 일이 있어 올렸는지(뒤따라 받기를 할지)
 }
 
 /** 폴더나 파일을 사람이 지웠다. 번호를 잊고 처음부터 다시 찾거나 만든다. */
@@ -470,8 +523,9 @@ async function refresh() {
   if (refreshing) return refreshing;
 
   refreshing = (async () => {
-    state.busy = true;
-    render();
+    // 바쁨은 아이콘 · 상태 줄만 바꾼다. 화면을 통째로 다시 그리면 그 순간 누른 체크가 씹힐 수 있다.
+    setBusy(true);
+    const before = { view: state.view, pending: state.pending, error: state.error, detail: state.errorDetail, phase: state.phase };
 
     try {
       if (state.relay) {
@@ -497,11 +551,30 @@ async function refresh() {
     } finally {
       state.busy = false;
       refreshing = null;
-      render();
+      // 바뀐 게 있을 때만 다시 그린다. PC 화면이 그대로면(대부분의 30초) 상태 줄만.
+      const changed = state.view !== before.view || !sameIds(state.pending, before.pending)
+        || state.error !== before.error || state.errorDetail !== before.detail || state.phase !== before.phase
+        || logicalToday() !== renderedDay;
+      if (changed) render();
+      else setBusy(false);
     }
   })();
 
   return refreshing;
+}
+
+/** 새로고침 아이콘을 돌리고 상태 줄만 다시 쓴다(다시 그리지 않는다). 기다리는 화면은 단추 글이 바뀌어 그냥 그린다. */
+function setBusy(busy) {
+  state.busy = busy;
+  if (state.phase === 'waiting-pc' && !state.view?.Today) { render(); return; }
+  for (const el of app.querySelectorAll('.icon-btn[data-act="refresh"]')) el.classList.toggle('spinning', busy);
+  updateStatus();
+}
+
+/** 화면 안의 상태 줄을 지금 상태로 바꿔 쓴다. */
+function updateStatus() {
+  const html = statusLine();
+  for (const el of app.querySelectorAll('.status')) el.outerHTML = html;
 }
 
 let flushTimer = 0;
@@ -511,19 +584,34 @@ function scheduleFlush() {
   flushTimer = setTimeout(flush, FLUSH_DELAY_MS);
 }
 
+/** 보낸 뒤 이만큼 지나 한 번 더 받는다 — PC 는 10초마다 inbox 를 보고 2초 뒤 화면을 쓴다. 30초를 기다리지 않게. */
+const FOLLOW_UP_MS = 14_000;
+let followTimer = 0;
+
 async function flush() {
   if (DEMO || !state.dirty) return;
   if (!hasToken()) { render(); return; }
 
+  let sent = false;
   try {
-    if (state.relay) await syncInbox();
-    else await withLink(() => syncInbox());
+    sent = state.relay ? await syncInbox() : await withLink(() => syncInbox());
     state.error = null;
   } catch (error) {
     state.error = error instanceof AuthError ? 'auth' : 'net';
     state.errorDetail = error instanceof AuthError ? '' : String(error?.message || error);
   }
   render();
+  if (sent) {
+    clearTimeout(followTimer);
+    followTimer = setTimeout(() => { if (document.visibilityState === 'visible') refresh(); }, FOLLOW_UP_MS);
+  }
+}
+
+/** 지금 바로 보낸다(숨겨질 때 · 다시 연결될 때). 앱이 뒤로 가면 타이머가 멈춰 일이 묶이지 않게. */
+function flushNow() {
+  if (DEMO || !state.dirty || !hasToken()) return;
+  clearTimeout(flushTimer);
+  flush();
 }
 
 /**
@@ -689,12 +777,19 @@ function plainMemoLine(line) {
   return mark ? trimmed.slice(mark[0].length).trim() : trimmed;
 }
 
-/** 목록의 흐린 첫머리: 제목 줄 다음 본문을 기호 떼고 한 줄로 접어 앞 80자(MemoFormat.PreviewOf). */
+/** 태그만 있는 줄(#AK넷 #업무). 태그는 칩으로 따로 보이므로 미리보기에서 뺀다. */
+const TAG_ONLY_LINE = /^\s*(#[^\s#]+\s*)+$/;
+
+/**
+ * 목록의 흐린 첫머리: 제목 줄 다음 본문을 기호 떼고 한 줄로 접어 앞 80자(MemoFormat.PreviewOf).
+ * PC 와 달리 태그만 있는 줄은 건너뛴다 — 휴대폰 목록에서 미리보기가 #… 로 시작하면 내용이 안 보인다.
+ */
 function memoPreview(text) {
   const lines = String(text ?? '').split(MEMO_RX.lineBreak);
   const first = lines.findIndex(l => l.trim());
   if (first < 0) return '';
-  const folded = lines.slice(first + 1).map(plainMemoLine).join(' ').replace(/\s+/g, ' ').trim();
+  const folded = lines.slice(first + 1).filter(l => !TAG_ONLY_LINE.test(l))
+    .map(plainMemoLine).join(' ').replace(/\s+/g, ' ').trim();
   if (folded.length <= 80) return folded;
   const cut = folded.slice(0, 80);
   return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
@@ -729,8 +824,8 @@ function filterMemos(memos, search, tag) {
   return memos.filter(m => {
     const have = (m.Tags ?? []).map(t => lower(bareTag(t)));
     if (!tags.every(t => have.includes(t))) return false;
-    const title = lower(m.Title);
-    const body = lower(m.Text);
+    const title = m.lowTitle ?? lower(m.Title);
+    const body = m.lowText ?? lower(m.Text);
     return words.every(w => title.includes(w) || body.includes(w));
   }).sort(memoOrder);
 }
@@ -921,12 +1016,38 @@ function composeMemos() {
   const list = [];
   for (const memo of byId.values()) {
     if (memo.deleted) continue;
-    memo.lines = memoLines(memo.Text);
-    for (const i of memo.waitLines) if (memo.lines[i]) memo.lines[i].waiting = true;
+    lazyMemoParts(memo);
     list.push(memo);
   }
   memoCache = { view: state.view, pending: state.pending, count: state.pending.length, today, list };
   return list;
+}
+
+/**
+ * 줄 분류(lines) · 목록 미리보기(previewText) · 검색용 소문자(lowTitle · lowText)는 처음 쓸 때 한 번만 만든다 —
+ * 메모가 수백 개면 바뀔 때마다 모두 만들기가 체크 한 번에 수십 ms 였다(줄 분류는 보통 연 메모 하나만 쓴다).
+ * 합친 목록(memoCache)이 그대로인 동안 남는다.
+ */
+function lazyMemoParts(memo) {
+  const once = (name, make) => {
+    let value;
+    let made = false;
+    Object.defineProperty(memo, name, {
+      configurable: true,
+      get() {
+        if (!made) { value = make(); made = true; }
+        return value;
+      }
+    });
+  };
+  once('lines', () => {
+    const lines = memoLines(memo.Text);
+    for (const i of memo.waitLines) if (lines[i]) lines[i].waiting = true;
+    return lines;
+  });
+  once('previewText', () => memoPreview(memo.Text));
+  once('lowTitle', () => lower(memo.Title));
+  once('lowText', () => lower(memo.Text));
 }
 
 /** 화면에 보일 메모 하나(얹은 일 포함). 지웠거나 없으면 null. */
@@ -978,7 +1099,11 @@ const ICON = {
 
 const app = document.getElementById('app');
 
+/** 마지막으로 그린 날. 새로고침이 바뀐 게 없어도 날이 바뀌었으면 다시 그린다. */
+let renderedDay = '';
+
 function render() {
+  renderedDay = logicalToday();
   // 설정 화면은 적는 칸이 있어 30초마다 다시 그리면 적던 것이 날아간다. 들어갈 때 한 번만 그린다.
   if (state.phase === 'setup') { if (!app.querySelector('.setup')) renderSetup(); return; }
   if (state.phase === 'signin' || (state.phase === 'boot' && !state.view)) return renderSignin();
@@ -1030,9 +1155,14 @@ function statusLine() {
   const open = state.pending.filter(op => !applied.has(op.Id));
   const unsent = open.filter(op => !state.sent.has(op.Id)).length;
   const waiting = open.length - unsent;
-  const generated = state.view?.GeneratedAt ? `PC ${agoText(state.view.GeneratedAt)} 기준` : '';
+  // 받은 때(이 폰이 마지막으로 가져온 때)와 PC 가 마지막으로 바꾼 때는 다르다 — 켜져 있지만 조용한 PC 와 꺼진 PC 를 가르려면 둘 다.
+  const fetched = state.fetchedAt ? `${agoText(localIso(new Date(state.fetchedAt)))} 받음` : '';
+  const changedAt = state.view?.GeneratedAt ? `PC ${agoText(state.view.GeneratedAt)} 변경` : '';
+  const generated = [fetched, changedAt].filter(Boolean).join(' · ');
+  const offline = navigator.onLine === false;
 
   if (unsent > 0) {
+    if (offline) return `<div class="status pending"><span class="dot"></span>폰에만 있음 ${unsent}개 · 오프라인 · 연결되면 보냅니다</div>`;
     if (state.busy) return `<div class="status pending"><span class="dot"></span>보내는 중… ${unsent}개</div>`;
     if (state.authStuck) {
       return `<button class="status error" data-act="refresh"><span class="dot"></span>폰에만 있음 ${unsent}개 · 구글 연결이 안 돌아왔습니다. 크롬에서 열어 주세요</button>`;
@@ -1046,8 +1176,12 @@ function statusLine() {
     return `<div class="status pending"><span class="dot"></span>보낼 차례 ${unsent}개</div>`;
   }
 
+  if (offline) {
+    const when = state.fetchedAt ? ` · ${agoText(localIso(new Date(state.fetchedAt)))} 받은 화면` : '';
+    return `<div class="status pending"><span class="dot"></span>오프라인${when}</div>`;
+  }
   if (state.error === 'net') {
-    return `<button class="status error" data-act="refresh"><span class="dot"></span>드라이브에 닿지 못했습니다(${esc(state.errorDetail)}) · 눌러서 다시</button>`;
+    return `<button class="status error" data-act="refresh"><span class="dot"></span>${state.relay ? '받지 못했습니다' : '드라이브에 닿지 못했습니다'}(${esc(state.errorDetail)}) · 눌러서 다시</button>`;
   }
   if (!hasToken() && local.get('connected', false) && !DEMO) {
     return `<button class="status" data-act="refresh"><span class="dot"></span>${generated ? generated + ' · ' : ''}눌러서 최신으로</button>`;
@@ -1055,6 +1189,13 @@ function statusLine() {
   if (waiting > 0) {
     // PC 가 그 메모를 쓰는 중이면(쓰기 모드) 1분이 지나도 안 들어간다. 왜 기다리는지 말해 준다.
     const held = open.filter(op => state.sent.has(op.Id) && isMemoOp(op) && op.Kind !== 'memo-link' && isHeldMemo(op.Target)).length;
+    // 보낸 일이 3분 넘게 안 들어가면(PC 는 켜져 있으면 1분 안에 넣는다) 기다리라고만 하지 않고 까닭을 짚는다.
+    const late = open.filter(op => state.sent.has(op.Id) && !(isMemoOp(op) && isHeldMemo(op.Target)))
+      .map(op => Date.now() - (sentAt.get(op.Id) ?? Date.parse(op.At))).filter(ms => ms > 3 * 60_000);
+    if (late.length) {
+      const minutes = Math.round(Math.max(...late) / 60_000);
+      return `<div class="status pending"><span class="dot"></span>PC 반영 대기 ${waiting}개 · PC가 꺼져 있거나 드라이브 동기화가 멈춘 것 같습니다 · ${minutes}분째</div>`;
+    }
     const when = held === waiting ? 'PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다'
       : held > 0 ? `PC가 켜져 있으면 1분 안에 · ${held}개는 PC에서 쓰는 중 · 쓰기를 마치면 들어갑니다`
       : 'PC가 켜져 있으면 1분 안에';
@@ -1068,7 +1209,7 @@ function diagnostics() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const minutes = hasToken() && !DEMO ? Math.max(0, Math.round((state.tokenExpires - Date.now()) / 60000)) : 0;
   const parts = [
-    'v14',
+    APP_VERSION,
     standalone ? '앱' : '브라우저',
     DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? `연결 ${minutes}분 남음` : '연결 끊김'),
     `대기 ${state.pending.length}`
@@ -1077,6 +1218,11 @@ function diagnostics() {
     ? '<button class="link" data-act="relay-off">로그인 없이 쓰는 중 · 끄기</button>'
     : '<button class="link" data-act="setup">로그인 창이 번거로우면 · 로그인 없이 쓰기</button>';
   return `<div class="hint">길게 누르면 이름·중요도를 고치거나 메모를 연결하거나 지울 수 있습니다</div>${relayLink}<div class="diag">${parts.join(' · ')}</div>`;
+}
+
+/** 진단 줄의 앞머리(판 · 연결 방식 · 대기 수). 오늘 화면과 메모 화면이 같이 쓴다. */
+function diagParts() {
+  return [APP_VERSION, DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
 }
 
 /** PC가 보내 온 화면에 이미 있는 항목인지. 없으면 폰에서 적고 아직 PC가 못 받은 것이다. */
@@ -1213,8 +1359,7 @@ function renderToday() {
 
 /** 메모 화면 맨 아래 작은 글씨(오늘 화면의 진단 줄과 같은 것). */
 function memoDiag() {
-  const parts = ['v14', DEMO ? '보기용' : state.relay ? '중계' : (hasToken() ? '연결' : '연결 끊김'), `대기 ${state.pending.length}`];
-  return `<div class="diag">${parts.join(' · ')}</div>`;
+  return `<div class="diag">${diagParts().join(' · ')}</div>`;
 }
 
 /**
@@ -1264,12 +1409,12 @@ function updateMemoList() {
     }).join('')}</div>` : '';
 
   const rows = found.map(m => {
-    const preview = memoPreview(m.Text);
+    const preview = m.previewText ?? memoPreview(m.Text);
     return `
       <button class="memo-row" data-act="memo-open" data-memo="${esc(m.Id)}">
         <span class="memo-row-head">
-          ${m.Pinned ? '<span class="pin" aria-label="고정">📌</span>' : ''}
           <span class="memo-row-title">${esc(m.Title)}</span>
+          ${m.Pinned ? '<span class="pin" aria-label="고정">📌</span>' : ''}
           ${m.Daily ? '<span class="daily" title="매일 초기화">↻</span>' : ''}
           ${m.waiting ? waitBadge(m.Id) : ''}
         </span>
@@ -1293,7 +1438,7 @@ function memoLineHtml(line, memoId) {
     case 'h1': return `<div class="m-h1">${esc(line.text)}</div>`;
     case 'h2': return `<div class="m-h2">${esc(line.text)}</div>`;
     case 'numbered':
-      return `<div class="m-item"${indent}><span class="m-mark m-num">${esc(line.number)}</span><span class="m-body">${esc(line.text)}</span></div>`;
+      return `<div class="m-item"${indent}><span class="m-mark">${esc(line.number)}</span><span class="m-body">${esc(line.text)}</span></div>`;
     case 'bullet':
       return `<div class="m-item"${indent}><span class="m-mark m-dot">•</span><span class="m-body">${esc(line.text)}</span></div>`;
     case 'check':
@@ -1496,7 +1641,7 @@ function renderSetup() {
       <p class="sub muted">이 기기의 열쇠: <code>${esc(key.slice(0, 6))}…</code> — 스크립트에 함께 들어갑니다.</p>
     </div>`;
 
-  fetch('relay.gs?v=13', { cache: 'no-store' })
+  fetch(`relay.gs?v=${APP_VERSION}`, { cache: 'no-store' })
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(text => {
       relayScript = text.replace('__FLOW_KEY__', key);
@@ -1644,12 +1789,12 @@ function openMemoMenu(id) {
   const hasChecked = memo.lines.some(l => l.kind === 'check' && l.checked);
   sheet.innerHTML = `
     <div class="sheet-backdrop" data-sheet="close"></div>
-    <div class="sheet menu-sheet">
-      <div class="sheet-head">${esc(memo.Title)}</div>
-      <button type="button" class="menu-item" data-sheet="memo-pin">📌 ${memo.Pinned ? '고정 풀기' : '고정'}</button>
-      <button type="button" class="menu-item" data-sheet="memo-daily">↻ 매일 초기화 ${memo.Daily ? '끄기' : '켜기'}</button>
-      <button type="button" class="menu-item" data-sheet="memo-uncheck"${hasChecked ? '' : ' disabled'}>○ 체크 모두 풀기</button>
-      <button type="button" class="menu-item danger" data-sheet="memo-delete">삭제</button>
+    <div class="sheet">
+      <div class="sheet-head menu-head">${esc(memo.Title)}</div>
+      <button type="button" class="menu-item" data-sheet="memo-pin"><span class="mi">📌</span>${memo.Pinned ? '고정 풀기' : '고정'}</button>
+      <button type="button" class="menu-item" data-sheet="memo-daily"><span class="mi">↻</span>매일 초기화 ${memo.Daily ? '끄기' : '켜기'}</button>
+      <button type="button" class="menu-item" data-sheet="memo-uncheck"${hasChecked ? '' : ' disabled'}><span class="mi">○</span>체크 모두 풀기</button>
+      <button type="button" class="menu-item danger" data-sheet="memo-delete"><span class="mi"></span>삭제</button>
       <div class="sheet-note" id="sheet-note">${memo.Daily ? '매일 초기화: 새 하루가 되면 체크가 모두 풀립니다' : '매일 초기화를 켜면 새 하루가 될 때 체크가 모두 풀립니다'}</div>
     </div>`;
   sheet.classList.add('open');
@@ -1662,14 +1807,14 @@ function openLinkPicker(id) {
   const memos = [...(composeMemos() ?? [])].sort(memoOrder);
   const rows = memos.map(m => `
         <button type="button" class="menu-item pick${m.Id === item.MemoId ? ' on' : ''}" data-sheet="link-pick" data-memo="${esc(m.Id)}">
-          ${m.Pinned ? '<span class="pin">📌</span>' : ''}<span class="pick-title">${esc(m.Title)}</span>${m.Id === item.MemoId ? '<span class="pick-on">연결됨</span>' : ''}
+          <span class="mi">${m.Pinned ? '📌' : ''}</span><span class="pick-title">${esc(m.Title)}</span>${m.Id === item.MemoId ? '<span class="pick-on">연결됨</span>' : ''}
         </button>`).join('');
   sheet.innerHTML = `
     <div class="sheet-backdrop" data-sheet="close"></div>
-    <div class="sheet menu-sheet">
-      <div class="sheet-head">메모 연결 · ${esc(item.Title)}</div>
-      <button type="button" class="menu-item accent" data-sheet="link-new">＋ 새 메모로</button>
-      ${item.MemoId ? '<button type="button" class="menu-item" data-sheet="link-clear">연결 끊기</button>' : ''}
+    <div class="sheet">
+      <div class="sheet-head menu-head">메모 연결 · ${esc(item.Title)}</div>
+      <button type="button" class="menu-item accent" data-sheet="link-new"><span class="mi">＋</span>새 메모로</button>
+      ${item.MemoId ? '<button type="button" class="menu-item" data-sheet="link-clear"><span class="mi"></span>연결 끊기</button>' : ''}
       <div class="pick-list">${rows || '<div class="sheet-note">아직 메모가 없습니다</div>'}</div>
       <div class="sheet-actions"><span class="grow"></span><button type="button" class="ghost" data-sheet="close">취소</button></div>
     </div>`;
@@ -1782,7 +1927,7 @@ sheet.addEventListener('click', async event => {
       if (!memo) { closeEditor(); return; }
       if (!state.confirmDelete) {
         state.confirmDelete = true;
-        target.textContent = '한 번 더 누르면 삭제';
+        target.innerHTML = '<span class="mi"></span>한 번 더 누르면 삭제';
         target.classList.add('armed');
         const note = document.getElementById('sheet-note');
         if (note) note.textContent = '지우면 PC의 메모 휴지통으로 갑니다';
@@ -1927,11 +2072,10 @@ app.addEventListener('click', async event => {
       return;
 
     case 'tab':
-      if (state.tab === target.dataset.tab && !state.memoOpen) return;
+      // 탭은 목록 화면(오늘 · 메모 목록)에만 있다 — 메모를 연 채로는 누를 수 없다.
+      if (state.tab === target.dataset.tab) return;
       state.tab = target.dataset.tab === 'memo' ? 'memo' : 'today';
       local.set('tab', state.tab);
-      if (state.memoOpen && history.state?.memo != null) history.back();   // 쌓아 둔 기록을 걷는다
-      state.memoOpen = null;
       app.innerHTML = '';
       render();
       window.scrollTo(0, 0);
@@ -1973,8 +2117,7 @@ app.addEventListener('click', async event => {
 
       if (navigator.vibrate) navigator.vibrate(8);
       pushOp('memo-check', memo.Id, line.text.trim(), { Line: line.index, Checked: !line.checked });
-      if (!hasToken()) await requestToken();
-      if (hasToken()) scheduleFlush();
+      await sendEdits();
       return;
     }
 
@@ -1984,8 +2127,7 @@ app.addEventListener('click', async event => {
 
       if (navigator.vibrate) navigator.vibrate(8);
       pushOp(item.Done ? 'undone' : 'done', item.Id);
-      if (!hasToken()) await requestToken();
-      if (hasToken()) scheduleFlush();
+      await sendEdits();
       return;
     }
   }
@@ -2006,8 +2148,7 @@ app.addEventListener('submit', async event => {
   state.draft = '';
   pushOp('add', null, text);
   toast('적어 뒀습니다 · PC가 받아 넣습니다');
-  if (!hasToken()) await requestToken();
-  if (hasToken()) scheduleFlush();
+  await sendEdits();
 });
 
 app.addEventListener('input', event => {
@@ -2023,9 +2164,20 @@ app.addEventListener('input', event => {
 });
 
 // 다른 앱 갔다가 돌아오면, 그리고 켜져 있는 동안 가끔 PC 쪽 변경을 가져온다.
+// 숨겨지면 안 보낸 일을 바로 보낸다(keepalive) — 다시 열 때까지 묶이지 않게. 다시 연결되면 바로 받는다.
 document.addEventListener('visibilitychange', () => {
+  leaving = document.visibilityState === 'hidden';
+  if (leaving) flushNow();
+  else refresh();
+});
+window.addEventListener('pagehide', () => {
+  leaving = true;
+  flushNow();
+});
+window.addEventListener('online', () => {
   if (document.visibilityState === 'visible') refresh();
 });
+window.addEventListener('offline', () => updateStatus());
 setInterval(() => {
   if (document.visibilityState === 'visible') refresh();
 }, REFRESH_EVERY_MS);
@@ -2350,7 +2502,6 @@ async function resumeDraft(draft) {
     const memo = findMemo(draft.id);
     const sent = sentMemo(draft.id);
     // PC 글이 그대로인지: 시작할 때의 PC 판이거나, 그때 얹어 계산한 판(앞의 일을 PC 가 예상대로 받음).
-    // pcRev 가 없는 것은 v10 이 남긴 글 — Base 와만 견준다.
     const pcSame = !sent || sent.Rev === draft.pcRev || sent.Rev === draft.base;
     if (!memo) {
       notes.push('이 메모는 PC에 없습니다 · 저장하면 새 메모로 남습니다');
@@ -2362,9 +2513,8 @@ async function resumeDraft(draft) {
       // 옮기지 않는다 — 옮기면 PC 가 그 글을 넣은 뒤 이 저장이 판이 맞아 그 글을 사본 없이 덮는다.
       // 고치기를 시작할 때 이미 있던 저장(startOps — 이 폰의 앞 저장 등)은 시작 글에 들어 있어 세지 않는다.
       // 시각(At)으로 가르지 않는다: 다른 기기의 저장은 그 기기의 시각이라, 늦게 와도 시작보다 앞선 At 을 달고 있다.
-      // startOps 가 없는 것(v12 까지 남긴 글)은 모두 센다.
       const applied = new Set(state.view?.AppliedOps ?? []);
-      const known = Array.isArray(draft.startOps) ? new Set(draft.startOps) : new Set();
+      const known = new Set(draft.startOps ?? []);
       const otherSave = state.pending.some(op => op.Kind === 'memo-save' && op.Target === draft.id
         && !applied.has(op.Id) && op.Text !== draft.start && !known.has(op.Id));
       if (otherSave) {

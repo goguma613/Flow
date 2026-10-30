@@ -1547,7 +1547,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         var memos = _phoneMemos.Build(Memos.Memos, Memos.Load);
-        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos, HeldForWriting()));
+        _phone.WriteView(PhoneLinkEngine.BuildView(_data, _today, DateTime.Now, memos, HeldForWriting(),
+            _phoneOps?.Select(op => op.Id)));
     }
 
     /// <summary>
