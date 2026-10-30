@@ -850,6 +850,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RefreshBackupSummary();
         RebuildAll();
         ResetDailyMemos();
+        PurgeMemoTrash();
 
         if (result.Changed)
         {
@@ -884,7 +885,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RefreshBackupSummary();
         // 기다리는 동안은 메모를 훑지도 풀지도 못했다. 이제 훑어 연결(📝)도 맞추고 오늘 몫을 푼다.
         ResetDailyMemos(rescan: true);
+        PurgeMemoTrash();
         Announce("저장 폴더를 찾았습니다");
+    }
+
+    /// <summary>휴지통에서 30일 지난 메모를 비운다. 켤 때만 하면 며칠씩 켜 두는 PC 에서는 안 비워진다.</summary>
+    private void PurgeMemoTrash()
+    {
+        if (Memos.PurgeTrash(_today) > 0) MemosChanged?.Invoke();
     }
 
     /// <summary>

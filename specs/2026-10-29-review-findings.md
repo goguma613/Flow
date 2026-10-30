@@ -15,9 +15,9 @@
 
 작은 버그
 
-- [ ] 6. 휴지통 되살리기(`MemoStore.cs:633-656`): 다른 휴지통 파일 하나가 안 읽히면 전부 실패, `WriteDoc` 뒤 휴지통 파일 지우기 실패 시 false 인데 이미 되살아남 → 다시 누르면 충돌 사본. 고침: 파일마다 try, 휴지통 삭제 실패는 성공으로.
-- [ ] 7. 휴지통 30일 비우기가 시작할 때만(`MainViewModel.cs:249`). 고침: `CheckRollover`(:852 옆)와 `TryRecoverDataFolder` 에서도 `Memos.PurgeTrash(_today)`.
-- [ ] 10. 매일 초기화가 수정 시각을 그대로 되돌려(`MemoStore.cs:484-491`) `reset:` 만 바뀐 파일(같은 길이)을 다른 PC 훑기가 못 알아챔. 고침: 옛 시각 + 2초. (PC 1대라 낮음)
+- [x] 6. 휴지통 되살리기(`MemoStore.cs:633-656`): 다른 휴지통 파일 하나가 안 읽히면 전부 실패, `WriteDoc` 뒤 휴지통 파일 지우기 실패 시 false 인데 이미 되살아남 → 다시 누르면 충돌 사본. 고침: 파일마다 try, 휴지통 삭제 실패는 성공으로.
+- [x] 7. 휴지통 30일 비우기가 시작할 때만(`MainViewModel.cs:249`). 고침: `CheckRollover`(:852 옆)와 `TryRecoverDataFolder` 에서도 `Memos.PurgeTrash(_today)`.
+- [x] 10. 매일 초기화가 수정 시각을 그대로 되돌려(`MemoStore.cs:484-491`) `reset:` 만 바뀐 파일(같은 길이)을 다른 PC 훑기가 못 알아챔. 고침: 옛 시각 + 2초. (PC 1대라 낮음)
 
 최적화
 

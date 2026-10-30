@@ -439,7 +439,7 @@ public sealed class MemoStore
     /// daily 이고 reset 이 없거나 today 보다 이전인 메모의 체크를 풀고 reset 을 today 로 적는다(풀 것이 없어도 날짜는 적는다).
     /// skip(id) 가 참이거나 읽지·쓰지 못한 메모는 이번에 건너뛰고 Pending 으로 알린다. 휴지통은 보지 않는다.
     /// 같은 날 다시 부르면 이미 끝낸 메모는 읽지도 않고 남은 것만 해 본다.
-    /// 체크를 풀 것이 없어 머리말 reset 만 바뀐 파일은 고친 시각을 되돌린다 — 매일 아침 '최근'의 맨 위로 뛰지 않게.
+    /// 체크를 풀 것이 없어 머리말 reset 만 바뀐 파일은 고친 시각을 옛 시각 + 2초로 되돌린다 — 매일 아침 '최근'의 맨 위로 뛰지 않게.
     /// </summary>
     public DailyResetResult ResetDaily(DateOnly today, Func<Guid, bool>? skip = null)
     {
@@ -497,7 +497,9 @@ public sealed class MemoStore
                     WriteDoc(e.Path, doc);
                     if (keepTime is { } time)
                     {
-                        try { File.SetLastWriteTimeUtc(e.Path, time); }
+                        // 딱 그 시각이 아니라 2초 뒤로: 같은 길이로 reset 만 바뀐 파일을 다른 PC 의 훑기가
+                        // 크기 · 시각으로 알아채야 한다(2초는 시각을 2초 단위로 적는 저장소도 구별하는 폭).
+                        try { File.SetLastWriteTimeUtc(e.Path, time.AddSeconds(2)); }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* 시각만 못 되돌림 */ }
                     }
                     Remember(e.Path, doc);
@@ -651,29 +653,42 @@ public sealed class MemoStore
         return result.OrderByDescending(s => s.Updated).ToList();
     }
 
+    /// <summary>
+    /// 휴지통에서 메모 폴더로 되살린다. 다른 휴지통 파일이 안 읽혀도 나머지는 본다.
+    /// 되살린 뒤 휴지통 파일을 못 지워도 성공이다 — 실패로 알리면 다시 눌러 같은 메모가 둘이 된다.
+    /// 그렇게 남은 휴지통 파일은 다시 되살릴 때 메모가 이미 있으니 지우기만 한다.
+    /// </summary>
     public bool RestoreFromTrash(Guid id)
     {
         if (!_canWrite()) return false;
-        try
+        foreach (var path in TrashFiles())
         {
-            foreach (var path in TrashFiles())
+            MemoDocument doc;
+            try { doc = ReadDoc(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+            if (doc.Id != id) continue;
+
+            try
             {
-                var doc = ReadDoc(path);
-                if (doc.Id != id) continue;
-                doc = doc with { HasHeader = true, Deleted = null };
-                Directory.CreateDirectory(Folder);
-                var target = UniquePath(Folder, StemOf(doc.Body), null);
-                WriteDoc(target, doc);
-                Remember(target, doc);
-                File.Delete(path);
-                return true;
+                if (Locate(id) is null)
+                {
+                    doc = doc with { HasHeader = true, Deleted = null };
+                    Directory.CreateDirectory(Folder);
+                    var target = UniquePath(Folder, StemOf(doc.Body), null);
+                    WriteDoc(target, doc);
+                    Remember(target, doc);
+                }
             }
-            return false;
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+
+            try { File.Delete(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* 이미 되살아났다 */ }
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
+        return false;
     }
 
     /// <summary>deleted 가 today-30일 보다 이전인 것만 지운다. 머리말에 deleted 가 없으면 파일 고친 날을 쓴다.</summary>
