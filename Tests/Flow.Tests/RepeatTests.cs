@@ -143,6 +143,113 @@ internal static partial class Program
         Check("글: 모르는 규칙", Desc(new RepeatRule { Unit = 9 }), "반복 정보 없음");
     }
 
+    // ───────────────────────── 반복 · 하루 넘기기
+
+    private static void RepeatDayTests()
+    {
+        // 옛 방식은 그대로
+        var daily = new Routine { Title = "물" };
+        var mwf = new Routine { Title = "운동", Days = { DayOfWeek.Monday, DayOfWeek.Wednesday, DayOfWeek.Friday } };
+        Check("매일은 그대로", DayEngine.IsDue(daily, D(2026, 11, 24)), true);
+        Check("요일도 그대로", (DayEngine.IsDue(mwf, D(2026, 11, 23)), DayEngine.IsDue(mwf, D(2026, 11, 24))), (true, false));
+        Check("다음 날(옛 방식)", DayEngine.NextDay(mwf, D(2026, 11, 24)), (DateOnly?)D(2026, 11, 25));
+        Check("다음 날: 오늘이 차례면 오늘", DayEngine.NextDay(mwf, D(2026, 11, 23)), (DateOnly?)D(2026, 11, 23));
+        Check("옛 방식엔 규칙 · 남기기 · 밀림이 없음",
+            (DayEngine.HasRule(mwf), DayEngine.IsSticky(mwf), DayEngine.IsRepeatMissing(mwf), DayEngine.OverdueDays(mwf, D(2026, 11, 24)), DayEngine.DueSince(mwf, D(2026, 11, 24))),
+            (false, false, false, 0, (DateOnly?)null));
+        Check("옛 방식의 직전 차례", DayEngine.PreviousScheduledDay(mwf, D(2026, 11, 25)), (DateOnly?)D(2026, 11, 23));
+
+        // 남는 매월
+        var pay = new Routine { Title = "정산", Archived = true, Repeat = M25() };   // 매월 25일, Sticky
+        Check("규칙이 있는 루틴", (DayEngine.HasRule(pay), DayEngine.IsSticky(pay), DayEngine.IsRepeatMissing(pay)), (true, true, false));
+        Check("차례 전엔 안 보임", (DayEngine.IsDue(pay, D(2026, 11, 24)), DayEngine.OverdueDays(pay, D(2026, 11, 24))), (false, 0));
+        Check("차례 날", (DayEngine.IsDue(pay, D(2026, 11, 25)), DayEngine.OverdueDays(pay, D(2026, 11, 25))), (true, 0));
+        Check("못 하면 남고 밀림 3일", (DayEngine.IsDue(pay, D(2026, 11, 28)), DayEngine.OverdueDays(pay, D(2026, 11, 28))), (true, 3));
+        Check("남은 날은 '차례'가 아님(알림 · 기록의 기준)", (DayEngine.IsScheduled(pay, D(2026, 11, 25)), DayEngine.IsScheduled(pay, D(2026, 11, 28))), (true, false));
+        // Review Focus 2: 두 차례가 지나도 하나, 가장 오래된 것부터
+        Check("두 차례 지나도 가장 오래된 차례부터", DayEngine.DueSince(pay, D(2027, 1, 3)), (DateOnly?)D(2026, 11, 25));
+        DayEngine.CompleteRoutine(pay, D(2027, 1, 3));
+        Check("체크한 날은 체크된 채 보임", (DayEngine.IsDue(pay, D(2027, 1, 3)), pay.DoneToday, pay.Streak), (true, true, 0));
+        Check("체크한 뒤엔 밀림 없음", (DayEngine.OverdueDays(pay, D(2027, 1, 3)), pay.LastDoneDate), (0, (DateOnly?)D(2027, 1, 3)));
+        DayEngine.UncompleteRoutine(pay);
+        Check("같은 날 풀면 다시 밀림", DayEngine.DueSince(pay, D(2027, 1, 3)), (DateOnly?)D(2026, 11, 25));
+        DayEngine.CompleteRoutine(pay, D(2027, 1, 3));
+        pay.DoneToday = false;   // 다음 날 정산이 푼다
+        Check("다음 날엔 사라짐", DayEngine.IsDue(pay, D(2027, 1, 4)), false);
+        Check("체크 한 번으로 지난 차례가 다 끝남", DayEngine.IsDue(pay, D(2027, 1, 24)), false);
+        Check("다음 차례에 다시", DayEngine.IsDue(pay, D(2027, 1, 25)), true);
+        Check("남는 항목은 최고 기록도 안 건드림", pay.BestStreak, 0);
+
+        // 정산이 아직 안 돈 채(DoneToday 가 어제 값으로 남음) 날짜만 넘어간 경우
+        var stale = new Routine { Archived = true, Repeat = M25(), DoneToday = true, LastDoneDate = D(2026, 11, 25) };
+        Check("어제 체크는 오늘 '체크된 채 보임'이 아님", DayEngine.IsDue(stale, D(2026, 11, 26)), false);
+
+        // Review Focus 5: 첫 차례가 앞날
+        var later = new Routine { Archived = true, Repeat = new RepeatRule { Unit = RepeatUnit.Weekly, Every = 2, Days = { 1 }, Anchor = D(2026, 12, 7), Sticky = true } };
+        Check("첫 차례 전엔 안 보이고 밀림도 없음", (DayEngine.IsDue(later, D(2026, 11, 30)), DayEngine.OverdueDays(later, D(2026, 12, 6))), (false, 0));
+        Check("루틴 탭의 '다음'", DayEngine.NextDay(later, D(2026, 11, 24)), (DateOnly?)D(2026, 12, 7));
+
+        // 규칙 없음
+        var lost = new Routine { Archived = true };
+        Check("규칙 없음: 오늘엔 안 보임", (DayEngine.IsRepeatMissing(lost), DayEngine.IsDue(lost, D(2026, 11, 24)), DayEngine.NextDay(lost, D(2026, 11, 24))), (true, false, (DateOnly?)null));
+        var unknown = new Routine { Archived = true, Repeat = new RepeatRule { Unit = 9 } };
+        Check("모르는 Unit 도 규칙 없음", (DayEngine.IsRepeatMissing(unknown), DayEngine.HasRule(unknown), DayEngine.IsDue(unknown, D(2026, 11, 24))), (true, false, false));
+        DayEngine.CompleteRoutine(lost, D(2026, 11, 24));
+        Check("규칙 없는 루틴은 체크해도 그대로", (lost.DoneToday, lost.LastDoneDate, lost.Streak), (false, (DateOnly?)null, 0));
+        // Archived 가 아니면 규칙이 달려 있어도 옛 방식이다(data.json 이 기준)
+        var plain = new Routine { Repeat = M25() };
+        Check("Archived 아닌 루틴의 규칙은 안 쓴다", (DayEngine.HasRule(plain), DayEngine.IsDue(plain, D(2026, 11, 24))), (false, true));
+
+        // 지나가는 매월(Sticky 끔): 연속 기록이 한 달 간격으로 이어진다
+        var habit = new Routine { Archived = true, Repeat = new RepeatRule { Unit = RepeatUnit.MonthDates, MonthDays = { 25 }, Anchor = D(2026, 11, 25) } };
+        Check("지나가는 매월: 차례 날만", (DayEngine.IsDue(habit, D(2026, 11, 25)), DayEngine.IsDue(habit, D(2026, 11, 26)), DayEngine.OverdueDays(habit, D(2026, 11, 26))), (true, false, 0));
+        DayEngine.CompleteRoutine(habit, D(2026, 11, 25)); habit.DoneToday = false;
+        DayEngine.CompleteRoutine(habit, D(2026, 12, 25));
+        Check("한 달 간격 연속 2", habit.Streak, 2);
+        habit.DoneToday = false;
+        DayEngine.CompleteRoutine(habit, D(2027, 2, 25));   // 1월을 건너뜀
+        Check("한 번 건너뛰면 1부터", habit.Streak, 1);
+
+        // 정산: 남는 항목은 연속 기록을 끊지 않고, 끝낸 날에만 센다
+        var app = new AppData { LastLogicalDate = D(2026, 11, 25) };
+        var sticky = new Routine { Title = "정산", Archived = true, Repeat = M25(), Streak = 0 };
+        var water = new Routine { Title = "물", Streak = 5, LastDoneDate = D(2026, 11, 25) };
+        var skipped = new Routine { Title = "지나가는 매월", Archived = true, Streak = 4, LastDoneDate = D(2026, 10, 25),
+            Repeat = new RepeatRule { Unit = RepeatUnit.MonthDates, MonthDays = { 25 }, Anchor = D(2026, 9, 25) } };
+        var missing = new Routine { Title = "규칙 없음", Archived = true, Streak = 9 };
+        app.Routines.AddRange(new[] { sticky, water, skipped, missing });
+        DayEngine.Rollover(app, D(2026, 11, 27));
+        Check("못 한 남는 항목은 그날 기록에 안 들어감",
+            (app.History.First(h => h.Date == D(2026, 11, 25)).RoutinesScheduled, app.History.First(h => h.Date == D(2026, 11, 25)).RoutinesDone), (2, 1));
+        Check("차례가 아닌 날엔 규칙 루틴을 안 센다", app.History.First(h => h.Date == D(2026, 11, 26)).RoutinesScheduled, 1);
+        Check("며칠 건너뛰어도 여전히 남음", DayEngine.OverdueDays(sticky, D(2026, 11, 27)), 2);
+        Check("매일 루틴은 지금처럼 끊김", water.Streak, 0);
+        Check("지나가는 매월은 차례 날 못 하면 끊김", skipped.Streak, 0);
+        Check("규칙 없는 루틴의 기록은 손대지 않음", missing.Streak, 9);
+
+        // 남는 항목을 밀린 날 끝냈으면 그날 기록에 1 로 들어간다
+        DayEngine.CompleteRoutine(sticky, D(2026, 11, 27));
+        DayEngine.SyncToday(app, D(2026, 11, 27));
+        var todayRecord = app.History.First(h => h.Date == D(2026, 11, 27));
+        Check("오늘 기록: 끝낸 남는 항목 + 매일", (todayRecord.RoutinesScheduled, todayRecord.RoutinesDone), (2, 1));
+        DayEngine.Rollover(app, D(2026, 11, 28));
+        var closed = app.History.First(h => h.Date == D(2026, 11, 27));
+        Check("정산 뒤에도 같은 값", (closed.RoutinesScheduled, closed.RoutinesDone, sticky.DoneToday), (2, 1, false));
+        DayEngine.SyncToday(app, D(2026, 11, 28));
+        Check("못 끝낸 남는 항목은 오늘 기록에 안 들어감", app.History.First(h => h.Date == D(2026, 11, 28)).RoutinesScheduled, 1);
+
+        // 알림: 차례 날에만 울린다. 밀려 남은 날은 다시 울리지 않는다
+        var ring = new Routine { Title = "정산", Archived = true, Repeat = M25(), Time = new TimeOnly(9, 0), Remind = true };
+        Check("알림: 차례 날", ReminderEngine.OccurrenceOn(ring, D(2026, 11, 25), 4), (DateTime?)new DateTime(2026, 11, 25, 9, 0, 0));
+        Check("알림: 밀린 날은 아님", ReminderEngine.OccurrenceOn(ring, D(2026, 11, 26), 4), (DateTime?)null);
+        var ringData = Data(ring);
+        ringData.LastLogicalDate = D(2026, 11, 25);
+        Check("알림: 차례 날 정시에 1건", Pending(ringData, D(2026, 11, 25), 9, 0).Count, 1);
+        Check("알림: 다음 날 같은 시각엔 0건", Pending(ringData, D(2026, 11, 26), 9, 0).Count, 0);
+        var silent = new Routine { Archived = true, Time = new TimeOnly(9, 0), Remind = true };
+        Check("알림: 규칙 없는 루틴은 조용함", ReminderEngine.OccurrenceOn(silent, D(2026, 11, 25), 4), (DateTime?)null);
+    }
+
     // ───────────────────────── 반복 · 파일
 
     private static void RepeatStoreTests()

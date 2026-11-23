@@ -104,6 +104,9 @@ internal static partial class Program
         Section("반복 · 파일");
         RepeatStoreTests();
 
+        Section("반복 · 하루 넘기기");
+        RepeatDayTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;
