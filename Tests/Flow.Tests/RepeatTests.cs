@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using Flow.Models;
 using Flow.Services;
+using Flow.ViewModels;
 
 namespace Flow.Tests;
 
@@ -458,6 +459,130 @@ internal static partial class Program
             var result = PhoneLinkEngine.Apply(data, [Op("repeat-done-x", day28, 10, target: pay.Id)]);
             Check("모르는 갈래는 넣지도 적지도 않음", (result.NeedsSave, data.PhoneOpsApplied.Count, pay.DoneToday), (false, 0, false));
         }
+    }
+
+    // ───────────────────────── 반복 · 반복 창
+
+    private static void RepeatEditorTests()
+    {
+        var today = D(2026, 11, 23);   // 월요일
+        string Text(RepeatEditorState s) => RepeatEngine.Describe(s.Build());
+
+        // ── 할 일을 옮길 때의 시작: 매월, 오늘 날짜
+        var fresh = new RepeatEditorState(RepeatEditorState.DefaultFor(today), today);
+        Check("옮기기의 시작은 매월 오늘 날짜", (fresh.Tab, Text(fresh), fresh.Sticky, fresh.CanSave), (RepeatEditorState.TabMonthly, "매월 23일", true, true));
+        Check("첫 차례는 오늘", (fresh.Build().Anchor, fresh.FirstText), (today, "오늘"));
+
+        // ── 탭을 옮기면 '남기기'가 기본값을 따라간다
+        fresh.SetTab(RepeatEditorState.TabWeekly);
+        Check("매주: 오늘 요일 · 지나감", (Text(fresh), fresh.Sticky), ("월", false));
+        fresh.Every = 2;
+        Check("격주가 되면 남기기", (Text(fresh), fresh.Sticky), ("격주 월", true));
+        fresh.Every = 1;
+        Check("다시 매주면 지나감", fresh.Sticky, false);
+        fresh.SetSticky(true);
+        Check("매주인데 남기기를 켬", (fresh.Sticky, RepeatEngine.IsLegacy(fresh.Build())), (true, false));
+        fresh.SetTab(RepeatEditorState.TabMonthly);
+        fresh.SetTab(RepeatEditorState.TabWeekly);
+        Check("스위치를 누른 뒤에는 따라가지 않음", fresh.Sticky, true);
+
+        // ── 매일
+        var daily = new RepeatEditorState(new RepeatRule { Unit = RepeatUnit.Daily }, today);
+        Check("매일 탭", (daily.Tab, Text(daily), daily.ShowSticky, daily.CanSave, RepeatEngine.IsLegacy(daily.Build())), (RepeatEditorState.TabDaily, "매일", false, true, true));
+        daily.SetSticky(true);
+        Check("매일은 남기기를 켜도 옛 방식", RepeatEngine.IsLegacy(daily.Build()), true);
+
+        // ── 매주: 요일 고르기
+        var weekly = new RepeatEditorState(RepeatEngine.FromLegacy(new[] { DayOfWeek.Monday, DayOfWeek.Wednesday }), today);
+        Check("지금 요일로 시작", (weekly.Tab, Text(weekly), weekly.Sticky, weekly.IsDayOn(1), weekly.IsDayOn(2)), (RepeatEditorState.TabWeekly, "월 수", false, true, false));
+        weekly.ToggleDay(5);
+        Check("요일 더하기", Text(weekly), "월 수 금");
+        weekly.SetWeekdays();
+        Check("평일", Text(weekly), "월 화 수 목 금");
+        weekly.SetWeekend();
+        Check("주말", Text(weekly), "토 일");
+        weekly.ToggleDay(6); weekly.ToggleDay(0);
+        Check("요일이 없으면 저장 못 함", weekly.CanSave, false);
+        weekly.SetWeekdays(); weekly.ToggleDay(6); weekly.ToggleDay(0);
+        Check("요일 일곱 개는 매일", (Text(weekly), RepeatEngine.LegacyDays(weekly.Build()).Count), ("매일", 0));
+
+        // ── 매월: 날짜
+        var monthly = new RepeatEditorState(M25(), D(2026, 11, 28));
+        Check("지금 규칙으로 시작", (monthly.Tab, Text(monthly), monthly.Sticky, monthly.ByNth), (RepeatEditorState.TabMonthly, "매월 25일", true, false));
+        Check("안 바꾸고 저장하면 첫 차례도 그대로(밀린 것이 사라지지 않게)", monthly.Build().Anchor, D(2026, 11, 25));
+        Check("첫 차례 글은 다음 차례", monthly.FirstText, "12월 25일 (금)");
+        monthly.SetSticky(false);
+        Check("남기기만 꺼도 첫 차례는 그대로", (monthly.Build().Anchor, monthly.Build().Sticky), (D(2026, 11, 25), false));
+        monthly.ToggleMonthDay(10);
+        Check("날짜 더하기", (Text(monthly), monthly.IsMonthDayOn(10), monthly.Build().Anchor), ("매월 10·25일", true, D(2026, 12, 10)));
+        monthly.ToggleLastDay();
+        Check("말일 더하기", (Text(monthly), monthly.LastDay), ("매월 10·25일·말일", true));
+        monthly.ToggleMonthDay(10); monthly.ToggleMonthDay(25);
+        Check("말일만", (Text(monthly), monthly.Build().Anchor), ("매월 말일", D(2026, 11, 30)));
+        monthly.ToggleLastDay();
+        Check("날짜가 없으면 저장 못 함", monthly.CanSave, false);
+        monthly.ToggleMonthDay(40); monthly.ToggleMonthDay(0);
+        Check("없는 날짜는 안 받음", monthly.CanSave, false);
+
+        // ── 매월: n번째 요일, n개월마다
+        var nth = new RepeatEditorState(RepeatEditorState.DefaultFor(today), today);
+        nth.SetByNth(true);
+        Check("요일로 바꾸면 오늘이 몇째 무슨 요일인지", Text(nth), "매월 넷째 월");
+        nth.SetNth(2); nth.SetNthDay(2);
+        Check("둘째 화", (Text(nth), nth.Build().Anchor), ("매월 둘째 화", D(2026, 12, 8)));
+        nth.SetNth(RepeatUnit.LastWeek); nth.SetNthDay(5);
+        Check("마지막 금", (Text(nth), nth.Build().Anchor), ("매월 마지막 금", D(2026, 11, 27)));
+        nth.Every = 3;
+        Check("3개월마다", Text(nth), "3개월마다 마지막 금");
+        nth.Every = 0;
+        Check("간격은 1 아래로 안 감", nth.Every, 1);
+        nth.Every = 500;
+        Check("간격은 99 까지", nth.Every, 99);
+
+        // ── 첫 차례 옮기기
+        var quarter = new RepeatEditorState(RepeatEditorState.DefaultFor(today), today);
+        quarter.ToggleMonthDay(23); quarter.ToggleMonthDay(10);
+        quarter.Every = 3;
+        Check("3개월마다 10일의 첫 차례", (quarter.Build().Anchor, quarter.FirstText, quarter.CanShiftBack), (D(2026, 12, 10), "12월 10일 (목)", false));
+        quarter.ShiftFirst(1);
+        Check("한 달 뒤로", (quarter.Build().Anchor, quarter.CanShiftBack), (D(2027, 1, 10), true));
+        quarter.ShiftFirst(-1); quarter.ShiftFirst(-1);
+        Check("오늘 앞으로는 안 감", quarter.Build().Anchor, D(2026, 12, 10));
+        quarter.ShiftFirst(1);
+        quarter.Every = 2;
+        Check("값을 바꾸면 옮긴 것은 처음으로", quarter.Build().Anchor, D(2026, 12, 10));
+
+        // 격주: 지금 일정의 주를 지킨다(안 바꾸고 열었다 닫아도 주가 뒤집히지 않게)
+        var biweekly = new RepeatRule { Unit = RepeatUnit.Weekly, Every = 2, Days = { 1 }, Anchor = D(2026, 11, 16), Sticky = true };
+        var keep = new RepeatEditorState(biweekly, D(2026, 11, 25));
+        Check("격주: 첫 차례 글은 실제 다음 차례", keep.FirstText, "11월 30일 (월)");
+        keep.ShiftFirst(1);
+        Check("격주: 한 차례 뒤로 = 다음 주부터", keep.Build().Anchor, D(2026, 12, 7));
+        Check("옮긴 격주는 그 주부터", (RepeatEngine.OccursOn(keep.Build(), D(2026, 12, 7)), RepeatEngine.OccursOn(keep.Build(), D(2026, 12, 14))), (true, false));
+
+        // ── 매년
+        var yearly = new RepeatEditorState(RepeatEditorState.DefaultFor(today), today);
+        yearly.SetTab(RepeatEditorState.TabYearly);
+        Check("매년의 시작은 오늘", (Text(yearly), yearly.Sticky), ("매년 11/23", true));
+        yearly.Month = 2; yearly.Day = 31;
+        Check("그 달에 없는 날은 당긴다", (yearly.Day, Text(yearly)), (29, "매년 2/29"));
+        yearly.Month = 13;
+        Check("월은 12 까지", yearly.Month, 12);
+
+        // ── n일마다
+        var days = new RepeatEditorState(RepeatEditorState.DefaultFor(today), today);
+        days.SetTab(RepeatEditorState.TabEveryDays);
+        Check("n일마다의 시작은 3일", (Text(days), days.Every, days.Sticky), ("3일마다", 3, true));
+        days.Every = 1;
+        Check("n일마다는 2 아래로 안 감", days.Every, 2);
+        days.SetTab(RepeatEditorState.TabWeekly);
+        Check("탭마다 간격을 따로 기억", days.Every, 1);
+        days.SetTab(RepeatEditorState.TabEveryDays);
+        Check("돌아오면 그대로", days.Every, 2);
+
+        // ── 반복 정보를 잃은 루틴 · 모르는 규칙으로 열어도 죽지 않는다
+        var unknown = new RepeatEditorState(new RepeatRule { Unit = 9 }, today);
+        Check("모르는 규칙은 매월 오늘 날짜로 시작", (unknown.Tab, Text(unknown)), (RepeatEditorState.TabMonthly, "매월 23일"));
     }
 
     // ───────────────────────── 반복 · 백업

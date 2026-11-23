@@ -113,6 +113,9 @@ internal static partial class Program
         Section("반복 · 폰 연동");
         RepeatPhoneTests();
 
+        Section("반복 · 반복 창");
+        RepeatEditorTests();
+
         Section("반복 · 백업");
         RepeatBackupTests();
 

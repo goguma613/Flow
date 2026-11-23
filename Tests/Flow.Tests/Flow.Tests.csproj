@@ -40,6 +40,7 @@
     <Compile Include="../../Flow/Models/Repeat.cs" />
     <Compile Include="../../Flow/Services/RepeatEngine.cs" />
     <Compile Include="../../Flow/Services/RepeatStore.cs" />
+    <Compile Include="../../Flow/ViewModels/RepeatEditorState.cs" />
   </ItemGroup>
 
   <ItemGroup>
