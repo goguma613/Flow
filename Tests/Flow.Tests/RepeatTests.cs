@@ -250,6 +250,100 @@ internal static partial class Program
         Check("알림: 규칙 없는 루틴은 조용함", ReminderEngine.OccurrenceOn(silent, D(2026, 11, 25), 4), (DateTime?)null);
     }
 
+    // ───────────────────────── 반복 · 문장과 옮기기
+
+    private static void RepeatParseTests()
+    {
+        // 오늘은 2026-11-23(월)
+        QuickAddResult P(string s) => QuickAddParser.Parse(s, D(2026, 11, 23));
+        string R(string s) => P(s).Repeat is { } r ? $"{RepeatEngine.Describe(r)} @{r.Anchor:yyyy-MM-dd} | {P(s).Title}" : "없음 | " + P(s).Title;
+
+        Check("매월 25일", R("매월 25일 정산"), "매월 25일 @2026-11-25 | 정산");
+        Check("매달 말일", R("매달 말일 결산"), "매월 말일 @2026-11-30 | 결산");
+        Check("날짜 둘", R("매월 10일 25일 송금"), "매월 10·25일 @2026-11-25 | 송금");
+        Check("날짜 둘(쉼표)", R("매월 10일, 25일 송금"), "매월 10·25일 @2026-11-25 | 송금");
+        Check("날짜와 말일", R("매월 15일 말일 급여"), "매월 15일·말일 @2026-11-30 | 급여");
+        Check("격주 월요일", R("격주 월요일 회의"), "격주 월 @2026-11-23 | 회의");
+        Check("2주마다 화목", R("2주마다 화목 운동"), "격주 화 목 @2026-11-24 | 운동");
+        Check("3주마다 금요일", R("3주마다 금요일 대청소"), "3주마다 금 @2026-11-27 | 대청소");
+        Check("요일 없는 격주는 오늘 요일", R("격주 회의"), "격주 월 @2026-11-23 | 회의");
+        Check("3일마다", R("3일마다 화분 물"), "3일마다 @2026-11-23 | 화분 물");
+        Check("매년", R("매년 5월 31일 종합소득세"), "매년 5/31 @2027-05-31 | 종합소득세");
+        Check("매년(빗금)", R("매년 5/31 종합소득세"), "매년 5/31 @2027-05-31 | 종합소득세");
+        Check("날짜 없는 매년은 오늘", R("매년 창립기념"), "매년 11/23 @2026-11-23 | 창립기념");
+        Check("분기마다 = 달력 분기", R("분기마다 10일 부가세"), "3개월마다 10일 @2027-01-10 | 부가세");
+        Check("반기마다", R("반기마다 말일 점검"), "6개월마다 말일 @2027-01-31 | 점검");
+        Check("둘째 화요일", R("매월 둘째 화요일 정기회의"), "매월 둘째 화 @2026-12-08 | 정기회의");
+        Check("마지막 금요일", R("매월 마지막 금요일 회식"), "매월 마지막 금 @2026-11-27 | 회식");
+        Check("둘째 주 화요일", R("매월 둘째 주 화요일 정기회의"), "매월 둘째 화 @2026-12-08 | 정기회의");
+        Check("3개월마다", R("3개월마다 15일 점검"), "3개월마다 15일 @2026-12-15 | 점검");
+        Check("날짜 없는 매월은 오늘 날짜", R("매월 정산"), "매월 23일 @2026-11-23 | 정산");
+        Check("반복 말이 뒤에 와도", R("정산 매월 25일"), "매월 25일 @2026-11-25 | 정산");
+        Check("반복 말이 맨 끝", R("화분 물 3일마다"), "3일마다 @2026-11-23 | 화분 물");
+        Check("읽은 반복은 남기기", (P("매월 25일 정산").IsRoutine, P("매월 25일 정산").Repeat!.Sticky, P("매월 25일 정산").Days.Count), (true, true, 0));
+        Check("반복 루틴엔 마감일이 없음", P("매월 25일 정산").Due, (DateOnly?)null);
+        Check("시각도 같이", (P("매월 25일 오후 3시 정산").DueTime, P("매월 25일 오후 3시 정산").Title), ((TimeOnly?)new TimeOnly(15, 0), "정산"));
+        Check("중요도 표시는 그대로 읽고 뗀다", R("매월 25일 정산 !1"), "매월 25일 @2026-11-25 | 정산");
+        Check("날짜 뒤의 '3일간'은 제목", R("매월 10일 3일간 출장 준비"), "매월 10일 @2026-12-10 | 3일간 출장 준비");
+
+        // Review Focus 4: 제목 속 낱말
+        Check("매월당은 제목", R("매월당 방문"), "없음 | 매월당 방문");
+        Check("격주간지는 제목", R("격주간지 읽기"), "없음 | 격주간지 읽기");
+        Check("붙여 쓴 '3일마다가스카'는 제목", R("3일마다가스카 여행"), "없음 | 3일마다가스카 여행");
+        Check("앞에 붙은 글자", R("격매월 25일 정산").StartsWith("없음"), true);
+        Check("격주 뒤의 '일정'은 요일이 아님", R("격주 일정 확인"), "격주 월 @2026-11-23 | 일정 확인");
+        Check("없는 날짜는 반복으로 읽지 않음", R("매월 45일 정산").StartsWith("없음"), true);
+        Check("1일마다 · 0개월마다는 반복 아님", (R("1일마다 물").StartsWith("없음"), R("0개월마다 10일 점검").StartsWith("없음")), (true, true));
+
+        // 지금 것은 그대로
+        Check("매주는 옛 방식 그대로", (P("매주 월수금 운동").Repeat, P("매주 월수금 운동").Days.Count), ((RepeatRule?)null, 3));
+        Check("매일도 그대로", (P("매일 물 2L").Repeat, P("매일 물 2L").IsRoutine, P("매일 물 2L").Title), ((RepeatRule?)null, true, "물 2L"));
+        Check("그냥 25일은 지금처럼 마감일", (P("25일 정산").IsRoutine, P("25일 정산").Due), (false, (DateOnly?)D(2026, 11, 25)));
+        Check("루틴 탭에서 적어도 문장이 이긴다",
+            QuickAddParser.Parse("매월 25일 정산", D(2026, 11, 23), assumeRoutine: true).Repeat is { } inTab ? RepeatEngine.Describe(inTab) : "없음", "매월 25일");
+
+        // 만들기
+        var made = ItemFactory.CreateRoutine(P("매월 25일 오후 3시 정산"), "정산", 4);
+        Check("문장으로 만든 반복 루틴", (made.Archived, RepeatEngine.Describe(made.Repeat!), made.Days.Count, made.Time, made.Remind, made.Order),
+            (true, "매월 25일", 0, (TimeOnly?)new TimeOnly(15, 0), true, 4));
+        var plainMade = ItemFactory.CreateRoutine(P("매주 월수금 운동"), "운동", 0);
+        Check("옛 방식 문장은 지금처럼", (plainMade.Archived, plainMade.Repeat, plainMade.Days.Count), (false, (RepeatRule?)null, 3));
+
+        // 옮기기
+        var task = new TaskItem { Title = "정산", Priority = Priority.High, Due = D(2026, 11, 20), DueTime = new TimeOnly(15, 0), Remind = true, MemoId = Guid.NewGuid(), CarryOverCount = 3 };
+        var moved = ItemFactory.ToRoutine(task, P("매월 25일 x").Repeat!, 7);
+        Check("할 일 → 루틴", (moved.Id == task.Id, moved.Title, moved.MemoId == task.MemoId, moved.Time, moved.Remind, moved.Archived, moved.Order),
+            (true, "정산", true, (TimeOnly?)new TimeOnly(15, 0), true, true, 7));
+        Check("옮긴 루틴의 반복", (RepeatEngine.Describe(moved.Repeat!), moved.Repeat!.Sticky, moved.Streak, moved.DoneToday), ("매월 25일", true, 0, false));
+        Check("시각 없는 할 일은 알림도 없음", ItemFactory.ToRoutine(new TaskItem { Title = "물", Remind = true }, P("매월 25일 x").Repeat!, 0).Remind, false);
+        var simple = ItemFactory.ToRoutine(new TaskItem { Title = "물" }, RepeatEngine.FromLegacy(new[] { DayOfWeek.Monday }), 0);
+        Check("옛 방식으로 옮기면 파일 대상 아님", (simple.Archived, simple.Repeat, simple.Days.Count), (false, (RepeatRule?)null, 1));
+        var everyDay = ItemFactory.ToRoutine(new TaskItem { Title = "물" }, new RepeatRule { Unit = RepeatUnit.Daily }, 0);
+        Check("매일로 옮기기", (everyDay.Archived, everyDay.Repeat, everyDay.Days.Count), (false, (RepeatRule?)null, 0));
+
+        var back = ItemFactory.ToTask(moved, D(2026, 11, 23), 2);
+        Check("루틴 → 할 일(시각 있음)", (back.Id == moved.Id, back.Due, back.DueTime, back.Remind, back.MemoId == moved.MemoId),
+            (true, (DateOnly?)D(2026, 11, 23), (TimeOnly?)new TimeOnly(15, 0), true, true));
+        Check("옮긴 할 일의 나머지", (back.Title, back.CreatedDate, back.Order, back.Done, back.CarryOverCount), ("정산", D(2026, 11, 23), 2, false, 0));
+        Check("루틴 → 할 일(시각 없음)", ItemFactory.ToTask(new Routine { Title = "물" }, D(2026, 11, 23), 0).Due, (DateOnly?)null);
+
+        // 반복 바꾸기
+        var r5 = new Routine { Streak = 5, StreakSnapshot = 5, Days = { DayOfWeek.Monday } };
+        var choice = new RepeatRule { Unit = RepeatUnit.Weekly, Days = { 1 }, Sticky = true, Anchor = D(2026, 11, 23) };
+        ItemFactory.SetRepeat(r5, choice);
+        Check("남기기만 켜면 기록 그대로", (r5.Streak, r5.Archived), (5, true));
+        choice.Days.Add(3);
+        Check("고른 규칙을 뒤에 고쳐도 루틴은 그대로", r5.Repeat!.Days.Count, 1);
+        ItemFactory.SetRepeat(r5, P("매월 25일 x").Repeat!);
+        Check("일정을 바꾸면 기록 0", (r5.Streak, r5.StreakSnapshot), (0, 0));
+        r5.Streak = 3;
+        ItemFactory.SetRepeat(r5, RepeatEngine.FromLegacy(new[] { DayOfWeek.Tuesday }));
+        Check("옛 방식으로 바꾸면 Archived 가 풀림", (r5.Archived, r5.Repeat, string.Join(",", r5.Days), r5.Streak), (false, (RepeatRule?)null, "Tuesday", 0));
+        var lostRule = new Routine { Archived = true, Streak = 2 };
+        ItemFactory.SetRepeat(lostRule, P("매월 25일 x").Repeat!);
+        Check("반복 정보 없던 루틴에 다시 정하기", (DayEngine.HasRule(lostRule), lostRule.Streak), (true, 0));
+    }
+
     // ───────────────────────── 반복 · 파일
 
     private static void RepeatStoreTests()

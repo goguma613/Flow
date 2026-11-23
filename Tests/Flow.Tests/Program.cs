@@ -107,6 +107,9 @@ internal static partial class Program
         Section("반복 · 하루 넘기기");
         RepeatDayTests();
 
+        Section("반복 · 문장과 옮기기");
+        RepeatParseTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

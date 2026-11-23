@@ -12,7 +12,8 @@ public sealed record QuickAddResult(
     List<DayOfWeek> Days,
     Priority Priority,
     DateOnly? Due,
-    TimeOnly? DueTime);
+    TimeOnly? DueTime,
+    RepeatRule? Repeat = null);
 
 /// <summary>
 /// 한 줄 입력을 할 일 또는 루틴으로 해석한다.
@@ -112,14 +113,22 @@ public static partial class QuickAddParser
             };
         });
 
-        text = Consume(text, WeeklyPattern(), m =>
+        // 매월 · 격주 · n일마다 · 매년. 읽었으면 아래의 요일 읽기는 건너뛴다 —
+        // 반복은 이미 정해졌고, 남은 글에서 "매일" · "화목" 을 또 떼면 제목이 깎인다.
+        var repeat = ParseRepeat(ref text, today);
+        if (repeat is not null) isRoutine = true;
+
+        if (repeat is null)
         {
-            isRoutine = true;
-            days.AddRange(ParseDayTokens(m.Groups[1].Value));
-        });
+            text = Consume(text, WeeklyPattern(), m =>
+            {
+                isRoutine = true;
+                days.AddRange(ParseDayTokens(m.Groups[1].Value));
+            });
+        }
 
         var sawRoutineKeyword = isRoutine;
-        text = Consume(text, RoutineKeywordPattern(), m =>
+        if (repeat is null) text = Consume(text, RoutineKeywordPattern(), m =>
         {
             isRoutine = true;
             if (sawRoutineKeyword) return;
@@ -198,7 +207,8 @@ public static partial class QuickAddParser
             days.Distinct().OrderBy(d => ((int)d + 6) % 7).ToList(),
             priority,
             due,
-            time);
+            time,
+            repeat);
     }
 
     private static string ParseDate(string text, DateOnly today, ref DateOnly? due)
