@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Flow.Models;
 using Flow.Services;
 
@@ -342,6 +343,120 @@ internal static partial class Program
         var lostRule = new Routine { Archived = true, Streak = 2 };
         ItemFactory.SetRepeat(lostRule, P("매월 25일 x").Repeat!);
         Check("반복 정보 없던 루틴에 다시 정하기", (DayEngine.HasRule(lostRule), lostRule.Streak), (true, 0));
+    }
+
+    // ───────────────────────── 반복 · 폰 연동
+
+    private static void RepeatPhoneTests()
+    {
+        var day28 = D(2026, 11, 28);
+
+        AppData Fresh(out Routine pay, out Routine water, out Routine habit)
+        {
+            var data = new AppData { LastLogicalDate = day28 };
+            pay = new Routine { Title = "정산", Archived = true, Repeat = M25(), Streak = 7, Order = 0 };
+            water = new Routine { Title = "물", Order = 1, Streak = 3 };
+            habit = new Routine { Title = "지나가는 매월", Archived = true, Order = 2,
+                Repeat = new RepeatRule { Unit = RepeatUnit.MonthDates, MonthDays = { 25 }, Anchor = D(2026, 11, 25) } };
+            data.Routines.AddRange(new[] { pay, water, habit });
+            data.Routines.Add(new Routine { Title = "규칙 없음", Archived = true, Order = 3 });
+            return data;
+        }
+
+        // ── 화면: 28일(밀림 3일)
+        {
+            var data = Fresh(out var pay, out var water, out _);
+            var view = PhoneLinkEngine.BuildView(data, day28, day28.ToDateTime(new TimeOnly(9, 0)));
+            Check("화면의 루틴: 남는 것과 매일만", string.Join(",", view.Routines.Select(r => r.Title)), "정산,물");
+            var item = view.Routines.First(r => r.Id == pay.Id);
+            Check("남는 항목의 밀림 · 남기기 · 연속 기록", (item.Overdue, item.Sticky, item.Streak, item.Done), (3, true, 0, false));
+            var plain = view.Routines.First(r => r.Id == water.Id);
+            Check("매일 루틴은 지금 그대로", (plain.Overdue, plain.Sticky, plain.Streak), (0, false, 3));
+
+            var json = JsonSerializer.Serialize(view, AppJsonContext.Default.PhoneView);
+            Check("화면 파일에 두 칸이 적힘", (json.Contains("\"Overdue\": 3"), json.Contains("\"Sticky\": true")), (true, true));
+        }
+
+        // ── 체크: repeat-done / repeat-undone
+        {
+            var data = Fresh(out var pay, out _, out _);
+            var done = Op(PhoneOp.RepeatDone, day28, 10, target: pay.Id);
+            var result = PhoneLinkEngine.Apply(data, [done]);
+            Check("남는 항목 체크", (result.Checked, pay.DoneToday, pay.LastDoneDate, pay.Streak), (1, true, (DateOnly?)day28, 7));
+            Check("반영 기록에 들어감", data.PhoneOpsApplied.Any(a => a.Id == done.Id), true);
+            var after = PhoneLinkEngine.BuildView(data, day28, day28.ToDateTime(new TimeOnly(10, 1))).Routines.First(r => r.Id == pay.Id);
+            Check("체크한 날엔 체크된 채 화면에 남음", (after.Done, after.Overdue), (true, 0));
+
+            var undone = Op(PhoneOp.RepeatUndone, day28, 10, 5, target: pay.Id);
+            var undo = PhoneLinkEngine.Apply(data, [done, undone]);
+            Check("체크 풀기", (undo.Unchecked, pay.DoneToday, DayEngine.OverdueDays(pay, day28)), (1, false, 3));
+        }
+
+        // ── 옛 갈래(done)로 와도 받는다
+        {
+            var data = Fresh(out var pay, out _, out var habit);
+            var result = PhoneLinkEngine.Apply(data, [Op(PhoneOp.Done, day28, 10, target: pay.Id), Op(PhoneOp.Done, day28, 10, 1, target: habit.Id)]);
+            Check("done 으로 온 남는 항목", (pay.DoneToday, result.Checked), (true, 1));
+            Check("차례가 아닌 지나가는 루틴은 건너뜀", (habit.DoneToday, result.Skipped), (false, 1));
+        }
+
+        // ── PC 가 며칠 꺼져 있던 사이 폰에서 끝낸 남는 항목
+        {
+            var data = Fresh(out var pay, out var water, out _);
+            data.History.Add(new DayRecord { Date = D(2026, 11, 26), RoutinesScheduled = 1, RoutinesDone = 0 });
+            var late = Op(PhoneOp.RepeatDone, D(2026, 11, 26), 20, target: pay.Id);
+            var lateWater = Op(PhoneOp.Done, D(2026, 11, 26), 20, 1, target: water.Id);
+            var result = PhoneLinkEngine.Apply(data, [late, lateWater]);
+            Check("지난 날 끝낸 남는 항목은 받는다", (result.Checked, pay.LastDoneDate, pay.DoneToday), (1, (DateOnly?)D(2026, 11, 26), false));
+            Check("그래서 더는 남지 않는다", DayEngine.IsDue(pay, day28), false);
+            var record = data.History.First(h => h.Date == D(2026, 11, 26));
+            Check("끝낸 날의 기록에 든다", (record.RoutinesScheduled, record.RoutinesDone), (2, 1));
+            Check("지난 날 매일 루틴 체크는 지금처럼 건너뜀", (water.DoneToday, result.Skipped), (false, 1));
+
+            // 그 뒤에 온 차례(12/25)는 다시 남는다
+            Check("다음 차례는 그대로 온다", DayEngine.IsDue(pay, D(2026, 12, 25)), true);
+
+            // 지난 날의 '풀기'는 받지 않는다
+            var lateUndo = PhoneLinkEngine.Apply(data, [Op(PhoneOp.RepeatUndone, D(2026, 11, 26), 21, target: pay.Id)]);
+            Check("지난 날 풀기는 건너뜀", (lateUndo.Skipped, pay.LastDoneDate), (1, (DateOnly?)D(2026, 11, 26)));
+
+            // 더 뒤에 PC 에서 끝낸 기록을 지난 날 체크가 되돌리지 않는다
+            pay.LastDoneDate = D(2026, 11, 27);
+            PhoneLinkEngine.Apply(data, [Op(PhoneOp.RepeatDone, D(2026, 11, 26), 22, target: pay.Id)]);
+            Check("더 늦은 완료일을 앞당기지 않음", pay.LastDoneDate, (DateOnly?)D(2026, 11, 27));
+        }
+
+        // ── 추가: add-repeat
+        {
+            var data = new AppData { LastLogicalDate = D(2026, 11, 23) };
+            var add = Op(PhoneOp.AddRepeat, D(2026, 11, 23), 9, text: "매월 25일 정산");
+            var result = PhoneLinkEngine.Apply(data, [add]);
+            var routine = data.Routines.SingleOrDefault();
+            Check("add-repeat 는 루틴 하나", (result.Added, data.Routines.Count, data.Tasks.Count), (1, 1, 0));
+            Check("반복 루틴으로", (routine?.Id, routine?.Title, routine?.Archived, routine?.Repeat is { } r ? RepeatEngine.Describe(r) : ""),
+                ((Guid?)add.Id, "정산", (bool?)true, "매월 25일"));
+
+            data.PhoneOpsApplied.Clear();
+            PhoneLinkEngine.Apply(data, [add]);
+            Check("같은 일이 두 번 와도 하나", data.Routines.Count, 1);
+
+            // add 로 와도(옛 폰 화면) 새 PC 는 같은 규칙으로 읽는다
+            var viaAdd = new AppData { LastLogicalDate = D(2026, 11, 23) };
+            PhoneLinkEngine.Apply(viaAdd, [Op(PhoneOp.Add, D(2026, 11, 23), 9, text: "격주 월요일 회의")]);
+            Check("add 로 온 반복 문장", viaAdd.Routines.SingleOrDefault()?.Repeat is { } w ? RepeatEngine.Describe(w) : "", "격주 월");
+
+            // 반복 말이 없는 글이 add-repeat 로 와도 죽지 않고 할 일이 된다
+            var odd = new AppData { LastLogicalDate = D(2026, 11, 23) };
+            PhoneLinkEngine.Apply(odd, [Op(PhoneOp.AddRepeat, D(2026, 11, 23), 9, text: "내일 회의")]);
+            Check("반복 말 없는 add-repeat", (odd.Tasks.Count, odd.Routines.Count), (1, 0));
+        }
+
+        // ── 모르는 갈래는 지금처럼
+        {
+            var data = Fresh(out var pay, out _, out _);
+            var result = PhoneLinkEngine.Apply(data, [Op("repeat-done-x", day28, 10, target: pay.Id)]);
+            Check("모르는 갈래는 넣지도 적지도 않음", (result.NeedsSave, data.PhoneOpsApplied.Count, pay.DoneToday), (false, 0, false));
+        }
     }
 
     // ───────────────────────── 반복 · 파일

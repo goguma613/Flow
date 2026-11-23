@@ -110,6 +110,9 @@ internal static partial class Program
         Section("반복 · 문장과 옮기기");
         RepeatParseTests();
 
+        Section("반복 · 폰 연동");
+        RepeatPhoneTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

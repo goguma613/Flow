@@ -25,6 +25,18 @@ public sealed class PhoneOp
     public const string SetPriority = "priority";
     public const string Delete = "delete";
 
+    // ── 반복(매월 · 격주 · 남기기). 이 갈래들을 모르는 옛 PC 는 손대지 않고 남긴다 —
+    //    옛 PC 가 '남는' 항목의 체크를 삼키거나, "매월 25일 정산"을 25일 마감의 할 일로 만들지 않게 하려는 것이다.
+
+    /// <summary>'남는' 루틴의 체크. <see cref="Target"/> 은 루틴 id. 지난 날 몫이어도 받는다(끝낸 날만 적으면 된다).</summary>
+    public const string RepeatDone = "repeat-done";
+
+    /// <summary>'남는' 루틴의 체크 풀기. 그 날 몫만.</summary>
+    public const string RepeatUndone = "repeat-undone";
+
+    /// <summary>새 반복 말(매월 · 격주 · n일마다 …)이 든 글의 추가. 읽기는 <see cref="Add"/> 와 같이 PC 가 한다.</summary>
+    public const string AddRepeat = "add-repeat";
+
     /// <summary>
     /// 메모의 체크 줄 하나를 맞춘다. <see cref="Target"/> 은 메모 id, <see cref="Text"/> 는 그 줄의 글(체크 기호·앞 들여쓰기 뺀 것),
     /// <see cref="Line"/> 은 본문 몇째 줄(0부터), <see cref="Checked"/> 는 맞출 상태. 이 갈래를 모르는 옛 PC 는 손대지 않고 남긴다.
@@ -128,6 +140,12 @@ public sealed class PhoneViewItem
 
     // ── 루틴에만
     public int Streak { get; set; }
+
+    /// <summary>'남는' 루틴이 며칠 밀렸는지. 없으면 0. 옛 폰 화면은 이 칸을 모르고 지나간다.</summary>
+    public int Overdue { get; set; }
+
+    /// <summary>못 하면 할 때까지 남는 루틴인지. 폰은 이 줄의 체크를 repeat-done 으로 보내고 🔥 를 안 보인다.</summary>
+    public bool Sticky { get; set; }
 
     /// <summary>연결된 메모. 그 메모가 <see cref="PhoneView.Memos"/> 에 있을 때만 채운다(없으면 null).</summary>
     public Guid? MemoId { get; set; }
