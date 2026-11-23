@@ -147,6 +147,13 @@ public sealed class PhoneViewItem
     /// <summary>못 하면 할 때까지 남는 루틴인지. 폰은 이 줄의 체크를 repeat-done 으로 보내고 🔥 를 안 보인다.</summary>
     public bool Sticky { get; set; }
 
+    /// <summary>
+    /// 매월 · 격주처럼 규칙 파일이 있는 새 반복인지(남는 방식이든 지나가는 방식이든).
+    /// 폰은 이런 줄의 체크를 repeat-done / repeat-undone 으로 보낸다 — 옛 버전 PC 는 이 루틴을 '오늘 차례 아님'으로 보아
+    /// 그냥 done 을 받으면 건너뛰고 '처리함'으로 적어 버린다(체크가 사라진다).
+    /// </summary>
+    public bool Ruled { get; set; }
+
     /// <summary>연결된 메모. 그 메모가 <see cref="PhoneView.Memos"/> 에 있을 때만 채운다(없으면 null).</summary>
     public Guid? MemoId { get; set; }
 }

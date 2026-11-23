@@ -34,6 +34,12 @@ public sealed class RepeatStore
 
     public string Folder { get; }
 
+    /// <summary>쓰려다 못 쓴 규칙이 있는지. 있으면 다음 훑기 때 다시 써 본다.</summary>
+    public bool HasUnsynced => _unsynced.Count > 0;
+
+    /// <summary>쓰려다 못 쓴 규칙(파일이 잠김 · 폴더를 기다림). 다시 쓸 때까지 여기 들고 있는다.</summary>
+    private readonly Dictionary<Guid, RepeatRule> _unsynced = new();
+
     private string PathOf(Guid id) => Path.Combine(Folder, id.ToString("D") + ".json");
 
     /// <summary>
@@ -135,8 +141,25 @@ public sealed class RepeatStore
     /// </summary>
     public void Attach(AppData data)
     {
+        var alive = new HashSet<Guid>();
+
         foreach (var routine in data.Routines)
-            routine.Repeat = routine.Archived ? Get(routine.Id) : null;
+        {
+            if (!routine.Archived)
+            {
+                routine.Repeat = null;
+                continue;
+            }
+
+            alive.Add(routine.Id);
+
+            // 쓰려다 못 쓴 규칙이 있으면 파일의 옛 값이 아니라 그것을 단다. 다음 Sync 가 다시 쓴다.
+            routine.Repeat = _unsynced.TryGetValue(routine.Id, out var waiting) ? waiting.Clone() : Get(routine.Id);
+        }
+
+        // 그 루틴이 없어졌거나 옛 방식으로 돌아갔으면 못 쓴 규칙도 쓸 데가 없다
+        foreach (var id in new List<Guid>(_unsynced.Keys))
+            if (!alive.Contains(id)) _unsynced.Remove(id);
     }
 
     /// <summary>
@@ -154,9 +177,21 @@ public sealed class RepeatStore
             if (!routine.Archived || routine.Repeat is not { } rule || !RepeatEngine.IsKnown(rule)) continue;
 
             var json = Serialize(rule);
-            if (_entries.TryGetValue(routine.Id, out var known) && known.Rule is not null && known.Json == json) continue;
+            if (_entries.TryGetValue(routine.Id, out var known) && known.Rule is not null && known.Json == json)
+            {
+                _unsynced.Remove(routine.Id);
+                continue;
+            }
 
-            if (!_canWrite() || !Write(routine.Id, rule, json)) ok = false;
+            if (_canWrite() && Write(routine.Id, rule, json))
+            {
+                _unsynced.Remove(routine.Id);
+                continue;
+            }
+
+            // 못 썼다(드라이브가 파일을 잡고 있음 · 폴더를 기다림). 잃지 않게 들고 있다가 다음에 다시 쓴다.
+            _unsynced[routine.Id] = rule.Clone();
+            ok = false;
         }
 
         return ok;
@@ -195,6 +230,9 @@ public sealed class RepeatStore
 
         try
         {
+            // 지우는 것은 그 반복을 버리겠다는 뜻이다. 못 쓴 채 들고 있던 것도 버린다.
+            _unsynced.Remove(id);
+
             if (!File.Exists(path))
             {
                 _entries.Remove(id);

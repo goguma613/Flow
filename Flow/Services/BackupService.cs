@@ -249,7 +249,7 @@ public static class BackupService
 
             // 반복 규칙 파일. 못 되돌린 것은 루틴 탭에 "반복 정보 없음"으로 보이고 다시 정할 수 있어,
             // 결과 값은 따로 두지 않는다(직전 상태는 before-restore 백업에 있다).
-            try { RestoreRepeats(archive); }
+            try { RestoreRepeats(archive, RuledRoutineIds(DataStore.FilePath)); }
             catch (Exception) { /* 메모 되돌리기는 계속한다 */ }
 
             try
@@ -380,9 +380,11 @@ public static class BackupService
     /// <summary>
     /// 규칙 파일을 백업의 내용과 같게 맞춘다. 백업에 규칙이 하나도 없으면(옛 백업, 또는 규칙이 없던 때의 백업)
     /// 폴더를 건드리지 않는다 — 옛 백업을 되돌렸다고 지금의 반복이 사라지면 안 된다.
-    /// 백업에 없는 지금 파일은 지운다. 다만 백업할 때 못 읽은 파일이 있었으면 지우지 않는다.
+    /// 백업에 없는 지금 파일은 지운다. 다만 백업할 때 못 읽은 파일이 있었으면 지우지 않고,
+    /// 되돌린 data.json 이 쓰는 루틴의 파일도 지우지 않는다 — 백업을 찍을 때 아직 안 내려왔던 것일 수 있고,
+    /// 지우면 그 루틴이 "반복 정보 없음"이 되며 다른 PC 에서도 사라진다.
     /// </summary>
-    private static void RestoreRepeats(ZipArchive archive)
+    private static void RestoreRepeats(ZipArchive archive, HashSet<Guid> needed)
     {
         var incoming = new List<(string Name, byte[] Bytes)>();
         foreach (var entry in archive.Entries)
@@ -408,6 +410,7 @@ public static class BackupService
             foreach (var file in RepeatFiles())
             {
                 if (keep.Contains(Path.GetFileName(file))) continue;
+                if (Guid.TryParseExact(Path.GetFileNameWithoutExtension(file), "D", out var id) && needed.Contains(id)) continue;
                 try { File.Delete(file); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* 남으면 루틴 없는 파일일 뿐이다 */ }
             }
@@ -427,6 +430,32 @@ public static class BackupService
                 try { File.Delete(tmp); } catch (Exception) { /* 남아도 훑기가 무시한다 */ }
             }
         }
+    }
+
+    /// <summary>그 data.json 에서 새 반복(Archived)으로 표시된 루틴의 Id. 못 읽으면 빈 것.</summary>
+    private static HashSet<Guid> RuledRoutineIds(string dataPath)
+    {
+        var ids = new HashSet<Guid>();
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(dataPath));
+            if (!document.RootElement.TryGetProperty("Routines", out var routines) || routines.ValueKind != JsonValueKind.Array)
+                return ids;
+
+            foreach (var routine in routines.EnumerateArray())
+            {
+                if (routine.ValueKind != JsonValueKind.Object) continue;
+                if (!routine.TryGetProperty("Archived", out var archived) || archived.ValueKind != JsonValueKind.True) continue;
+                if (routine.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.String && Guid.TryParse(id.GetString(), out var parsed))
+                    ids.Add(parsed);
+            }
+        }
+        catch (Exception)
+        {
+            // 못 읽으면 지킬 것을 모른다. 지금까지처럼 백업의 내용으로만 맞춘다.
+        }
+
+        return ids;
     }
 
     private static void AddFile(ZipArchive archive, string entryName, string path)

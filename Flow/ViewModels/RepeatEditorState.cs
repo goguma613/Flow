@@ -80,6 +80,10 @@ public sealed class RepeatEditorState
 
         Sticky = start.Unit != RepeatUnit.Daily && start.Sticky;
 
+        // 이미 기본값과 다르게 정해 둔 '남기기'는 그 사람이 고른 것이다. 탭을 옮겨도 따라가지 않는다.
+        _stickyTouched = start.Unit != RepeatUnit.Daily
+                         && start.Sticky != RepeatEngine.DefaultSticky(start.Unit, start.Every);
+
         switch (start.Unit)
         {
             case RepeatUnit.Daily:
@@ -144,6 +148,7 @@ public sealed class RepeatEditorState
                 default: return;
             }
             Changed();
+            FollowDefaultSticky();
         }
     }
 
@@ -192,6 +197,7 @@ public sealed class RepeatEditorState
         if (tab is < TabDaily or > TabEveryDays || tab == Tab) return;
         Tab = tab;
         Changed();
+        FollowDefaultSticky();
     }
 
     public void ToggleDay(int day)
@@ -253,10 +259,16 @@ public sealed class RepeatEditorState
         _stickyTouched = true;
     }
 
-    /// <summary>일정을 정하는 값이 바뀌었다. 옮겨 둔 첫 차례는 처음 자리로, '남기기'는 기본값으로.</summary>
-    private void Changed()
+    /// <summary>일정을 정하는 값이 바뀌었다. 옮겨 둔 첫 차례는 처음 자리로.</summary>
+    private void Changed() => _shift = 0;
+
+    /// <summary>
+    /// 종류(탭)나 간격이 바뀌면 '남기기'가 그 종류의 기본값을 따라간다 — 매주는 지나감, 격주 · 매월은 남음.
+    /// 요일이나 날짜를 고치는 것으로는 바뀌지 않는다: 남기도록 해 둔 매주 월요일에 수요일을 더했다고
+    /// 말없이 '지나감'이 되면 그 루틴은 더는 남지 않는다.
+    /// </summary>
+    private void FollowDefaultSticky()
     {
-        _shift = 0;
         if (!_stickyTouched) Sticky = RepeatEngine.DefaultSticky(Unit, Every);
     }
 
@@ -336,7 +348,11 @@ public sealed class RepeatEditorState
         {
             if (_shift == 0)
             {
-                rule.Anchor = start.Anchor;
+                // 지나가던 반복에 '남기기'를 켜는 것만은 오늘부터 센다. 옛 첫 차례를 두면
+                // 그동안 지나간 차례가 한꺼번에 "밀림 300일"로 붙는다.
+                rule.Anchor = rule.Sticky && !start.Sticky
+                    ? RepeatEngine.Next(start, _today) ?? start.Anchor
+                    : start.Anchor;
                 return rule;
             }
 

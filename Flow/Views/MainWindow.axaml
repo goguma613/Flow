@@ -847,7 +847,7 @@
                   </Grid>
                   <Grid ColumnDefinitions="Auto,*">
                     <TextBlock Classes="helpin" Text="루틴에서 오른쪽 클릭" MinWidth="112" />
-                    <TextBlock Grid.Column="1" Classes="helpout" Text="반복 바꾸기 · 할 일로 옮기기" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="반복 바꾸기 · 옮기기" />
                   </Grid>
                   <Grid ColumnDefinitions="Auto,*">
                     <TextBlock Classes="helpin" Text="날짜를 잡고 끌기" MinWidth="112" />

@@ -317,9 +317,9 @@ public static class PhoneLinkEngine
                 case PhoneOp.Add:
                 case PhoneOp.AddRepeat: outcome = ApplyAdd(data, op); break;
                 case PhoneOp.Done:
-                case PhoneOp.RepeatDone: outcome = ApplyCheck(data, op, done: true); break;
+                case PhoneOp.RepeatDone: outcome = ApplyCheck(data, op, done: true, pending); break;
                 case PhoneOp.Undone:
-                case PhoneOp.RepeatUndone: outcome = ApplyCheck(data, op, done: false); break;
+                case PhoneOp.RepeatUndone: outcome = ApplyCheck(data, op, done: false, pending); break;
                 case PhoneOp.Rename: outcome = ApplyRename(data, op); break;
                 case PhoneOp.SetPriority: outcome = ApplyPriority(data, op); break;
                 case PhoneOp.Delete: outcome = ApplyDelete(data, op); break;
@@ -499,7 +499,25 @@ public static class PhoneLinkEngine
         return Outcome.Added;
     }
 
-    private static Outcome ApplyCheck(AppData data, PhoneOp op, bool done)
+    private static bool IsCheckKind(string kind)
+        => kind is PhoneOp.Done or PhoneOp.Undone or PhoneOp.RepeatDone or PhoneOp.RepeatUndone;
+
+    /// <summary>
+    /// 그 날 그 항목에 폰이 마지막으로 남긴 것이 '체크'인지. 잘못 눌렀다가 바로 푼 것(체크 → 풀기)은 끝낸 것이 아니다.
+    /// </summary>
+    private static bool EndedChecked(IReadOnlyList<PhoneOp> pending, Guid target, DateOnly day)
+    {
+        PhoneOp? last = null;
+        foreach (var other in pending)
+        {
+            if (other.Target != target || other.Day != day || !IsCheckKind(other.Kind)) continue;
+            if (last is null || other.At > last.At || (other.At == last.At && other.Id.CompareTo(last.Id) > 0)) last = other;
+        }
+
+        return last is null || last.Kind is PhoneOp.Done or PhoneOp.RepeatDone;
+    }
+
+    private static Outcome ApplyCheck(AppData data, PhoneOp op, bool done, IReadOnlyList<PhoneOp> pending)
     {
         if (op.Target is not { } target) return Outcome.Skipped;
 
@@ -511,7 +529,11 @@ public static class PhoneLinkEngine
             {
                 // '남는' 항목만은 지난 날에 끝낸 것도 받는다. 연속 기록이 없어 다시 셀 것이 없고,
                 // 안 받으면 폰에서 끝낸 일이 PC 를 켰을 때 여전히 "밀림"으로 남아 있다.
-                return done && op.Day < data.LastLogicalDate && CompleteStickyLate(data, routine, op.Day)
+                // 다만 그 날 체크했다가 바로 푼 것은 받지 않는다. 지난 날의 '풀기'는 되돌릴 방법이 없어 건너뛰므로,
+                // 체크만 받으면 잘못 누른 것이 그대로 '끝냄'이 되어 그 일이 말없이 사라진다.
+                return done && op.Day < data.LastLogicalDate
+                       && EndedChecked(pending, target, op.Day)
+                       && CompleteStickyLate(data, routine, op.Day)
                     ? Outcome.Checked
                     : Outcome.Skipped;
             }
@@ -683,6 +705,7 @@ public static class PhoneLinkEngine
                 Streak = sticky ? 0 : routine.Streak,   // 남는 항목에는 연속 기록이 없다
                 Overdue = DayEngine.OverdueDays(routine, today),
                 Sticky = sticky,
+                Ruled = DayEngine.HasRule(routine),
                 MemoId = LinkOf(routine.MemoId)
             });
         }

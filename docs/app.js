@@ -2180,9 +2180,10 @@ app.addEventListener('click', async event => {
       if (!item) return;
 
       if (navigator.vibrate) navigator.vibrate(8);
-      // '남는' 루틴의 체크는 새 갈래로 보낸다. 옛 버전 PC 는 모르는 갈래를 건드리지 않아,
+      // 새 반복(매월 · 격주 …) 루틴의 체크는 새 갈래로 보낸다. 옛 버전 PC 는 모르는 갈래를 건드리지 않아,
       // 새 버전 PC 가 받을 때까지 남는다 — 옛 PC 가 체크를 삼키지 않는다.
-      if (item.Sticky) pushOp(item.Done ? 'repeat-undone' : 'repeat-done', item.Id);
+      // 지나가는 방식이어도 새 반복(매월 · 격주 …)이면 같다 — 옛 PC 는 그 루틴을 '오늘 차례 아님'으로 본다.
+      if (item.Sticky || item.Ruled) pushOp(item.Done ? 'repeat-undone' : 'repeat-done', item.Id);
       else pushOp(item.Done ? 'undone' : 'done', item.Id);
       await sendEdits();
       return;

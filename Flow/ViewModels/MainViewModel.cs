@@ -1369,8 +1369,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private void Save()
     {
-        Repeats.Sync(_data);
+        SyncRepeats();
         _store.RequestSave(_data);
+    }
+
+    /// <summary>못 쓴 반복 규칙이 있다고 이미 알렸는지. 10초마다 같은 말을 되풀이하지 않게 한다.</summary>
+    private bool _warnedRepeatSave;
+
+    /// <summary>
+    /// 반복 규칙 파일을 맞춘다. 못 쓴 것(드라이브가 파일을 잡고 있음)은 RepeatStore 가 들고 있다가
+    /// 다음 훑기(10초마다) · 끌 때 다시 쓴다. 폴더를 기다리는 동안은 원래 아무것도 쓰지 않으니 알리지 않는다.
+    /// </summary>
+    private void SyncRepeats()
+    {
+        if (Repeats.Sync(_data))
+        {
+            _warnedRepeatSave = false;
+            return;
+        }
+
+        if (_store.WaitingForFolder || _warnedRepeatSave) return;
+
+        _warnedRepeatSave = true;
+        Announce("반복 정보를 저장하지 못했습니다 · 다시 시도합니다");
     }
 
     /// <summary>
@@ -1387,7 +1408,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>다른 PC 가 반복 규칙 파일을 바꿨거나 뒤늦게 내려왔는지 본다. 바뀌었으면 다시 달고 목록을 그린다.</summary>
     private void ScanRepeats()
     {
-        if (_store.WaitingForFolder || !Repeats.Scan()) return;
+        if (_store.WaitingForFolder) return;
+
+        // 지난번에 못 쓴 규칙부터 다시 써 본다
+        if (Repeats.HasUnsynced) SyncRepeats();
+
+        if (!Repeats.Scan()) return;
 
         Repeats.Attach(_data);
         DayEngine.SyncToday(_data, _today);
@@ -1616,7 +1642,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public void PersistDevice() => DeviceStore.Capture(_data);
 
-    public void FlushNow() => _store.Flush();
+    public void FlushNow()
+    {
+        // 끄기 직전의 마지막 기회. 못 쓴 반복 규칙이 있으면 한 번 더 써 본다.
+        if (Repeats.HasUnsynced) Repeats.Sync(_data);
+        _store.Flush();
+    }
 
     /// <summary>
     /// 오늘 화면에 있는 루틴만 체크할 수 있다 — 오늘이 차례인 것, 그리고 밀려서 남아 있는 것.
@@ -2502,6 +2533,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _busyTimer.Stop();
         _updateTimer?.Stop();
         _memoScanTimer.Stop();
+        if (Repeats.HasUnsynced) Repeats.Sync(_data);
         _store.Dispose();
     }
 }

@@ -428,6 +428,45 @@ internal static partial class Program
             Check("더 늦은 완료일을 앞당기지 않음", pay.LastDoneDate, (DateOnly?)D(2026, 11, 27));
         }
 
+        // ── 검토 1: PC 가 꺼진 날 폰에서 잘못 눌렀다가 바로 푼 것은 끝낸 것이 아니다
+        {
+            var data = Fresh(out var pay, out _, out _);
+            var done = Op(PhoneOp.RepeatDone, D(2026, 11, 26), 20, target: pay.Id);
+            var undone = Op(PhoneOp.RepeatUndone, D(2026, 11, 26), 20, 1, target: pay.Id);
+            var result = PhoneLinkEngine.Apply(data, [done, undone]);
+            Check("지난 날 체크 뒤 바로 풀기: 끝낸 것으로 치지 않음", (pay.LastDoneDate, DayEngine.OverdueDays(pay, day28)), ((DateOnly?)null, 3));
+            Check("둘 다 건너뛴 것으로 적음", (result.Checked, result.Skipped, data.PhoneOpsApplied.Count), (0, 2, 2));
+
+            // 풀었다가 다시 체크했으면 끝낸 것
+            var again = Fresh(out var pay2, out _, out _);
+            PhoneLinkEngine.Apply(again, [
+                Op(PhoneOp.RepeatDone, D(2026, 11, 26), 20, target: pay2.Id),
+                Op(PhoneOp.RepeatUndone, D(2026, 11, 26), 20, 1, target: pay2.Id),
+                Op(PhoneOp.Done, D(2026, 11, 26), 20, 2, target: pay2.Id)]);
+            Check("체크 → 풀기 → 체크는 끝낸 것", pay2.LastDoneDate, (DateOnly?)D(2026, 11, 26));
+
+            // 다른 날의 풀기는 상관없다
+            var other = Fresh(out var pay3, out _, out _);
+            PhoneLinkEngine.Apply(other, [
+                Op(PhoneOp.RepeatDone, D(2026, 11, 26), 20, target: pay3.Id),
+                Op(PhoneOp.RepeatUndone, D(2026, 11, 27), 9, target: pay3.Id)]);
+            Check("다른 날의 풀기는 그 날의 체크를 지우지 않음", pay3.LastDoneDate, (DateOnly?)D(2026, 11, 26));
+        }
+
+        // ── 검토 3: 지나가는 방식이어도 새 반복이면 화면이 그렇다고 알린다(폰이 새 갈래로 보내게)
+        {
+            var data = Fresh(out var pay, out var water, out var habit);
+            var view = PhoneLinkEngine.BuildView(data, D(2026, 12, 25), D(2026, 12, 25).ToDateTime(new TimeOnly(9, 0)));
+            Check("화면: 새 반복 표시",
+                (view.Routines.First(r => r.Id == habit.Id).Ruled, view.Routines.First(r => r.Id == habit.Id).Sticky,
+                 view.Routines.First(r => r.Id == pay.Id).Ruled, view.Routines.First(r => r.Id == water.Id).Ruled),
+                (true, false, true, false));
+
+            data.LastLogicalDate = D(2026, 12, 25);
+            var result = PhoneLinkEngine.Apply(data, [Op(PhoneOp.RepeatDone, D(2026, 12, 25), 10, target: habit.Id)]);
+            Check("지나가는 새 반복의 repeat-done", (result.Checked, habit.DoneToday, habit.Streak), (1, true, 1));
+        }
+
         // ── 추가: add-repeat
         {
             var data = new AppData { LastLogicalDate = D(2026, 11, 23) };
@@ -580,6 +619,40 @@ internal static partial class Program
         days.SetTab(RepeatEditorState.TabEveryDays);
         Check("돌아오면 그대로", days.Every, 2);
 
+        // ── 검토 2: 이미 있는 루틴의 '남기기'는 요일 · 날짜를 고쳐도 그대로다
+        var stickyWeekly = new RepeatEditorState(
+            new RepeatRule { Unit = RepeatUnit.Weekly, Days = { 1 }, Sticky = true, Anchor = D(2026, 11, 2) }, today);
+        stickyWeekly.ToggleDay(3);
+        Check("남기는 매주에 요일을 더해도 남기기 그대로", (Text(stickyWeekly), stickyWeekly.Sticky, RepeatEngine.IsLegacy(stickyWeekly.Build())), ("월 수", true, false));
+        stickyWeekly.SetWeekdays();
+        Check("평일로 바꿔도 그대로", stickyWeekly.Sticky, true);
+
+        var habitMonthly = new RepeatEditorState(
+            new RepeatRule { Unit = RepeatUnit.MonthDates, MonthDays = { 25 }, Anchor = D(2026, 1, 25) }, D(2026, 11, 28));
+        habitMonthly.ToggleMonthDay(10);
+        Check("지나가는 매월에 날짜를 더해도 지나가기 그대로", (Text(habitMonthly), habitMonthly.Sticky), ("매월 10·25일", false));
+        habitMonthly.ToggleLastDay();
+        habitMonthly.SetByNth(true);
+        Check("말일 · 요일 고르기도 남기기를 건드리지 않음", habitMonthly.Sticky, false);
+        habitMonthly.SetTab(RepeatEditorState.TabWeekly);
+        Check("스스로 정해 둔 값은 탭을 옮겨도 따라가지 않음", habitMonthly.Sticky, false);
+
+        // 기본값 그대로이던 것은 탭 · 간격을 바꿀 때만 따라간다
+        var plainWeekly = new RepeatEditorState(RepeatEngine.FromLegacy(new[] { DayOfWeek.Monday }), today);
+        plainWeekly.ToggleDay(3);
+        Check("기본값이던 매주: 요일을 더해도 지나감", plainWeekly.Sticky, false);
+        plainWeekly.SetTab(RepeatEditorState.TabMonthly);
+        Check("기본값이던 것은 탭을 옮기면 따라감", plainWeekly.Sticky, true);
+
+        // ── 검토: 지나가던 반복에 '남기기'만 켜도 지난 차례가 밀림으로 붙지 않는다
+        var turnOn = new RepeatEditorState(
+            new RepeatRule { Unit = RepeatUnit.MonthDates, MonthDays = { 25 }, Anchor = D(2026, 1, 25) }, D(2026, 11, 28));
+        turnOn.SetSticky(true);
+        var turned = new Routine { Archived = true, LastDoneDate = D(2026, 3, 25), Repeat = turnOn.Build() };
+        Check("남기기를 켠 날부터 센다", (turnOn.Build().Anchor, DayEngine.OverdueDays(turned, D(2026, 11, 28)), DayEngine.IsDue(turned, D(2026, 12, 25))), (D(2026, 12, 25), 0, true));
+        turnOn.SetSticky(false);
+        Check("다시 끄면 첫 차례는 원래대로", turnOn.Build().Anchor, D(2026, 1, 25));
+
         // ── 반복 정보를 잃은 루틴 · 모르는 규칙으로 열어도 죽지 않는다
         var unknown = new RepeatEditorState(new RepeatRule { Unit = 9 }, today);
         Check("모르는 규칙은 매월 오늘 날짜로 시작", (unknown.Tab, Text(unknown)), (RepeatEditorState.TabMonthly, "매월 23일"));
@@ -673,6 +746,28 @@ internal static partial class Program
                 (zip.Entries.Count(e => e.FullName.StartsWith("repeats/")), zip.GetEntry("repeats-incomplete") is not null), (1, true));
         Check("덜 담긴 백업 되돌리기", BackupService.RestoreDetailed(partial!).Outcome, RestoreOutcome.Ok);
         Check("덜 담긴 백업은 없는 파일을 지우지 않음", File.Exists(extraPath), true);
+
+        // ── 검토: 백업을 찍을 때 아직 안 내려왔던 규칙 파일. 되돌린 data.json 에 그 루틴이 있으면 지우지 않는다.
+        {
+            dataStore.RequestSave(data);   // 정산 · 회의 둘 다 Archived 로 data.json 에 있다
+            dataStore.Flush();
+            store.Scan();
+            store.Sync(data);
+            var extraText = File.ReadAllText(extraPath);
+            File.Delete(extraPath);                         // 아직 안 내려온 것처럼
+            var early = BackupService.Create("early");
+            File.WriteAllText(extraPath, extraText);        // 뒤늦게 내려옴
+            using (var zip = ZipFile.OpenRead(early!))
+                Check("그 백업에는 회의의 규칙 파일이 없음", zip.GetEntry("repeats/" + extra.Id.ToString("D") + ".json") is null, true);
+
+            // 루틴이 없는 규칙 파일(다른 루틴의 것)은 지금처럼 정리된다
+            var stray = Path.Combine(folder, Guid.NewGuid().ToString("D") + ".json");
+            File.WriteAllText(stray, extraText);
+
+            Check("이른 백업 되돌리기", BackupService.RestoreDetailed(early!).Outcome, RestoreOutcome.Ok);
+            Check("되돌린 데이터가 쓰는 규칙 파일은 남긴다", File.Exists(extraPath), true);
+            Check("쓰는 루틴이 없는 파일은 정리한다", File.Exists(stray), false);
+        }
 
         // ── 저장 폴더를 옮길 때 따라간다
         var moved = Path.Combine(DataStore.Directory, "repeattest-move");
@@ -799,6 +894,47 @@ internal static partial class Program
             Check("뒤늦게 온 파일을 알아챔", other.Scan(), true);
             other.Attach(copy);
             Check("돌아옴", RepeatEngine.Describe(copy.Routines[0].Repeat!), "매월 10일");
+
+            // 검토 4: 드라이브가 파일을 잡고 있어 못 썼다. 잃지 않고, 다시 읽어 달 때도 지키고, 다음에 쓴다.
+            {
+                var held = new RepeatStore(root, () => true);
+                held.Scan();
+                var mineData = new AppData();
+                var mineRoutine = new Routine { Id = monthly.Id, Archived = true };
+                mineData.Routines.Add(mineRoutine);
+                held.Attach(mineData);
+                Check("처음엔 못 쓴 것이 없음", held.HasUnsynced, false);
+
+                mineRoutine.Repeat!.MonthDays[0] = 5;
+                using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    Check("잠긴 파일에는 못 씀", (held.Sync(mineData), held.HasUnsynced), (false, true));
+                Check("파일은 옛 값 그대로", File.ReadAllText(path).Contains("10"), true);
+
+                // 그사이 데이터를 갈아끼웠다(다른 PC 의 변경을 읽음) — 못 쓴 규칙이 파일의 옛 값에 덮이면 안 된다
+                var swapped = new AppData();
+                swapped.Routines.Add(new Routine { Id = monthly.Id, Archived = true });
+                held.Scan();
+                held.Attach(swapped);
+                Check("다시 달 때 못 쓴 규칙을 지킨다", RepeatEngine.Describe(swapped.Routines[0].Repeat!), "매월 5일");
+
+                Check("풀리면 다시 써진다", (held.Sync(swapped), held.HasUnsynced), (true, false));
+                other.Scan(); other.Attach(copy);
+                Check("다른 PC 가 새 값을 읽음", RepeatEngine.Describe(copy.Routines[0].Repeat!), "매월 5일");
+
+                // 그 루틴이 없어졌으면 못 쓴 규칙도 버린다
+                mineRoutine = swapped.Routines[0];
+                mineRoutine.Repeat!.MonthDays[0] = 7;
+                using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    held.Sync(swapped);
+                held.Attach(new AppData());
+                Check("루틴이 없어지면 못 쓴 규칙도 버림", held.HasUnsynced, false);
+
+                // 원래 값으로 돌려 둔다(아래 시험이 '매월 10일'을 본다)
+                monthly.Repeat!.MonthDays[0] = 10;
+                store.Scan();
+                store.Sync(data);
+                other.Scan(); other.Attach(copy);
+            }
 
             // 엉뚱한 파일
             File.WriteAllText(Path.Combine(store.Folder, "메모.json"), "{}");
