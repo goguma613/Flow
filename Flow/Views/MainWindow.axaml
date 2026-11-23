@@ -29,6 +29,7 @@
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="루틴으로 옮기기" Command="{Binding MoveToRoutineCommand}" />
                           <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
@@ -181,11 +182,13 @@
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="반복 바꾸기" Command="{Binding ChangeRepeatCommand}" />
+                          <MenuItem Header="할 일로 옮기기" Command="{Binding MoveToTaskCommand}" />
                           <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
                       </Button.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -202,17 +205,21 @@
                                 Command="{Binding OpenMemoCommand}" ToolTip.Tip="메모 열기">
                           <TextBlock Text="📝" />
                         </Button>
-                        <Border Grid.Column="3" Classes="badge" IsVisible="{Binding ShowTime}"
+                        <!-- 못 해서 남아 있는 반복. 할 일의 "밀림 n일"과 같은 모양이다. -->
+                        <TextBlock Grid.Column="3" Classes="meta" Text="{Binding OverdueText}"
+                                   Foreground="{StaticResource TextDisabledBrush}"
+                                   Margin="0,0,6,0" IsVisible="{Binding HasOverdue}" />
+                        <Border Grid.Column="4" Classes="badge" IsVisible="{Binding ShowTime}"
                                 Margin="0,0,6,0" Padding="5,2">
                           <TextBlock Text="{Binding TimeText}" FontSize="10"
                                      Foreground="{StaticResource TextSecondaryBrush}" />
                         </Border>
-                        <TextBlock Grid.Column="4" Text="{Binding RingText}"
+                        <TextBlock Grid.Column="5" Text="{Binding RingText}"
                                    IsVisible="{Binding IsRinging}"
                                    FontSize="11" FontWeight="Medium"
                                    Foreground="{StaticResource AccentBrush}"
                                    VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="3"
+                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="3"
                                     VerticalAlignment="Center" IsVisible="{Binding ShowStreak}">
                           <Path Data="{StaticResource FlameIcon}"
                                 Fill="{StaticResource StreakBrush}"
@@ -220,7 +227,7 @@
                           <TextBlock Text="{Binding Streak}" FontSize="11"
                                      Foreground="{StaticResource StreakBrush}" VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button Grid.Column="5" Classes="rowaction" Margin="6,0,0,0"
+                        <Button Grid.Column="6" Classes="rowaction" Margin="6,0,0,0"
                                 Command="{Binding DeleteCommand}" ToolTip.Tip="삭제">
                           <Path Data="{StaticResource TrashIcon}" Width="13" Height="13" Stretch="Uniform" />
                         </Button>
@@ -247,6 +254,7 @@
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="루틴으로 옮기기" Command="{Binding MoveToRoutineCommand}" />
                           <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
@@ -327,6 +335,12 @@
                   <DataTemplate DataType="vm:TaskRow">
                     <Button Classes="row" Classes.compact="{Binding IsCompact}"
                             Classes.ringing="{Binding IsRinging}" Classes.done="{Binding IsDone}" Command="{Binding ToggleCommand}">
+                      <Button.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="루틴으로 옮기기" Command="{Binding MoveToRoutineCommand}" />
+                          <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                      </Button.ContextMenu>
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                         <Border Classes="ring">
                           <Path Data="{StaticResource CheckIcon}" Width="11" Height="11" Stretch="Uniform"
@@ -400,6 +414,8 @@
                                     IsVisible="{Binding IsRinging}" />
                           <MenuItem Header="알림 끄기" Command="{Binding MuteCommand}"
                                     IsVisible="{Binding HasReminder}" />
+                          <MenuItem Header="반복 바꾸기" Command="{Binding ChangeRepeatCommand}" />
+                          <MenuItem Header="할 일로 옮기기" Command="{Binding MoveToTaskCommand}" />
                           <MenuItem Header="메모 연결" Tag="memo" />
                           <MenuItem Header="삭제" Command="{Binding DeleteCommand}" />
                         </ContextMenu>
@@ -412,7 +428,7 @@
                           </Border>
                           <TextBlock Classes="notoday" Text="·"
                                      IsVisible="{Binding !IsScheduledToday}"
-                                     ToolTip.Tip="오늘은 예정된 날이 아닙니다" />
+                                     ToolTip.Tip="오늘은 차례가 아닙니다" />
                         </Panel>
                         <StackPanel Grid.Column="1" Grid.ColumnSpan="{Binding EditSpan}" ZIndex="1" Spacing="1" Margin="10,0,8,0">
                           <Panel>
@@ -422,8 +438,19 @@
                                      KeyDown="OnRenameKeyDown"
                                      LostFocus="OnRenameLostFocus" />
                           </Panel>
-                          <TextBlock Classes="meta" Text="{Binding DaysText}"
-                                     Foreground="{StaticResource TextMutedBrush}" />
+                          <!-- "매월 25일 · 다음 11/25" / "매월 20일 · 밀림 3일" / "반복 정보 없음" -->
+                          <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Classes="meta" Text="{Binding RepeatText}"
+                                       Foreground="{StaticResource TextMutedBrush}" />
+                            <TextBlock Classes="meta" Text="·" IsVisible="{Binding HasNext}"
+                                       Foreground="{StaticResource TextDisabledBrush}" />
+                            <TextBlock Classes="meta" Text="{Binding NextText}" IsVisible="{Binding HasNext}"
+                                       Foreground="{StaticResource TextDisabledBrush}" />
+                            <TextBlock Classes="meta" Text="·" IsVisible="{Binding HasOverdue}"
+                                       Foreground="{StaticResource TextDisabledBrush}" />
+                            <TextBlock Classes="meta" Text="{Binding OverdueText}" IsVisible="{Binding HasOverdue}"
+                                       Foreground="{StaticResource TextDisabledBrush}" />
+                          </StackPanel>
                         </StackPanel>
                         <Button Grid.Column="2" Classes="memolink" Margin="0,0,6,0"
                                 IsVisible="{Binding HasMemo}"
@@ -648,11 +675,23 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
-            <TextBlock Text="{Binding QuickAddHint}"
-                       FontSize="11"
-                       Foreground="{StaticResource AccentBrush}"
-                       Margin="4,0,0,0"
-                       IsVisible="{Binding QuickAddHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <!-- 루틴 탭: 다음에 추가할 루틴의 반복을 고르는 칩. 그 옆에 읽은 문장의 미리보기. -->
+            <DockPanel LastChildFill="True">
+              <Button DockPanel.Dock="Left" Classes="chip repeatchip"
+                      Classes.active="{Binding HasPendingRepeat}"
+                      IsVisible="{Binding IsRoutineTab}"
+                      Content="{Binding RepeatChipText}"
+                      Command="{Binding PickRepeatCommand}"
+                      ToolTip.Tip="다음에 추가할 루틴의 반복을 고릅니다"
+                      Padding="9,5" Margin="0,0,8,0" />
+              <TextBlock Text="{Binding QuickAddHint}"
+                         FontSize="11"
+                         Foreground="{StaticResource AccentBrush}"
+                         Margin="4,0,0,0"
+                         VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis"
+                         IsVisible="{Binding QuickAddHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </DockPanel>
             <Border Classes="quickaddshell">
               <Grid ColumnDefinitions="Auto,*,Auto">
                 <Path Data="{StaticResource PlusIcon}"
@@ -957,6 +996,190 @@
 
             <TextBlock Classes="empty" IsVisible="{Binding !HasBackups}"
                        Text="아직 백업이 없습니다" />
+          </StackPanel>
+        </ScrollViewer>
+
+      </DockPanel>
+    </Border>
+
+    <!-- ════════ 반복 ════════ -->
+    <Border IsVisible="{Binding IsRepeatOpen}"
+            CornerRadius="16"
+            Background="{StaticResource DialogBrush}"
+            BorderThickness="1"
+            BorderBrush="{StaticResource BorderBrush}">
+      <DockPanel LastChildFill="True" Margin="16,14,16,14"
+                 DataContext="{Binding RepeatEditor}" x:DataType="vm:RepeatEditorViewModel">
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+          <StackPanel Spacing="2">
+            <TextBlock Text="반복" FontSize="16" FontWeight="Medium"
+                       Foreground="{StaticResource TextPrimaryBrush}" />
+            <TextBlock Text="{Binding Title}" FontSize="11" MaxLines="1" TextTrimming="CharacterEllipsis"
+                       Foreground="{StaticResource TextMutedBrush}" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="icon" Command="{Binding CancelCommand}" VerticalAlignment="Top">
+            <Path Data="{StaticResource CloseIcon}" Width="11" Height="11" Stretch="Uniform" />
+          </Button>
+        </Grid>
+
+        <!-- 아래: 고른 반복 한 줄 + 취소 · 저장 -->
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+          <TextBlock Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center"
+                     MaxLines="1" TextTrimming="CharacterEllipsis"
+                     Foreground="{StaticResource AccentBrush}" />
+          <Button Grid.Column="1" Classes="chip" Content="취소" Command="{Binding CancelCommand}"
+                  Padding="14,7" Margin="8,0,0,0" />
+          <Button Grid.Column="2" Classes="chip accent" Content="저장" Command="{Binding SaveCommand}"
+                  IsEnabled="{Binding CanSave}" Padding="16,7" Margin="7,0,0,0" />
+        </Grid>
+
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Spacing="10">
+
+            <!-- 종류 -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="3">
+              <UniformGrid Columns="5">
+                <Button Classes="chip" Classes.active="{Binding IsDailyTab}" Content="매일"
+                        Command="{Binding SelectTabCommand}" CommandParameter="0" />
+                <Button Classes="chip" Classes.active="{Binding IsWeeklyTab}" Content="매주"
+                        Command="{Binding SelectTabCommand}" CommandParameter="1" />
+                <Button Classes="chip" Classes.active="{Binding IsMonthlyTab}" Content="매월"
+                        Command="{Binding SelectTabCommand}" CommandParameter="2" />
+                <Button Classes="chip" Classes.active="{Binding IsYearlyTab}" Content="매년"
+                        Command="{Binding SelectTabCommand}" CommandParameter="3" />
+                <Button Classes="chip" Classes.active="{Binding IsEveryDaysTab}" Content="n일마다"
+                        Command="{Binding SelectTabCommand}" CommandParameter="4" />
+              </UniformGrid>
+            </Border>
+
+            <Border Classes="group">
+              <StackPanel Spacing="10">
+
+                <!-- 매일 -->
+                <TextBlock Classes="settinghint" IsVisible="{Binding IsDailyTab}"
+                           Text="날마다 옵니다. 못 한 날은 지나가고 연속 기록만 끊깁니다." />
+
+                <!-- 간격: ( 2 )주마다 · ( 3 )개월마다 · ( 3 )일마다 -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasEvery}">
+                  <Button Classes="step" Content="−" Command="{Binding EveryDownCommand}" />
+                  <TextBlock Text="{Binding Every}" FontSize="14" MinWidth="24" TextAlignment="Center"
+                             VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                  <Button Classes="step" Content="+" Command="{Binding EveryUpCommand}" />
+                  <TextBlock Text="{Binding EveryUnit}" Classes="settinglabel" VerticalAlignment="Center" Margin="3,0,0,0" />
+                </StackPanel>
+
+                <!-- 매주: 요일 -->
+                <StackPanel Spacing="7" IsVisible="{Binding IsWeeklyTab}">
+                  <ItemsControl ItemsSource="{Binding WeekDays}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><UniformGrid Columns="7" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate DataType="vm:RepeatChoice">
+                        <Button Classes="chip pick" Classes.active="{Binding IsOn}" Content="{Binding Label}"
+                                Command="{Binding PickCommand}" Margin="2" Padding="0,7" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <StackPanel Orientation="Horizontal" Spacing="6" Margin="2,0,0,0">
+                    <Button Classes="chip quiet" Content="평일" Command="{Binding WeekdaysCommand}" Padding="11,5" />
+                    <Button Classes="chip quiet" Content="주말" Command="{Binding WeekendCommand}" Padding="11,5" />
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- 매월: 날짜로 / 요일로 -->
+                <Border Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="3"
+                        IsVisible="{Binding IsMonthlyTab}">
+                  <UniformGrid Columns="2">
+                    <Button Classes="chip" Classes.active="{Binding ByDate}" Content="날짜"
+                            Command="{Binding PickByDateCommand}" />
+                    <Button Classes="chip" Classes.active="{Binding ByNth}" Content="요일"
+                            Command="{Binding PickByNthCommand}" />
+                  </UniformGrid>
+                </Border>
+
+                <ItemsControl ItemsSource="{Binding MonthDays}" IsVisible="{Binding ShowMonthDates}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Columns="7" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:RepeatChoice">
+                      <Button Classes="chip pick" Classes.active="{Binding IsOn}" Content="{Binding Label}"
+                              Command="{Binding PickCommand}" Margin="2" Padding="0,5" FontSize="11" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <StackPanel Spacing="7" IsVisible="{Binding ShowMonthNth}">
+                  <ItemsControl ItemsSource="{Binding NthChoices}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><UniformGrid Columns="5" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate DataType="vm:RepeatChoice">
+                        <Button Classes="chip pick" Classes.active="{Binding IsOn}" Content="{Binding Label}"
+                                Command="{Binding PickCommand}" Margin="2" Padding="0,6" FontSize="11" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ItemsControl ItemsSource="{Binding NthDays}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><UniformGrid Columns="7" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate DataType="vm:RepeatChoice">
+                        <Button Classes="chip pick" Classes.active="{Binding IsOn}" Content="{Binding Label}"
+                                Command="{Binding PickCommand}" Margin="2" Padding="0,7" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+
+                <!-- 매년: 월 · 일 -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsYearlyTab}">
+                  <Button Classes="step" Content="−" Command="{Binding MonthDownCommand}" />
+                  <TextBlock Text="{Binding MonthText}" FontSize="14" MinWidth="38" TextAlignment="Center"
+                             VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                  <Button Classes="step" Content="+" Command="{Binding MonthUpCommand}" />
+                  <Button Classes="step" Content="−" Command="{Binding DayDownCommand}" Margin="12,0,0,0" />
+                  <TextBlock Text="{Binding DayText}" FontSize="14" MinWidth="38" TextAlignment="Center"
+                             VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                  <Button Classes="step" Content="+" Command="{Binding DayUpCommand}" />
+                </StackPanel>
+
+              </StackPanel>
+            </Border>
+
+            <!-- 못 했을 때 · 첫 차례 -->
+            <Border Classes="group" IsVisible="{Binding ShowSticky}">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="3">
+                    <TextBlock Classes="settinglabel" Text="못 하면 할 때까지 남기기" />
+                    <TextBlock Classes="settinghint"
+                               Text="켜면 체크할 때까지 오늘에 '밀림 n일'로 남습니다. 끄면 그날이 지나면 사라집니다." />
+                  </StackPanel>
+                  <ToggleButton Grid.Column="1" Classes="switch" IsChecked="{Binding Sticky}"
+                                VerticalAlignment="Center" Margin="10,0,0,0" />
+                </Grid>
+
+                <Border Classes="groupline" IsVisible="{Binding ShowFirst}" />
+
+                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowFirst}">
+                  <TextBlock Classes="settinglabel" Text="첫 차례:" VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Classes="step" Content="◀" FontSize="10" Command="{Binding ShiftBackCommand}"
+                            IsEnabled="{Binding CanShiftBack}" ToolTip.Tip="한 차례 앞으로" />
+                    <TextBlock Text="{Binding FirstText}" FontSize="13" MinWidth="104" TextAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                    <Button Classes="step" Content="▶" FontSize="10" Command="{Binding ShiftForwardCommand}"
+                            IsEnabled="{Binding CanShiftForward}" ToolTip.Tip="한 차례 뒤로" />
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+
           </StackPanel>
         </ScrollViewer>
 

@@ -51,7 +51,11 @@ public sealed partial class RepeatEditorViewModel : ObservableObject
         Title = title;
 
         WeekDays = MondayFirst.Select(d => new RepeatChoice(d, DayNames[d], day => Apply(() => _state.ToggleDay(day)))).ToList();
-        MonthDays = Enumerable.Range(1, 31).Select(d => new RepeatChoice(d, d.ToString(), day => Apply(() => _state.ToggleMonthDay(day)))).ToList();
+        // 1–31 뒤에 '말일' 한 칸. 한 줄에 일곱 칸이라 서른두 칸이 다섯 줄에 들어간다.
+        MonthDays = Enumerable.Range(1, 31)
+            .Select(d => new RepeatChoice(d, d.ToString(), day => Apply(() => _state.ToggleMonthDay(day))))
+            .Append(new RepeatChoice(RepeatUnit.LastDay, "말일", _ => Apply(_state.ToggleLastDay)))
+            .ToList();
         NthChoices = Enumerable.Range(1, 5).Select(n => new RepeatChoice(n, NthNames[n - 1], nth => Apply(() => _state.SetNth(nth)))).ToList();
         NthDays = MondayFirst.Select(d => new RepeatChoice(d, DayNames[d], day => Apply(() => _state.SetNthDay(day)))).ToList();
 
@@ -86,8 +90,6 @@ public sealed partial class RepeatEditorViewModel : ObservableObject
     /// <summary>매월 탭의 날짜 고르기 / 요일 고르기.</summary>
     public bool ShowMonthDates => IsMonthlyTab && !_state.ByNth;
     public bool ShowMonthNth => IsMonthlyTab && _state.ByNth;
-
-    public bool IsLastDayOn => _state.LastDay;
 
     public string MonthText => $"{_state.Month}월";
     public string DayText => $"{_state.Day}일";
@@ -141,9 +143,6 @@ public sealed partial class RepeatEditorViewModel : ObservableObject
     [RelayCommand]
     private void PickByNth() => Apply(() => _state.SetByNth(true));
 
-    [RelayCommand]
-    private void ToggleLastDay() => Apply(_state.ToggleLastDay);
-
     // 월 · 일은 끝에서 처음으로 돈다(12월 다음은 1월). 열두 번 누르는 것보다 한 번 뒤로 가는 편이 빠르다.
     [RelayCommand]
     private void MonthUp() => Apply(() => _state.Month = _state.Month == 12 ? 1 : _state.Month + 1);
@@ -187,7 +186,8 @@ public sealed partial class RepeatEditorViewModel : ObservableObject
     private void Refresh()
     {
         foreach (var choice in WeekDays) choice.IsOn = _state.IsDayOn(choice.Value);
-        foreach (var choice in MonthDays) choice.IsOn = _state.IsMonthDayOn(choice.Value);
+        foreach (var choice in MonthDays)
+            choice.IsOn = choice.Value == RepeatUnit.LastDay ? _state.LastDay : _state.IsMonthDayOn(choice.Value);
         foreach (var choice in NthChoices) choice.IsOn = _state.Nth == choice.Value;
         foreach (var choice in NthDays) choice.IsOn = _state.NthDay == choice.Value;
 

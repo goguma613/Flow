@@ -798,7 +798,13 @@ public partial class MainWindow : Window
 
         if (e.Key != Key.Escape) return;
 
-        if (vm.IsRestoreOpen)
+        if (vm.IsRepeatOpen)
+        {
+            // 취소와 같다 — 아무것도 바꾸지 않는다
+            vm.CloseRepeatEditor();
+            e.Handled = true;
+        }
+        else if (vm.IsRestoreOpen)
         {
             vm.IsRestoreOpen = false;
             e.Handled = true;
