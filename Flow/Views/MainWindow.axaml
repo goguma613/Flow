@@ -792,6 +792,14 @@
                     <TextBlock Grid.Column="1" Classes="helpout" Text="월~금 반복" />
                   </Grid>
                   <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="매월 25일 정산" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="매월 25일" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="helpin" Text="격주 월요일 회의" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="2주마다 월요일" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Classes="helpin" Text="내일 오후 3시 거래처 미팅" />
                     <TextBlock Grid.Column="1" Classes="helpout" Text="내일 15:00" />
                   </Grid>
@@ -807,6 +815,10 @@
               </Border>
               <TextBlock Classes="helpbody"
                          Text="!1 빨강 · !2 주황 · !3 파랑 으로 중요도를 표시합니다." />
+              <TextBlock Classes="helpbody"
+                         Text="가끔 하는 일도 적을 수 있습니다: 매달 말일 결산 · 매월 둘째 화요일 회의 · 3일마다 화분 물 · 분기마다 10일 부가세 · 매년 5월 31일 종합소득세. 이런 일은 그날 못 해도 사라지지 않고, 체크할 때까지 오늘에 '밀림 n일'로 남습니다." />
+              <TextBlock Classes="helpbody"
+                         Text="적지 않고 고르려면 '루틴' 탭 입력칸 위의 '반복: 매일' 을 누르세요. 반복을 고른 뒤 제목만 적고 Enter 하면 그 반복으로 들어갑니다." />
               <TextBlock Classes="helpbody"
                          Text="날짜를 안 적으면 날짜 없이 그대로 둡니다. 오늘 목록에 놓여 눈에 보이고, 정한 적 없는 마감을 놓쳤다며 밀린 일수가 붙지도 않습니다. 끝낼 때까지 조용히 남아 있습니다." />
               <TextBlock Classes="helpbody"
@@ -828,6 +840,14 @@
                   <Grid ColumnDefinitions="Auto,*">
                     <TextBlock Classes="helpin" Text="줄에서 오른쪽 클릭" MinWidth="112" />
                     <TextBlock Grid.Column="1" Classes="helpout" Text="이름 바꾸기 · 삭제" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="할 일에서 오른쪽 클릭" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="루틴으로 옮기기" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Classes="helpin" Text="루틴에서 오른쪽 클릭" MinWidth="112" />
+                    <TextBlock Grid.Column="1" Classes="helpout" Text="반복 바꾸기 · 할 일로 옮기기" />
                   </Grid>
                   <Grid ColumnDefinitions="Auto,*">
                     <TextBlock Classes="helpin" Text="날짜를 잡고 끌기" MinWidth="112" />
@@ -859,6 +879,8 @@
                          Text="못 끝낸 할 일은 오늘로 넘어오면서 밀린 일수가 붙습니다. 컴퓨터를 며칠 꺼놨어도 켜는 순간 그동안의 기록을 한 번에 정리합니다." />
               <TextBlock Classes="helpbody"
                          Text="루틴을 연달아 해내면 옆에 불꽃과 함께 며칠째인지 나옵니다. 예정된 날을 빠뜨리면 처음부터 다시 셉니다." />
+              <TextBlock Classes="helpbody"
+                         Text="매월 · 격주처럼 가끔 하는 루틴은 지나가지 않습니다. 못 하면 체크할 때까지 오늘에 남고, 불꽃 대신 루틴 탭에 다음 차례가 보입니다. 반복 창의 '못 하면 할 때까지 남기기' 로 항목마다 바꿀 수 있습니다." />
             </StackPanel>
 
             <StackPanel Spacing="7">
