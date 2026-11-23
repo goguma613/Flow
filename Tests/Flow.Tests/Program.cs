@@ -98,6 +98,9 @@ internal static partial class Program
         Section("메모 · 할 일·루틴 연결");
         MemoLinkTests();
 
+        Section("반복 · 계산");
+        RepeatEngineTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

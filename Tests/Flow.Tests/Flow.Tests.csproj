@@ -35,6 +35,9 @@
     <Compile Include="../../Flow/Services/MemoLinks.cs" />
     <Compile Include="../../Flow/Services/MemoEditing.cs" />
     <Compile Include="../../Flow/ViewModels/MemoEditorState.cs" />
+    <Compile Include="RepeatTests.cs" />
+    <Compile Include="../../Flow/Models/Repeat.cs" />
+    <Compile Include="../../Flow/Services/RepeatEngine.cs" />
   </ItemGroup>
 
   <ItemGroup>
