@@ -71,6 +71,7 @@ public static class DataLocation
     /// - 그쪽이 비어 있으면 여기 것을 <b>복사</b>해 넣는다. 원본은 지우지 않는다 —
     ///   옮기다 잘못돼도 돌아갈 자리가 있어야 한다.
     /// - 메모(휴지통 포함)는 어느 쪽이든 따라간다. 그쪽에 있는 파일은 덮지 않는다(MergeMemos).
+    /// - 반복 규칙 파일도 같은 규칙으로 따라간다(MergeRepeats).
     /// </summary>
     public static MoveResult Prepare(string target)
     {
@@ -86,9 +87,13 @@ public static class DataLocation
             var memos = Path.Combine(DataStore.Directory, "memos");
             var targetMemos = Path.Combine(target, "memos");
 
+            var repeats = Path.Combine(DataStore.Directory, "repeats");
+            var targetRepeats = Path.Combine(target, "repeats");
+
             if (File.Exists(targetData))
             {
                 MergeMemos(memos, targetMemos);
+                MergeRepeats(repeats, targetRepeats);
                 return MoveResult.AdoptedExisting;
             }
 
@@ -97,6 +102,7 @@ public static class DataLocation
                 File.Copy(DataStore.FilePath, targetData, overwrite: false);
                 CopyFolder(Path.Combine(DataStore.Directory, "backup"), Path.Combine(target, "backup"));
                 MergeMemos(memos, targetMemos);
+                MergeRepeats(repeats, targetRepeats);
                 return MoveResult.CopiedHere;
             }
 
@@ -105,6 +111,32 @@ public static class DataLocation
         catch (Exception)
         {
             return MoveResult.Failed;
+        }
+    }
+
+    /// <summary>
+    /// 반복 규칙 파일(repeats 폴더의 '루틴 Id.json')을 새 자리로 복사한다. 새 자리에 있는 파일은 덮지 않는다 — 그쪽이 이긴다.
+    /// 규칙이 없으면 폴더도 만들지 않는다. 하나를 못 옮겨도 원본이 옛 폴더에 남아 있으니 나머지를 계속한다.
+    /// </summary>
+    private static void MergeRepeats(string from, string to)
+    {
+        if (!Directory.Exists(from)) return;
+
+        foreach (var file in Directory.GetFiles(from, "*.json"))
+        {
+            var name = Path.GetFileName(file);
+            if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(name), "D", out _)) continue;
+
+            try
+            {
+                Directory.CreateDirectory(to);
+                var destination = Path.Combine(to, name);
+                if (!File.Exists(destination)) File.Copy(file, destination);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 이 파일은 옛 폴더에 남는다
+            }
         }
     }
 

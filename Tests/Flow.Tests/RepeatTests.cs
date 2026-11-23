@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using Flow.Models;
@@ -457,6 +458,121 @@ internal static partial class Program
             var result = PhoneLinkEngine.Apply(data, [Op("repeat-done-x", day28, 10, target: pay.Id)]);
             Check("모르는 갈래는 넣지도 적지도 않음", (result.NeedsSave, data.PhoneOpsApplied.Count, pay.DoneToday), (false, 0, false));
         }
+    }
+
+    // ───────────────────────── 반복 · 백업
+
+    private static void RepeatBackupTests()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOW_DATA_DIR")))
+        {
+            Console.WriteLine("   SKIP 반복 백업 시험 (FLOW_DATA_DIR 미지정)");
+            return;
+        }
+
+        var folder = Path.Combine(DataStore.Directory, "repeats");
+        if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        if (Directory.Exists(BackupService.Directory)) Directory.Delete(BackupService.Directory, recursive: true);
+
+        using var dataStore = new DataStore();
+        var data = new AppData { LastLogicalDate = D(2026, 11, 23) };
+        var pay = new Routine { Title = "정산", Archived = true, Repeat = M25() };
+        data.Routines.Add(pay);
+        dataStore.RequestSave(data);
+        dataStore.Flush();
+
+        var store = new RepeatStore(DataStore.Directory, () => true);
+        store.Sync(data);
+        var payPath = Path.Combine(folder, pay.Id.ToString("D") + ".json");
+        var original = File.ReadAllText(payPath);
+        File.WriteAllText(Path.Combine(folder, "메모.txt"), "규칙이 아닌 파일");
+        File.WriteAllText(payPath + ".tmp", "쓰다 만 것");
+
+        // ── 백업에 들어간다
+        var backup = BackupService.Create("repeat");
+        Check("백업 만들기", backup is not null, true);
+        using (var zip = ZipFile.OpenRead(backup!))
+        {
+            Check("zip 에 규칙 파일", zip.GetEntry("repeats/" + pay.Id.ToString("D") + ".json") is not null, true);
+            Check("규칙이 아닌 파일 · 임시 파일은 안 넣음", zip.Entries.Count(e => e.FullName.StartsWith("repeats/")), 1);
+        }
+
+        // ── 되돌리기: 백업의 내용으로 맞춘다
+        pay.Repeat!.MonthDays[0] = 10;
+        var extra = new Routine { Title = "회의", Archived = true, Repeat = new RepeatRule { Unit = RepeatUnit.Weekly, Every = 2, Days = { 1 }, Anchor = D(2026, 11, 23), Sticky = true } };
+        data.Routines.Add(extra);
+        store.Sync(data);
+        var extraPath = Path.Combine(folder, extra.Id.ToString("D") + ".json");
+        Check("바꾼 뒤: 10일 · 파일 둘", (File.ReadAllText(payPath) == original, File.Exists(extraPath)), (false, true));
+
+        Check("되돌리기", BackupService.RestoreDetailed(backup!).Outcome, RestoreOutcome.Ok);
+        Check("규칙이 25일로 돌아옴", File.ReadAllText(payPath), original);
+        Check("백업에 없던 규칙 파일은 없어짐", File.Exists(extraPath), false);
+        Check("규칙이 아닌 파일은 그대로", File.Exists(Path.Combine(folder, "메모.txt")), true);
+        Check("없어진 파일은 되돌리기 직전 백업에 있다",
+            BackupService.List().Where(b => b.Tag == "before-restore").Any(b =>
+            {
+                using var z = ZipFile.OpenRead(b.Path);
+                return z.GetEntry("repeats/" + extra.Id.ToString("D") + ".json") is not null;
+            }), true);
+
+        var reread = new RepeatStore(DataStore.Directory, () => true);
+        reread.Scan();
+        Check("되돌린 규칙을 읽음", RepeatEngine.Describe(reread.Get(pay.Id)!), "매월 25일");
+
+        // ── 옛 백업(repeats/ 없음)으로 되돌리면 지금 규칙 파일을 건드리지 않는다
+        var old = Path.Combine(BackupService.Directory, "data-20260101-000000000-old.zip");
+        using (var source = ZipFile.OpenRead(backup!))
+        using (var target = ZipFile.Open(old, ZipArchiveMode.Create))
+        {
+            foreach (var entry in source.Entries.Where(e => !e.FullName.StartsWith("repeats")))
+            {
+                using var input = entry.Open();
+                using var output = target.CreateEntry(entry.FullName).Open();
+                input.CopyTo(output);
+            }
+        }
+        store.Scan();
+        pay.Repeat = M25(); pay.Repeat.MonthDays[0] = 10;
+        store.Sync(data);
+        var changed = File.ReadAllText(payPath);
+        Check("옛 백업 되돌리기", BackupService.RestoreDetailed(old).Outcome, RestoreOutcome.Ok);
+        Check("옛 백업은 규칙 파일을 그대로 둠", (File.ReadAllText(payPath) == changed, File.Exists(extraPath)), (true, true));
+
+        // ── 백업할 때 못 읽은 규칙 파일이 있었으면, 되돌릴 때 백업에 없는 파일을 지우지 않는다
+        string? partial;
+        using (new FileStream(extraPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            partial = BackupService.Create("partial");
+        using (var zip = ZipFile.OpenRead(partial!))
+            Check("잠긴 규칙 파일은 빠지고 표시가 남음",
+                (zip.Entries.Count(e => e.FullName.StartsWith("repeats/")), zip.GetEntry("repeats-incomplete") is not null), (1, true));
+        Check("덜 담긴 백업 되돌리기", BackupService.RestoreDetailed(partial!).Outcome, RestoreOutcome.Ok);
+        Check("덜 담긴 백업은 없는 파일을 지우지 않음", File.Exists(extraPath), true);
+
+        // ── 저장 폴더를 옮길 때 따라간다
+        var moved = Path.Combine(DataStore.Directory, "repeattest-move");
+        if (Directory.Exists(moved)) Directory.Delete(moved, recursive: true);
+        Check("빈 폴더로 옮기기", DataLocation.Prepare(moved), MoveResult.CopiedHere);
+        Check("규칙 파일이 따라옴", File.ReadAllText(Path.Combine(moved, "repeats", pay.Id.ToString("D") + ".json")), changed);
+        Check("임시 파일은 안 따라옴", File.Exists(Path.Combine(moved, "repeats", pay.Id.ToString("D") + ".json.tmp")), false);
+
+        // 그쪽에 이미 있는 규칙 파일은 덮지 않는다(다른 PC 가 먼저 올려 둔 것)
+        File.WriteAllText(Path.Combine(moved, "repeats", pay.Id.ToString("D") + ".json"), "그쪽 것");
+        File.Delete(Path.Combine(moved, "repeats", extra.Id.ToString("D") + ".json"));
+        Check("데이터가 있는 폴더로 옮기기", DataLocation.Prepare(moved), MoveResult.AdoptedExisting);
+        Check("그쪽 파일은 덮지 않고, 없는 것만 채움",
+            (File.ReadAllText(Path.Combine(moved, "repeats", pay.Id.ToString("D") + ".json")), File.Exists(Path.Combine(moved, "repeats", extra.Id.ToString("D") + ".json"))),
+            ("그쪽 것", true));
+
+        // 규칙이 없는 사람은 옮겨도 폴더가 안 생긴다
+        Directory.Delete(folder, recursive: true);
+        var plainMove = Path.Combine(DataStore.Directory, "repeattest-move2");
+        if (Directory.Exists(plainMove)) Directory.Delete(plainMove, recursive: true);
+        DataLocation.Prepare(plainMove);
+        Check("규칙이 없으면 폴더도 안 생김", Directory.Exists(Path.Combine(plainMove, "repeats")), false);
+
+        Directory.Delete(moved, recursive: true);
+        Directory.Delete(plainMove, recursive: true);
     }
 
     // ───────────────────────── 반복 · 파일

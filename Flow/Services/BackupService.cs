@@ -19,6 +19,7 @@ public sealed record BackupEntry(string Path, DateTime CreatedAt, int Routines, 
 
 /// <summary>
 /// data.json 과 메모 폴더를 zip 하나로 묶어 백업 폴더에 둔다(엔트리 data.json, memos/파일 이름 — 휴지통 제외).
+/// 반복 규칙 파일도 같이 담는다(엔트리 repeats/파일 이름).
 /// 예전 .json 백업도 목록에 보이고 되돌릴 수 있다.
 /// </summary>
 public static class BackupService
@@ -30,6 +31,8 @@ public static class BackupService
     private const string DataEntry = "data.json";
     private const string MemoPrefix = "memos/";
     private const string IncompleteEntry = "memos-incomplete";
+    private const string RepeatPrefix = "repeats/";
+    private const string RepeatIncompleteEntry = "repeats-incomplete";
     private static readonly UTF8Encoding Utf8 = new(false);
 
     public static string Directory => Path.Combine(DataStore.Directory, "backup");
@@ -77,6 +80,25 @@ public static class BackupService
                     {
                         using var writer = new StreamWriter(archive.CreateEntry(IncompleteEntry).Open(), Utf8);
                         writer.Write(string.Join("\n", unreadable));
+                    }
+
+                    // 반복 규칙 파일. 못 읽은 것이 있으면 표시를 남긴다 — 되돌릴 때 "백업에 없으니 지운다"가
+                    // 그 파일까지 지우면 안 된다.
+                    var skippedRules = new List<string>();
+                    foreach (var file in RepeatFiles())
+                    {
+                        if (ReadWithRetry(file) is { } bytes)
+                        {
+                            using var output = archive.CreateEntry(RepeatPrefix + Path.GetFileName(file), CompressionLevel.Optimal).Open();
+                            output.Write(bytes, 0, bytes.Length);
+                        }
+                        else skippedRules.Add(Path.GetFileName(file));
+                    }
+
+                    if (skippedRules.Count > 0)
+                    {
+                        using var writer = new StreamWriter(archive.CreateEntry(RepeatIncompleteEntry).Open(), Utf8);
+                        writer.Write(string.Join("\n", skippedRules));
                     }
                 }
 
@@ -224,6 +246,12 @@ public static class BackupService
             }
 
             // 여기부터는 data.json 이 이미 바뀌었다. 메모가 일부 실패해도 Failed 로 돌려주지 않는다.
+
+            // 반복 규칙 파일. 못 되돌린 것은 루틴 탭에 "반복 정보 없음"으로 보이고 다시 정할 수 있어,
+            // 결과 값은 따로 두지 않는다(직전 상태는 before-restore 백업에 있다).
+            try { RestoreRepeats(archive); }
+            catch (Exception) { /* 메모 되돌리기는 계속한다 */ }
+
             try
             {
                 var bad = RestoreMemos(archive, archive.GetEntry(IncompleteEntry) is not null);
@@ -330,6 +358,75 @@ public static class BackupService
         }
 
         return bad;
+    }
+
+    private static string RepeatFolder => Path.Combine(DataStore.Directory, "repeats");
+
+    /// <summary>repeats 폴더의 규칙 파일(이름이 '루틴 Id.json' 인 것). 임시 파일 · 엉뚱한 파일은 뺀다.</summary>
+    private static List<string> RepeatFiles()
+    {
+        if (!System.IO.Directory.Exists(RepeatFolder)) return new List<string>();
+
+        return System.IO.Directory.EnumerateFiles(RepeatFolder, "*.json")
+            .Where(f => IsRepeatFileName(Path.GetFileName(f)))
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsRepeatFileName(string name)
+        => name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+           && Guid.TryParseExact(Path.GetFileNameWithoutExtension(name), "D", out _);
+
+    /// <summary>
+    /// 규칙 파일을 백업의 내용과 같게 맞춘다. 백업에 규칙이 하나도 없으면(옛 백업, 또는 규칙이 없던 때의 백업)
+    /// 폴더를 건드리지 않는다 — 옛 백업을 되돌렸다고 지금의 반복이 사라지면 안 된다.
+    /// 백업에 없는 지금 파일은 지운다. 다만 백업할 때 못 읽은 파일이 있었으면 지우지 않는다.
+    /// </summary>
+    private static void RestoreRepeats(ZipArchive archive)
+    {
+        var incoming = new List<(string Name, byte[] Bytes)>();
+        foreach (var entry in archive.Entries)
+        {
+            var full = entry.FullName.Replace('\\', '/');
+            if (!full.StartsWith(RepeatPrefix, StringComparison.Ordinal)) continue;
+
+            var name = full[RepeatPrefix.Length..];
+            if (name.Contains('/') || !IsRepeatFileName(name)) continue;
+
+            using var ms = new MemoryStream();
+            using (var input = entry.Open()) input.CopyTo(ms);
+            incoming.Add((name, ms.ToArray()));
+        }
+
+        if (incoming.Count == 0) return;
+
+        System.IO.Directory.CreateDirectory(RepeatFolder);
+
+        if (archive.GetEntry(RepeatIncompleteEntry) is null)
+        {
+            var keep = new HashSet<string>(incoming.Select(i => i.Name), StringComparer.OrdinalIgnoreCase);
+            foreach (var file in RepeatFiles())
+            {
+                if (keep.Contains(Path.GetFileName(file))) continue;
+                try { File.Delete(file); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* 남으면 루틴 없는 파일일 뿐이다 */ }
+            }
+        }
+
+        foreach (var (name, bytes) in incoming)
+        {
+            var target = Path.Combine(RepeatFolder, name);
+            var tmp = target + ".tmp";
+            try
+            {
+                File.WriteAllBytes(tmp, bytes);
+                File.Move(tmp, target, overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                try { File.Delete(tmp); } catch (Exception) { /* 남아도 훑기가 무시한다 */ }
+            }
+        }
     }
 
     private static void AddFile(ZipArchive archive, string entryName, string path)
