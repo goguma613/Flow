@@ -98,6 +98,27 @@ internal static partial class Program
         Section("메모 · 할 일·루틴 연결");
         MemoLinkTests();
 
+        Section("반복 · 계산");
+        RepeatEngineTests();
+
+        Section("반복 · 파일");
+        RepeatStoreTests();
+
+        Section("반복 · 하루 넘기기");
+        RepeatDayTests();
+
+        Section("반복 · 문장과 옮기기");
+        RepeatParseTests();
+
+        Section("반복 · 폰 연동");
+        RepeatPhoneTests();
+
+        Section("반복 · 반복 창");
+        RepeatEditorTests();
+
+        Section("반복 · 백업");
+        RepeatBackupTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

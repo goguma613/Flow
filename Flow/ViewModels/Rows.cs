@@ -124,7 +124,9 @@ public sealed partial class RoutineRow : RowBase
     public Routine Model { get; }
 
     public int Streak => Model.Streak;
-    public bool HasStreak => Model.Streak > 1;
+
+    /// <summary>남는 항목에는 연속 기록이 없다. 대신 "밀림 n일" · "다음 11/25"가 보인다.</summary>
+    public bool HasStreak => Model.Streak > 1 && !IsSticky;
 
     /// <summary>연속일수 불꽃은 컴팩트에서 접는다. 제목을 읽는 데 방해가 된다.</summary>
     /// <remarks>울리는 동안에는 그 자리를 알림 표시에 내준다. 둘이 겹치면 시끄럽다.</remarks>
@@ -157,6 +159,49 @@ public sealed partial class RoutineRow : RowBase
             .OrderBy(d => ((int)d + 6) % 7)
             .Select(d => ShortDayNames[(int)d]));
 
+    // ── 반복 ──
+
+    /// <summary>못 하면 할 때까지 오늘에 남는 항목인지.</summary>
+    public bool IsSticky => DayEngine.IsSticky(Model);
+
+    /// <summary>반복 정보를 잃었거나 아직 못 받았거나 더 새 버전이 만든 루틴. 흐리게 보이고 체크할 수 없다.</summary>
+    public bool IsRepeatMissing => DayEngine.IsRepeatMissing(Model);
+
+    /// <summary>루틴 탭 줄의 반복 글. "매일" · "월 수 금" · "매월 25일" · "격주 월" · "반복 정보 없음".</summary>
+    public string RepeatText => IsRepeatMissing ? "반복 정보 없음"
+        : DayEngine.HasRule(Model) ? RepeatEngine.Describe(Model.Repeat!)
+        : DaysText;
+
+    /// <summary>오늘 화면에 없는 루틴이 다음에 오는 날. "다음 11/25". 오늘 있는 것은 빈 글.</summary>
+    public string NextText
+    {
+        get
+        {
+            if (IsScheduledToday || IsRepeatMissing) return "";
+            return DayEngine.NextDay(Model, _owner.Today) is { } next ? $"다음 {next.Month}/{next.Day}" : "";
+        }
+    }
+
+    public bool HasNext => NextText.Length > 0;
+
+    /// <summary>남는 항목이 며칠 밀렸는지. 할 일의 "밀림 n일"과 같은 글.</summary>
+    public string OverdueText
+    {
+        get
+        {
+            var days = DayEngine.OverdueDays(Model, _owner.Today);
+            return days > 0 ? $"밀림 {days}일" : "";
+        }
+    }
+
+    public bool HasOverdue => OverdueText.Length > 0;
+
+    [RelayCommand]
+    private void ChangeRepeat() => _owner.ChangeRepeat(this);
+
+    [RelayCommand]
+    private void MoveToTask() => _owner.MoveToTask(this);
+
     public void Sync()
     {
         Suppressed = true;
@@ -170,6 +215,13 @@ public sealed partial class RoutineRow : RowBase
         OnPropertyChanged(nameof(DaysText));
         OnPropertyChanged(nameof(IsEveryDay));
         OnPropertyChanged(nameof(IsScheduledToday));
+        OnPropertyChanged(nameof(IsSticky));
+        OnPropertyChanged(nameof(IsRepeatMissing));
+        OnPropertyChanged(nameof(RepeatText));
+        OnPropertyChanged(nameof(NextText));
+        OnPropertyChanged(nameof(HasNext));
+        OnPropertyChanged(nameof(OverdueText));
+        OnPropertyChanged(nameof(HasOverdue));
     }
 
     partial void OnIsDoneChanged(bool value)
@@ -358,6 +410,10 @@ public sealed partial class TaskRow : RowBase
 
     [RelayCommand]
     private void CyclePriority() => _owner.CyclePriority(this);
+
+    /// <summary>이 할 일을 반복 루틴으로 옮긴다(반복 창이 뜬다).</summary>
+    [RelayCommand]
+    private void MoveToRoutine() => _owner.MoveToRoutine(this);
 
     private string? _titleBeforeEdit;
 

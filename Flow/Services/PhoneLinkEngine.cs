@@ -312,9 +312,14 @@ public static class PhoneLinkEngine
             Outcome outcome;
             switch (op.Kind)
             {
-                case PhoneOp.Add: outcome = ApplyAdd(data, op); break;
-                case PhoneOp.Done: outcome = ApplyCheck(data, op, done: true); break;
-                case PhoneOp.Undone: outcome = ApplyCheck(data, op, done: false); break;
+                // 새 갈래(add-repeat · repeat-done · repeat-undone)는 옛 PC 가 건드리지 않게 이름만 다르다.
+                // 하는 일은 같다 — 옛 갈래로 와도 똑같이 받는다.
+                case PhoneOp.Add:
+                case PhoneOp.AddRepeat: outcome = ApplyAdd(data, op); break;
+                case PhoneOp.Done:
+                case PhoneOp.RepeatDone: outcome = ApplyCheck(data, op, done: true, pending); break;
+                case PhoneOp.Undone:
+                case PhoneOp.RepeatUndone: outcome = ApplyCheck(data, op, done: false, pending); break;
                 case PhoneOp.Rename: outcome = ApplyRename(data, op); break;
                 case PhoneOp.SetPriority: outcome = ApplyPriority(data, op); break;
                 case PhoneOp.Delete: outcome = ApplyDelete(data, op); break;
@@ -494,7 +499,25 @@ public static class PhoneLinkEngine
         return Outcome.Added;
     }
 
-    private static Outcome ApplyCheck(AppData data, PhoneOp op, bool done)
+    private static bool IsCheckKind(string kind)
+        => kind is PhoneOp.Done or PhoneOp.Undone or PhoneOp.RepeatDone or PhoneOp.RepeatUndone;
+
+    /// <summary>
+    /// 그 날 그 항목에 폰이 마지막으로 남긴 것이 '체크'인지. 잘못 눌렀다가 바로 푼 것(체크 → 풀기)은 끝낸 것이 아니다.
+    /// </summary>
+    private static bool EndedChecked(IReadOnlyList<PhoneOp> pending, Guid target, DateOnly day)
+    {
+        PhoneOp? last = null;
+        foreach (var other in pending)
+        {
+            if (other.Target != target || other.Day != day || !IsCheckKind(other.Kind)) continue;
+            if (last is null || other.At > last.At || (other.At == last.At && other.Id.CompareTo(last.Id) > 0)) last = other;
+        }
+
+        return last is null || last.Kind is PhoneOp.Done or PhoneOp.RepeatDone;
+    }
+
+    private static Outcome ApplyCheck(AppData data, PhoneOp op, bool done, IReadOnlyList<PhoneOp> pending)
     {
         if (op.Target is not { } target) return Outcome.Skipped;
 
@@ -502,8 +525,21 @@ public static class PhoneLinkEngine
         {
             // 루틴은 그 날 몫만 체크할 수 있다. 이미 정산이 끝난 날을 고치면
             // 히스토리와 연속 기록을 다시 계산해야 하는데, 그건 PC에서도 안 되는 일이다.
-            if (op.Day != data.LastLogicalDate) return Outcome.Skipped;
-            if (!DayEngine.IsScheduled(routine, op.Day)) return Outcome.Skipped;
+            if (op.Day != data.LastLogicalDate)
+            {
+                // '남는' 항목만은 지난 날에 끝낸 것도 받는다. 연속 기록이 없어 다시 셀 것이 없고,
+                // 안 받으면 폰에서 끝낸 일이 PC 를 켰을 때 여전히 "밀림"으로 남아 있다.
+                // 다만 그 날 체크했다가 바로 푼 것은 받지 않는다. 지난 날의 '풀기'는 되돌릴 방법이 없어 건너뛰므로,
+                // 체크만 받으면 잘못 누른 것이 그대로 '끝냄'이 되어 그 일이 말없이 사라진다.
+                return done && op.Day < data.LastLogicalDate
+                       && EndedChecked(pending, target, op.Day)
+                       && CompleteStickyLate(data, routine, op.Day)
+                    ? Outcome.Checked
+                    : Outcome.Skipped;
+            }
+
+            // 오늘 화면에 있는 것만 — 차례인 것, 그리고 밀려서 남아 있는 것.
+            if (!DayEngine.IsDue(routine, op.Day)) return Outcome.Skipped;
             if (routine.DoneToday == done) return Outcome.Skipped;
 
             if (done) DayEngine.CompleteRoutine(routine, op.Day);
@@ -524,6 +560,32 @@ public static class PhoneLinkEngine
 
         // PC에서 지운 항목이다. 할 일이 없다.
         return Outcome.Skipped;
+    }
+
+    /// <summary>
+    /// PC 가 꺼져 있던 지난 날에 폰에서 끝낸 '남는' 루틴. 끝낸 날만 적는다 —
+    /// 그 날 뒤로 온 차례는 여전히 남고, 오늘의 체크 표시(DoneToday)는 건드리지 않는다.
+    /// 그 날 실제로 남아 있던 것이 아니면(이미 더 뒤에 끝냈거나 차례가 오기 전) 아무것도 하지 않는다.
+    /// </summary>
+    private static bool CompleteStickyLate(AppData data, Routine routine, DateOnly day)
+    {
+        if (!DayEngine.IsSticky(routine)) return false;
+        if (routine.LastDoneDate is { } last && last >= day) return false;
+        if (RepeatEngine.PendingSince(routine.Repeat!, routine.LastDoneDate, day) is null) return false;
+
+        routine.LastDoneDate = day;
+
+        // 오늘 체크했다가 풀 때 돌아갈 자리도 이 날이어야 한다
+        if (!routine.DoneToday) routine.LastDoneSnapshot = day;
+
+        // '남는' 항목은 끝낸 날의 기록에 1 로 든다(정산이 세는 방식과 같게)
+        if (data.History.FirstOrDefault(h => h.Date == day) is { } record)
+        {
+            record.RoutinesScheduled++;
+            record.RoutinesDone++;
+        }
+
+        return true;
     }
 
     /// <summary>이름 바꾸기. PC의 우클릭 '이름 바꾸기'와 같이 적은 그대로 쓴다 — 날짜 같은 말을 다시 읽지 않는다.</summary>
@@ -630,15 +692,20 @@ public static class PhoneLinkEngine
 
         foreach (var routine in data.Routines.OrderBy(r => r.Order))
         {
-            if (!DayEngine.IsScheduled(routine, today)) continue;
+            // PC 의 오늘 화면과 같이: 오늘 차례인 것, 그리고 밀려서 남아 있는 것
+            if (!DayEngine.IsDue(routine, today)) continue;
 
+            var sticky = DayEngine.IsSticky(routine);
             view.Routines.Add(new PhoneViewItem
             {
                 Id = routine.Id,
                 Title = routine.Title,
                 Done = routine.DoneToday,
                 Time = routine.Time,
-                Streak = routine.Streak,
+                Streak = sticky ? 0 : routine.Streak,   // 남는 항목에는 연속 기록이 없다
+                Overdue = DayEngine.OverdueDays(routine, today),
+                Sticky = sticky,
+                Ruled = DayEngine.HasRule(routine),
                 MemoId = LinkOf(routine.MemoId)
             });
         }

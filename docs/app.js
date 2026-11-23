@@ -27,7 +27,7 @@ const VIEW_NAME = 'phone-view.json';
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 /** 화면 맨 아래 진단 줄에 보이는 판. 고칠 때마다 index.html 의 ?v= 와 함께 올린다. */
-const APP_VERSION = 'v17';
+const APP_VERSION = 'v18';
 
 /** 켜져 있는 동안 이만큼마다 PC 쪽 변경을 가져온다. */
 const REFRESH_EVERY_MS = 30_000;
@@ -653,6 +653,21 @@ function commitPending() {
   return saved;
 }
 
+// ───────── 반복 말이 든 글
+
+// PC 의 문장 읽기(QuickAddParser)와 같은 낱말 · 같은 경계. 앞은 줄 처음이나 공백, 뒤는 공백이나 줄 끝 —
+// "매월당 방문" · "격주간지 읽기" 는 걸리지 않는다.
+const REPEAT_WORDS = /(^|\s)(매월|매달|격주|\d+주마다|\d+일마다|\d+개월마다|분기마다|반기마다|매년)(?=\s|$)/;
+
+/**
+ * 빠른 추가를 어느 갈래로 보낼지. 새 반복 말이 있으면 'add-repeat' —
+ * 옛 버전 PC 가 "매월 25일 정산"을 25일 마감의 할 일로 만들지 않게, 모르는 갈래로 보내 건드리지 못하게 한다.
+ * 매일 · 매주 · 평일 · 주말은 옛 PC 도 똑같이 읽으므로 지금처럼 'add'.
+ */
+function addKindOf(text) {
+  return REPEAT_WORDS.test(text) ? 'add-repeat' : 'add';
+}
+
 // ───────── 화면에 보일 것 = PC 화면 + 아직 못 받은 일
 
 function composeView() {
@@ -668,7 +683,11 @@ function composeView() {
 
   if (stale) {
     // 새 하루다. PC가 켜지면 체크가 풀릴 것들을 미리 풀어 보여 준다.
-    routines = routines.map(r => ({ ...r, Done: false }));
+    // '남는' 루틴(매월 · 격주 …)은 어제 끝냈으면 오늘은 없고, 못 끝냈으면 하루 더 밀린 채 남는다.
+    const late = Math.round((Date.parse(today) - Date.parse(view.Today)) / 86400000) || 0;
+    routines = routines
+      .filter(r => !(r.Sticky && r.Done))
+      .map(r => ({ ...r, Done: false, Overdue: r.Sticky ? (r.Overdue ?? 0) + late : r.Overdue }));
     tasks = tasks.filter(t => !t.Done);
 
     // 예정이던 것 중 날이 온 것은 오늘로 내려온다. PC의 예정 탭이 하는 일과 같다.
@@ -683,7 +702,8 @@ function composeView() {
   for (const op of [...state.pending].sort((a, b) => a.At.localeCompare(b.At))) {
     if (applied.has(op.Id)) continue;
 
-    if (op.Kind === 'add') {
+    // add-repeat 은 반복 말(매월 · 격주 …)이 든 글. PC 가 받아 반복 루틴으로 만들 때까지 대기 줄로 보인다.
+    if (op.Kind === 'add' || op.Kind === 'add-repeat') {
       const item = { Id: op.Id, Title: op.Text, Done: false, kind: 'task', waiting: true, Priority: 'None' };
       tasks.push(item);
       byId.set(op.Id, item);
@@ -692,6 +712,7 @@ function composeView() {
       if (!item) continue;
 
       if (op.Kind === 'done' || op.Kind === 'undone') item.Done = op.Kind === 'done';
+      else if (op.Kind === 'repeat-done' || op.Kind === 'repeat-undone') item.Done = op.Kind === 'repeat-done';
       else if (op.Kind === 'rename') item.Title = op.Text;
       else if (op.Kind === 'priority') item.Priority = op.Text;
       else if (op.Kind === 'delete') deleted.add(item.Id);
@@ -1276,8 +1297,11 @@ function rowHtml(item) {
     meta.push(`<span class="memo-link" role="button" aria-label="메모 열기" data-act="memo-open" data-memo="${esc(item.MemoId)}">📝</span>`);
   }
   if (item.kind === 'routine') {
+    // 못 해서 남아 있는 반복. 할 일의 "밀림 n일"과 같은 모양이다.
+    if (item.Overdue > 0 && !item.Done) meta.push(`<span class="carry">밀림 ${item.Overdue}일</span>`);
     if (item.Time) meta.push(`<span class="badge">${esc(shortTime(item.Time))}</span>`);
-    if (item.Streak >= 2) meta.push(`<span class="streak">${ICON.flame}${item.Streak}</span>`);
+    // 남는 항목에는 연속 기록이 없다
+    if (!item.Sticky && item.Streak >= 2) meta.push(`<span class="streak">${ICON.flame}${item.Streak}</span>`);
   } else if (!item.Done) {
     if (item.CarryOverCount > 0) meta.push(`<span class="carry">밀림 ${item.CarryOverCount}일</span>`);
     const due = dueBadge(item);
@@ -2156,7 +2180,11 @@ app.addEventListener('click', async event => {
       if (!item) return;
 
       if (navigator.vibrate) navigator.vibrate(8);
-      pushOp(item.Done ? 'undone' : 'done', item.Id);
+      // 새 반복(매월 · 격주 …) 루틴의 체크는 새 갈래로 보낸다. 옛 버전 PC 는 모르는 갈래를 건드리지 않아,
+      // 새 버전 PC 가 받을 때까지 남는다 — 옛 PC 가 체크를 삼키지 않는다.
+      // 지나가는 방식이어도 새 반복(매월 · 격주 …)이면 같다 — 옛 PC 는 그 루틴을 '오늘 차례 아님'으로 본다.
+      if (item.Sticky || item.Ruled) pushOp(item.Done ? 'repeat-undone' : 'repeat-done', item.Id);
+      else pushOp(item.Done ? 'undone' : 'done', item.Id);
       await sendEdits();
       return;
     }
@@ -2176,7 +2204,7 @@ app.addEventListener('submit', async event => {
 
   input.value = '';
   state.draft = '';
-  pushOp('add', null, text);
+  pushOp(addKindOf(text), null, text);
   toast('적어 뒀습니다 · PC가 받아 넣습니다');
   await sendEdits();
 });
@@ -2937,7 +2965,8 @@ function loadDemo() {
     Routines: [
       { Id: ids[0], Title: '물 2L 마시기', Done: true, Streak: 12 },
       { Id: ids[1], Title: '스트레칭 10분', Done: false, Time: '22:00:00', Streak: 4, MemoId: memoIds[1] },
-      { Id: ids[2], Title: '하루 정산 기록', Done: false, Streak: 0 }
+      { Id: ids[2], Title: '하루 정산 기록', Done: false, Streak: 0 },
+      { Id: uuid(), Title: '카드값 정산', Done: false, Time: '15:00:00', Streak: 0, Sticky: true, Overdue: 3 }
     ],
     Tasks: [
       { Id: ids[3], Title: '분기 매출 정리해서 메일 보내기', Done: false, Priority: 'High', Due: today, Time: '15:00:00', MemoId: memoIds[2] },

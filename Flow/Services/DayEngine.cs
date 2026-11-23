@@ -77,13 +77,77 @@ public static class DayEngine
         return candidate <= now ? candidate.AddDays(1) : candidate;
     }
 
-    /// <summary>해당 날짜에 이 루틴이 예정되어 있는지. Days 가 비어 있으면 매일.</summary>
+    /// <summary>
+    /// 매일 · 요일보다 넓은 반복이 살아 있는 루틴인지.
+    /// data.json 이 기준이다 — Archived 가 아니면 규칙이 달려 있어도 옛 방식이다.
+    /// </summary>
+    public static bool HasRule(Routine routine)
+        => routine.Archived && routine.Repeat is { } rule && RepeatEngine.IsKnown(rule);
+
+    /// <summary>
+    /// 반복 정보를 잃었거나 아직 못 받았거나 더 새 버전이 만든 것.
+    /// 오늘에는 내놓지 않고, 루틴 탭에 "반복 정보 없음"으로 남긴다. 매일로 바꾸지도 지우지도 않는다.
+    /// </summary>
+    public static bool IsRepeatMissing(Routine routine) => routine.Archived && !HasRule(routine);
+
+    /// <summary>못 하면 할 때까지 오늘에 남는 항목인지.</summary>
+    public static bool IsSticky(Routine routine) => HasRule(routine) && routine.Repeat!.Sticky;
+
+    /// <summary>
+    /// 해당 날짜가 이 루틴의 차례인지. 옛 방식은 Days 가 비어 있으면 매일.
+    /// 밀려서 남아 있는 날은 차례가 아니다 — 그것은 <see cref="IsDue"/> 가 답한다.
+    /// 알림과 지난 날 기록은 이쪽을 본다.
+    /// </summary>
     public static bool IsScheduled(Routine routine, DateOnly date)
-        => !routine.Archived && (routine.Days.Count == 0 || routine.Days.Contains(date.DayOfWeek));
+    {
+        if (HasRule(routine)) return RepeatEngine.OccursOn(routine.Repeat!, date);
+
+        return !routine.Archived && (routine.Days.Count == 0 || routine.Days.Contains(date.DayOfWeek));
+    }
+
+    /// <summary>
+    /// 남는 항목이 아직 못 끝낸 가장 이른 차례. 남는 항목이 아니거나 다 끝냈으면 null.
+    /// 끝낸 날(LastDoneDate) 뒤로 온 차례가 있느냐로 판단한다 — 체크 한 번이 그때까지의 차례를 모두 끝낸다.
+    /// </summary>
+    public static DateOnly? DueSince(Routine routine, DateOnly today)
+        => IsSticky(routine) ? RepeatEngine.PendingSince(routine.Repeat!, routine.LastDoneDate, today) : null;
+
+    /// <summary>
+    /// 오늘 화면에 내놓을 루틴인지. 남는 항목은 못 끝낸 차례가 있거나 오늘 끝낸 것,
+    /// 그 밖은 오늘이 차례인 것.
+    /// </summary>
+    public static bool IsDue(Routine routine, DateOnly today)
+    {
+        if (!IsSticky(routine)) return IsScheduled(routine, today);
+
+        // 오늘 끝낸 것은 체크된 채 남아 있어야 다시 눌러 풀 수 있다
+        return DueSince(routine, today).HasValue || (routine.DoneToday && routine.LastDoneDate == today);
+    }
+
+    /// <summary>남는 항목이 며칠 밀렸는지. 차례 날 당일은 0.</summary>
+    public static int OverdueDays(Routine routine, DateOnly today)
+        => DueSince(routine, today) is { } since ? today.DayNumber - since.DayNumber : 0;
+
+    /// <summary><paramref name="from"/> 을 포함해 그 뒤의 첫 차례. 반복 정보가 없으면 null.</summary>
+    public static DateOnly? NextDay(Routine routine, DateOnly from)
+    {
+        if (HasRule(routine)) return RepeatEngine.Next(routine.Repeat!, from);
+        if (routine.Archived) return null;
+
+        for (var i = 0; i < 7; i++)
+        {
+            var day = from.AddDays(i);
+            if (IsScheduled(routine, day)) return day;
+        }
+        return null;
+    }
 
     /// <summary><paramref name="from"/> 직전의 예정일. 없으면 null.</summary>
     public static DateOnly? PreviousScheduledDay(Routine routine, DateOnly from)
     {
+        // 매월 · 매년은 14일 안에 직전 차례가 없다. 규칙이 스스로 거슬러 찾는다.
+        if (HasRule(routine)) return RepeatEngine.Previous(routine.Repeat!, from);
+
         for (var i = 1; i <= ScheduleLookbackDays; i++)
         {
             var d = from.AddDays(-i);
@@ -96,8 +160,19 @@ public static class DayEngine
     {
         if (routine.DoneToday) return;
 
+        // 반복 정보가 없는 루틴은 언제가 차례인지 모른다. 기록을 만들지 않는다.
+        if (IsRepeatMissing(routine)) return;
+
         routine.StreakSnapshot = routine.Streak;
         routine.LastDoneSnapshot = routine.LastDoneDate;
+
+        if (IsSticky(routine))
+        {
+            // 남는 항목에는 연속 기록이 없다. 끝낸 날만 적으면 그때까지의 차례가 모두 끝난다.
+            routine.LastDoneDate = today;
+            routine.DoneToday = true;
+            return;
+        }
 
         var previous = PreviousScheduledDay(routine, today);
         routine.Streak = previous.HasValue && routine.LastDoneDate == previous.Value
@@ -141,6 +216,18 @@ public static class DayEngine
 
             foreach (var routine in data.Routines)
             {
+                if (IsSticky(routine))
+                {
+                    // 남는 항목은 끝낸 날에만 센다. 차례 날 못 했다고 그날을 깎지 않고,
+                    // 연속 기록도 없으니 끊을 것이 없다.
+                    if (routine.LastDoneDate == day)
+                    {
+                        scheduled++;
+                        done++;
+                    }
+                    continue;
+                }
+
                 if (!IsScheduled(routine, day)) continue;
                 scheduled++;
 
@@ -189,8 +276,11 @@ public static class DayEngine
     /// <summary>오늘 진행 중인 결산을 히스토리에 미리 반영해 히트맵이 실시간으로 갱신되게 한다.</summary>
     public static void SyncToday(AppData data, DateOnly today)
     {
-        var scheduled = data.Routines.Count(r => IsScheduled(r, today));
-        var done = data.Routines.Count(r => IsScheduled(r, today) && r.DoneToday);
+        // 남는 항목은 오늘 끝냈을 때만 센다 — 정산(Rollover)이 지난 날을 세는 방식과 같아야
+        // 날이 넘어갈 때 히트맵 칸의 값이 바뀌지 않는다.
+        var stickyDone = data.Routines.Count(r => IsSticky(r) && r.DoneToday && r.LastDoneDate == today);
+        var scheduled = stickyDone + data.Routines.Count(r => !IsSticky(r) && IsScheduled(r, today));
+        var done = stickyDone + data.Routines.Count(r => !IsSticky(r) && IsScheduled(r, today) && r.DoneToday);
         var tasksDone = data.Tasks.Count(t => t.Done && t.CompletedDate == today);
 
         UpsertHistory(data, new DayRecord

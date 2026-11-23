@@ -29,8 +29,11 @@ public static class ReminderEngine
     /// <summary>이 루틴이 그 논리적 날짜에 알릴 시각. 그 날 예정이 아니거나 시각이 없으면 null.</summary>
     public static DateTime? OccurrenceOn(Routine routine, DateOnly date, int dayStartHour)
     {
-        if (!routine.Remind || routine.Archived) return null;
+        if (!routine.Remind) return null;
         if (routine.Time is not { } time) return null;
+
+        // Archived 로 거르지 않는다 — 매월 · 격주 같은 반복은 data.json 에서 Archived 이고,
+        // 차례인지는 IsScheduled 가 안다. 밀려서 남아 있는 날은 차례가 아니라 다시 울리지 않는다.
         if (!DayEngine.IsScheduled(routine, date)) return null;
 
         return DayEngine.AtLogicalTime(date, time, dayStartHour);

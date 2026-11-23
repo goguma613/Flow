@@ -67,6 +67,15 @@ public sealed class Routine
     /// <summary>연결한 메모. 옛 파일은 null. 메모가 없거나 휴지통이어도 값은 지우지 않는다.</summary>
     public Guid? MemoId { get; set; }
 
+    /// <summary>
+    /// 매일 · 요일보다 넓은 반복(매월 · 격주 · 남기기 …). 데이터 폴더의 repeats\&lt;Id&gt;.json 에서 읽어 단다.
+    ///
+    /// data.json 에 쓰지 않는 까닭: 옛 버전은 모르는 칸을 저장하며 지운다. 대신 이런 루틴은
+    /// data.json 에서 Archived 로 표시해 옛 버전이 건드리지 않게 한다 —
+    /// 새 버전에게 "Archived 이고 Repeat 가 있음"은 살아 있는 반복이다.
+    /// </summary>
+    [JsonIgnore] public RepeatRule? Repeat { get; set; }
+
     [JsonIgnore]
     public bool IsEveryDay => Days.Count == 0;
 }

@@ -20,6 +20,7 @@
     <Compile Include="../../Flow/Services/DayEngine.cs" />
     <Compile Include="../../Flow/Services/ReminderEngine.cs" />
     <Compile Include="../../Flow/Services/QuickAddParser.cs" />
+    <Compile Include="../../Flow/Services/QuickAddParser.Repeat.cs" />
     <Compile Include="../../Flow/Services/HotKeyCombo.cs" />
     <Compile Include="../../Flow/Services/UpdatePolicy.cs" />
     <Compile Include="PhoneLinkTests.cs" />
@@ -35,6 +36,11 @@
     <Compile Include="../../Flow/Services/MemoLinks.cs" />
     <Compile Include="../../Flow/Services/MemoEditing.cs" />
     <Compile Include="../../Flow/ViewModels/MemoEditorState.cs" />
+    <Compile Include="RepeatTests.cs" />
+    <Compile Include="../../Flow/Models/Repeat.cs" />
+    <Compile Include="../../Flow/Services/RepeatEngine.cs" />
+    <Compile Include="../../Flow/Services/RepeatStore.cs" />
+    <Compile Include="../../Flow/ViewModels/RepeatEditorState.cs" />
   </ItemGroup>
 
   <ItemGroup>
