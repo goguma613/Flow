@@ -367,6 +367,9 @@ public static class PhoneLinkEngine
                 default: continue;
             }
 
+            // 지금은 판단할 수 없는 일. 적지 않으면 inbox 에 남아 다음에 다시 온다.
+            if (outcome == Outcome.Waiting) continue;
+
             switch (outcome)
             {
                 case Outcome.Added: added++; break;
@@ -399,7 +402,10 @@ public static class PhoneLinkEngine
     private enum Outcome
     {
         Added, Checked, Unchecked, Edited, Deleted, MemoChecked,
-        MemoSaved, MemoCreated, MemoConflict, MemoHeader, MemoDeleted, MemoLinked, Skipped
+        MemoSaved, MemoCreated, MemoConflict, MemoHeader, MemoDeleted, MemoLinked, Skipped,
+
+        /// <summary>지금은 할 수 없어 남겨 두는 일. 반영 기록에 적지 않는다.</summary>
+        Waiting
     }
 
     /// <summary>
@@ -523,6 +529,12 @@ public static class PhoneLinkEngine
 
         if (data.Routines.FirstOrDefault(r => r.Id == target) is { } routine)
         {
+            // 반복 정보를 아직 못 받았다(규칙 파일이 덜 내려왔거나 드라이브가 잡고 있다).
+            // 차례인지 남는 것인지 알 수 없으니 '건너뜀'으로 적어 버리지 않고 남겨 둔다 — 적으면 폰이 그 체크를 지운다.
+            // 끝내 안 오는 규칙을 영영 기다리지는 않는다: 반영 기록을 들고 있는 기간이 지나면 아래에서 건너뛴다.
+            if (DayEngine.IsRepeatMissing(routine) && op.Day >= data.LastLogicalDate.AddDays(-AppliedRetentionDays))
+                return Outcome.Waiting;
+
             // 루틴은 그 날 몫만 체크할 수 있다. 이미 정산이 끝난 날을 고치면
             // 히스토리와 연속 기록을 다시 계산해야 하는데, 그건 PC에서도 안 되는 일이다.
             if (op.Day != data.LastLogicalDate)

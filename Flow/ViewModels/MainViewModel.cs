@@ -851,6 +851,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         _today = current;
+
+        // 정산하기 전에 반복 규칙을 다시 읽는다. 훑기는 10초마다라, 방금 다른 PC 가 바꾼 반복이
+        // 아직 안 달려 있으면 어제의 차례를 옛 규칙으로 센다.
+        if (!_store.WaitingForFolder) AttachRepeats();
+
         var result = DayEngine.Rollover(_data, current);
         DayEngine.SyncToday(_data, current);
         Save();
@@ -1413,12 +1418,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 지난번에 못 쓴 규칙부터 다시 써 본다
         if (Repeats.HasUnsynced) SyncRepeats();
 
+        CompleteRepeatDeletes();
+
         if (!Repeats.Scan()) return;
 
         Repeats.Attach(_data);
         DayEngine.SyncToday(_data, _today);
         RebuildAll();
         SchedulePhoneView();
+    }
+
+    /// <summary>
+    /// 지운 루틴 · 옛 방식으로 돌아간 루틴의 규칙 파일을 지운다. 그 루틴이 빠진 data.json 이 디스크에 남은 뒤에만 —
+    /// 순서가 뒤집히면 그 사이 꺼졌을 때 "반복 정보 없음" 줄이 남는다. 10초마다, 그리고 끌 때 본다.
+    /// </summary>
+    private void CompleteRepeatDeletes()
+    {
+        if (Repeats.HasPendingDeletes && _store.IsSaved) Repeats.CompleteDeletes(_data);
     }
 
     /// <summary>폰 화면 파일을 2초 뒤에 맞춘다(그 사이 또 바뀌면 다시 2초).</summary>
@@ -1474,7 +1490,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 폰에서 지운 루틴. 이 PC 가 그 루틴을 지운 것이므로 규칙 파일도 같이 치운다.
         if (result.Deleted > 0)
             foreach (var id in ruled.Where(id => _data.Routines.All(r => r.Id != id)))
-                Repeats.Delete(id);
+                Repeats.DeleteLater(id);
 
         return result;
     }
@@ -1647,6 +1663,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // 끄기 직전의 마지막 기회. 못 쓴 반복 규칙이 있으면 한 번 더 써 본다.
         if (Repeats.HasUnsynced) Repeats.Sync(_data);
         _store.Flush();
+        CompleteRepeatDeletes();
     }
 
     /// <summary>
@@ -1716,7 +1733,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void DeleteRoutine(RoutineRow row)
     {
         _data.Routines.Remove(row.Model);
-        Repeats.Delete(row.Model.Id);
+        Repeats.DeleteLater(row.Model.Id);
         Persist();
         RebuildAll();
     }
@@ -1732,12 +1749,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public void MoveToRoutine(TaskRow row)
     {
-        var task = row.Model;
-        OpenRepeatEditor(RepeatEditorState.DefaultFor(_today), task.Title, choice =>
+        var id = row.Model.Id;
+        OpenRepeatEditor(RepeatEditorState.DefaultFor(_today), row.Model.Title, choice =>
         {
-            // 창이 떠 있는 사이 다른 PC · 폰에서 지웠을 수 있다
-            if (!_data.Tasks.Remove(task)) return;
+            // 창이 떠 있는 사이 다른 PC 의 변경을 읽으면 데이터가 통째로 바뀐다. 그때의 물건이 아니라 Id 로 다시 찾는다 —
+            // 물건으로 찾으면 늘 '없음'이라 저장을 눌러도 아무 일도 일어나지 않는다.
+            if (_data.Tasks.FirstOrDefault(t => t.Id == id) is not { } task)
+            {
+                // 그 사이 다른 PC · 폰에서 지웠다
+                Announce("그 할 일이 없어져 옮기지 못했습니다");
+                return;
+            }
 
+            _data.Tasks.Remove(task);
             _data.Routines.Add(ItemFactory.ToRoutine(task, choice, _data.Routines.Count));
             StopRinging(task.Id);
 
@@ -1751,19 +1775,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>루틴의 반복을 바꾼다. 주기가 달라지면 연속 기록은 0 부터 다시 센다.</summary>
     public void ChangeRepeat(RoutineRow row)
     {
-        var routine = row.Model;
-        var start = DayEngine.HasRule(routine) ? routine.Repeat!.Clone()
-            : routine.Archived ? RepeatEditorState.DefaultFor(_today)   // 반복 정보를 잃은 루틴: 다시 정한다
-            : RepeatEngine.FromLegacy(routine.Days);
+        var id = row.Model.Id;
+        var opened = row.Model;
+        var start = DayEngine.HasRule(opened) ? opened.Repeat!.Clone()
+            : opened.Archived ? RepeatEditorState.DefaultFor(_today)   // 반복 정보를 잃은 루틴: 다시 정한다
+            : RepeatEngine.FromLegacy(opened.Days);
 
-        OpenRepeatEditor(start, routine.Title, choice =>
+        OpenRepeatEditor(start, opened.Title, choice =>
         {
-            if (!_data.Routines.Contains(routine)) return;
+            // 창이 떠 있는 사이 데이터가 통째로 바뀌었을 수 있다(다른 PC 의 변경). Id 로 다시 찾는다.
+            if (_data.Routines.FirstOrDefault(r => r.Id == id) is not { } routine)
+            {
+                Announce("그 루틴이 없어져 반복을 바꾸지 못했습니다");
+                return;
+            }
 
             ItemFactory.SetRepeat(routine, choice);
 
             // 매일 · 지나가는 매주로 돌아갔으면 규칙 파일은 더 쓸 데가 없다
-            if (!routine.Archived) Repeats.Delete(routine.Id);
+            if (!routine.Archived) Repeats.DeleteLater(routine.Id);
 
             DayEngine.SyncToday(_data, _today);
             Persist();
@@ -1833,20 +1863,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// "매월 25일 정산" · "매일 물" 처럼 문장이 반복을 말하면 문장이 이긴다.
     /// </summary>
     private QuickAddResult WithPendingRepeat(QuickAddResult parsed, string input)
-    {
-        if (!IsRoutineTab || PendingRepeat is not { } pending || parsed.Repeat is not null) return parsed;
-
-        // 루틴 탭 밖에서 읽어도 루틴이면 문장에 반복 말(매일 · 매주 · 화목 …)이 있는 것이다
-        if (QuickAddParser.Parse(input, _today).IsRoutine) return parsed;
-
-        if (RepeatEngine.IsLegacy(pending)) return parsed with { Days = RepeatEngine.LegacyDays(pending) };
-
-        // 칩을 골라 둔 채 날이 넘어갔으면 첫 차례를 오늘 이후로 당긴다 — 만들자마자 "밀림"이 붙으면 안 된다
-        var rule = pending.Clone();
-        if (rule.Anchor < _today && RepeatEngine.Next(rule, _today) is { } next) rule.Anchor = next;
-
-        return parsed with { Repeat = rule, Days = new List<DayOfWeek>() };
-    }
+        => IsRoutineTab ? ItemFactory.WithChip(parsed, input, PendingRepeat, _today) : parsed;
 
     /// <summary>루틴을 할 일로 옮긴다. 날짜 없는 할 일(오늘 화면)이 되고, 알림 시각이 있으면 오늘 그 시각이 마감이 된다.</summary>
     public void MoveToTask(RoutineRow row)
@@ -1855,7 +1872,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (!_data.Routines.Remove(routine)) return;
 
         _data.Tasks.Add(ItemFactory.ToTask(routine, _today, _data.Tasks.Count));
-        Repeats.Delete(routine.Id);
+        Repeats.DeleteLater(routine.Id);
         StopRinging(routine.Id);
 
         DayEngine.SyncToday(_data, _today);
@@ -2534,6 +2551,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _updateTimer?.Stop();
         _memoScanTimer.Stop();
         if (Repeats.HasUnsynced) Repeats.Sync(_data);
+        _store.Flush();
+        CompleteRepeatDeletes();
         _store.Dispose();
     }
 }

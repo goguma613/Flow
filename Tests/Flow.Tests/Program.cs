@@ -119,6 +119,9 @@ internal static partial class Program
         Section("반복 · 백업");
         RepeatBackupTests();
 
+        Section("반복 · 뒤에 고친 것");
+        RepeatFixTests();
+
         Console.WriteLine();
         Console.WriteLine($"통과 {_passed} · 실패 {_failed}");
         return _failed == 0 ? 0 : 1;

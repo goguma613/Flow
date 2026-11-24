@@ -28,7 +28,12 @@ public static partial class QuickAddParser
     private static partial Regex YearlyHeadPattern();
 
     // 머리말 바로 뒤에 오는 말: 언제인지. 모두 머리말 끝에서부터만 맞춘다.
-    [GeneratedRegex(@"^\s*((?:\d{1,2}\s*일|말일)(?:[\s,·、]+(?:\d{1,2}\s*일|말일))*)(?=\s|$)")]
+    /// <summary>
+    /// "25일" · "10일 25일" · "10일, 말일" · "10,25일" · "1, 15, 말일".
+    /// '일'을 뗀 맨 숫자는 쉼표(· 、)로 이어져 있고 끝이 "n일"이나 "말일"일 때만 날짜다 —
+    /// "매월 5,000원 저축" · "매월 10일 3개 주문"의 숫자는 제목이다.
+    /// </summary>
+    [GeneratedRegex(@"^\s*((?:(?:\d{1,2}\s*일|말일)(?:\s*[,·、]\s*|\s+)|\d{1,2}\s*[,·、]\s*)*(?:\d{1,2}\s*일|말일))(?=\s|$)")]
     private static partial Regex MonthDatesTail();
 
     [GeneratedRegex(@"^\s*(첫째|둘째|셋째|넷째|마지막)\s*(?:주\s*)?([월화수목금토일])(?:요일)?(?=\s|$)")]

@@ -50,6 +50,32 @@ public static class ItemFactory
         => string.IsNullOrWhiteSpace(parsed.Title) ? input : parsed.Title;
 
     /// <summary>
+    /// 빠른 추가를 읽은 것에 루틴 탭의 칩에서 골라 둔 반복을 입힌다. 문장에 반복 말이 없을 때만 —
+    /// "매월 25일 정산" · "매일 물" 처럼 문장이 반복을 말하면 문장이 이긴다.
+    /// </summary>
+    /// <param name="parsed">루틴 탭에서 읽은 결과(assumeRoutine).</param>
+    /// <param name="chip">칩에서 골라 둔 반복. 안 골랐으면 null.</param>
+    public static QuickAddResult WithChip(QuickAddResult parsed, string input, RepeatRule? chip, DateOnly today)
+    {
+        if (chip is null || parsed.Repeat is not null) return parsed;
+
+        // "월 운동" 처럼 루틴 탭에서만 읽히는 맨 요일도 문장이 말한 반복이다.
+        // 칩을 입히면 요일은 제목에서 떼어진 채 버려진다.
+        if (parsed.Days.Count > 0) return parsed;
+
+        // 루틴 탭 밖에서 읽어도 루틴이면 문장에 반복 말(매일 · 매주 · 화목 …)이 있는 것이다
+        if (QuickAddParser.Parse(input, today).IsRoutine) return parsed;
+
+        if (RepeatEngine.IsLegacy(chip)) return parsed with { Days = RepeatEngine.LegacyDays(chip) };
+
+        // 칩을 골라 둔 채 날이 넘어갔으면 첫 차례를 오늘 이후로 당긴다 — 만들자마자 "밀림"이 붙으면 안 된다
+        var rule = chip.Clone();
+        if (rule.Anchor < today && RepeatEngine.Next(rule, today) is { } next) rule.Anchor = next;
+
+        return parsed with { Repeat = rule, Days = new List<DayOfWeek>() };
+    }
+
+    /// <summary>
     /// 루틴의 반복을 바꾼다.
     ///
     /// 매일 · 지나가는 매주 요일은 지금까지처럼 data.json 의 Days 만 쓴다(Archived 아님, 규칙 없음).

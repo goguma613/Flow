@@ -22,7 +22,10 @@ public sealed class RepeatEditorState
     public const int TabYearly = 3;
     public const int TabEveryDays = 4;
 
+    // 문장이 읽는 만큼 받는다: "99주마다" · "99개월마다"(두 자리), "999일마다"(세 자리).
+    // 창이 더 좁으면 "180일마다"를 열어 저장만 해도 99일마다로 깎인다.
     private const int MaxEvery = 99;
+    private const int MaxEveryDays = 999;
 
     private static readonly string[] DayNames = { "일", "월", "화", "수", "목", "금", "토" };
 
@@ -38,6 +41,12 @@ public sealed class RepeatEditorState
     private int _weekEvery = 1;
     private int _monthEvery = 1;
     private int _dayEvery = 3;
+
+    /// <summary>
+    /// 매년의 간격. 창에는 고르는 칸이 없다 — 열 때의 값을 들고 있다가 그대로 돌려줄 뿐이다.
+    /// 안 들고 있으면 손으로 만든 "2년마다"가 저장 한 번에 말없이 매년이 된다.
+    /// </summary>
+    private int _yearEvery = 1;
 
     private int _month;
     private int _day;
@@ -99,7 +108,7 @@ public sealed class RepeatEditorState
 
             case RepeatUnit.EveryDays:
                 Tab = TabEveryDays;
-                _dayEvery = Clamp(start.Every, 2);
+                _dayEvery = Math.Clamp(start.Every, 2, MaxEveryDays);
                 break;
 
             case RepeatUnit.MonthDates:
@@ -120,6 +129,7 @@ public sealed class RepeatEditorState
 
             default:
                 Tab = TabYearly;
+                _yearEvery = Math.Max(1, start.Every);
                 _month = start.Month;
                 _day = start.Day;
                 break;
@@ -144,7 +154,7 @@ public sealed class RepeatEditorState
             {
                 case TabWeekly: _weekEvery = Clamp(value, 1); break;
                 case TabMonthly: _monthEvery = Clamp(value, 1); break;
-                case TabEveryDays: _dayEvery = Clamp(value, 2); break;   // 1일마다는 매일이다
+                case TabEveryDays: _dayEvery = Math.Clamp(value, 2, MaxEveryDays); break;   // 1일마다는 매일이다
                 default: return;
             }
             Changed();
@@ -310,7 +320,12 @@ public sealed class RepeatEditorState
     /// <summary>첫 차례를 뺀 고른 값.</summary>
     private RepeatRule Draft()
     {
-        var rule = new RepeatRule { Unit = Unit, Every = Every, Sticky = Unit != RepeatUnit.Daily && Sticky };
+        var rule = new RepeatRule
+        {
+            Unit = Unit,
+            Every = Tab == TabYearly ? _yearEvery : Every,
+            Sticky = Unit != RepeatUnit.Daily && Sticky
+        };
 
         switch (rule.Unit)
         {
