@@ -14,7 +14,10 @@ namespace Flow.Models;
 /// </summary>
 public sealed class RepeatRule
 {
-    public int Version { get; set; } = 1;
+    /// <summary>이 버전이 읽고 쓰는 판. 파일의 Version 이 이보다 크면 더 새 버전이 만든 것이라 읽기만 한다.</summary>
+    public const int CurrentVersion = 1;
+
+    public int Version { get; set; } = CurrentVersion;
 
     /// <summary><see cref="RepeatUnit"/> 의 값. 1 매주 · 2 n일마다 · 3 매월 날짜 · 4 매월 n번째 요일 · 5 매년.</summary>
     public int Unit { get; set; }

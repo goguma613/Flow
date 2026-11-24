@@ -26,6 +26,8 @@ public static class RepeatEngine
     /// </summary>
     public static bool IsKnown(RepeatRule r)
     {
+        // 더 새 판이 적은 규칙은 같은 숫자를 다른 뜻으로 쓸 수 있다. 아는 척하지 않는다.
+        if (r.Version > RepeatRule.CurrentVersion) return false;
         if (r.Every < 1) return false;
 
         return r.Unit switch
@@ -275,7 +277,7 @@ public static class RepeatEngine
                 return $"{MonthPrefix(r)} {NthNames[r.Nth]} {DayNames[r.NthDay]}";
 
             default:
-                return $"매년 {r.Month}/{r.Day}";
+                return r.Every == 1 ? $"매년 {r.Month}/{r.Day}" : $"{r.Every}년마다 {r.Month}/{r.Day}";
         }
     }
 

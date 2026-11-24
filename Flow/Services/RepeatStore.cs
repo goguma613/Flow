@@ -114,6 +114,10 @@ public sealed class RepeatStore
             var rule = JsonSerializer.Deserialize(File.ReadAllText(path, Encoding.UTF8), AppJsonContext.Default.RepeatRule);
             if (rule is null) return null;
 
+            // 첫 차례가 없는 파일(손으로 만들었거나 덜 적힌 것)은 셀 수 없다. 이 앱은 늘 첫 차례를 적는다.
+            // 읽은 것으로 치면 '남는' 항목이 서기 1년부터 밀린 것으로 나온다.
+            if (rule.Anchor == default) return null;
+
             // "Days": null 로 적힌 파일이 계산을 죽이지 않게 한다
             rule.Days ??= new List<int>();
             rule.MonthDays ??= new List<int>();
@@ -176,6 +180,9 @@ public sealed class RepeatStore
         {
             if (!routine.Archived || routine.Repeat is not { } rule || !RepeatEngine.IsKnown(rule)) continue;
 
+            // 지우기로 해 둔 사이 그 루틴이 다시 새 반복이 됐다. 이제 쓰는 파일이다.
+            _deleting.Remove(routine.Id);
+
             var json = Serialize(rule);
             if (_entries.TryGetValue(routine.Id, out var known) && known.Rule is not null && known.Json == json)
             {
@@ -220,9 +227,49 @@ public sealed class RepeatStore
         }
     }
 
+    /// <summary>지우기로 해 두고 아직 못 지운 규칙 파일이 있는지.</summary>
+    public bool HasPendingDeletes => _deleting.Count > 0;
+
+    /// <summary>data.json 이 저장된 뒤에 지울 규칙 파일.</summary>
+    private readonly HashSet<Guid> _deleting = new();
+
     /// <summary>
-    /// 그 루틴의 규칙 파일을 지운다. 없으면 true.
+    /// 그 루틴의 규칙 파일을 지우기로 해 둔다. 실제로 지우는 것은 <see cref="CompleteDeletes"/> —
+    /// 그 루틴이 빠진 data.json 이 디스크에 남은 뒤다.
+    ///
+    /// 바로 지우면 순서가 뒤집힌다: data.json 은 1초 뒤에 저장되므로, 그 사이 꺼지거나 다른 PC 가 먼저 읽으면
+    /// data.json 에는 루틴이 그대로인데 규칙만 없어 "반복 정보 없음"으로 보인다.
+    /// 끝내 못 지운 파일은 루틴 없는 파일로 남을 뿐이라 해가 없다.
+    ///
     /// 부르는 때는 셋뿐이다: 루틴을 지울 때, 할 일로 옮길 때, 옛 방식으로 반복을 바꿀 때.
+    /// </summary>
+    public void DeleteLater(Guid id)
+    {
+        // 지우는 것은 그 반복을 버리겠다는 뜻이다. 못 쓴 채 들고 있던 것은 지금 버린다 — 다시 쓰면 안 된다.
+        _unsynced.Remove(id);
+        _deleting.Add(id);
+    }
+
+    /// <summary>
+    /// 지우기로 해 둔 규칙 파일을 지운다. <paramref name="saved"/> 는 방금 디스크에 남은 데이터다.
+    /// 그 사이 그 루틴이 다시 새 반복이 됐으면(매일로 바꿨다가 도로 매월) 지우지 않는다.
+    /// 못 지운 것(폴더를 기다림 · 파일이 잠김)은 남겨 두었다가 다음에 다시 한다.
+    /// </summary>
+    public void CompleteDeletes(AppData saved)
+    {
+        if (_deleting.Count == 0) return;
+
+        var inUse = new HashSet<Guid>();
+        foreach (var routine in saved.Routines)
+            if (routine.Archived) inUse.Add(routine.Id);
+
+        foreach (var id in new List<Guid>(_deleting))
+            if (inUse.Contains(id) || Delete(id)) _deleting.Remove(id);
+    }
+
+    /// <summary>
+    /// 그 루틴의 규칙 파일을 지금 지운다. 없으면 true.
+    /// 루틴을 지우거나 옮길 때는 이것이 아니라 <see cref="DeleteLater"/> 를 쓴다.
     /// </summary>
     public bool Delete(Guid id)
     {
